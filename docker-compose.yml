@@ -1,0 +1,129 @@
+name: urban-pulse-platform
+
+networks:
+  urban-pulse-platform:
+    driver: bridge
+
+volumes:
+  redpanda:
+  minio-data:
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v25.3.10
+    command:
+      - redpanda start
+      - kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1 # Limit to 1 CPU core for development
+    ports:
+      - "18081:18081"
+      - "18082:18082"
+      - "19092:19092"
+      - "19644:9644"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - redpanda:/var/lib/redpanda
+
+  console:
+    image: docker.redpanda.com/redpandadata/console:v3.5.3
+    entrypoint: /bin/sh
+    command: -c "echo \"$$CONSOLE_CONFIG_FILE\" > /tmp/config.yml; /app/console"
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:9092"]
+        schemaRegistry:
+          enabled: true
+          urls: ["http://redpanda:8081"]
+        redpanda:
+          adminApi:
+            enabled: true
+            urls: ["http://redpanda:9644"]
+        kafkaConnect:
+          enabled: true
+          clusters:
+            - name: local-connect-cluster
+              url: http://connect:8083
+    ports:
+      - "8080:8080"
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      - redpanda
+
+  connect:
+    image: docker.redpanda.com/redpandadata/connectors:v1.0.23
+    hostname: connect
+    container_name: connect
+    networks:
+      - urban-pulse-platform
+    #platform: 'linux/amd64'
+    depends_on:
+      - redpanda
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_CONFIGURATION: |
+          key.converter=org.apache.kafka.connect.converters.ByteArrayConverter
+          value.converter=org.apache.kafka.connect.converters.ByteArrayConverter
+          group.id=connectors-cluster
+          offset.storage.topic=_internal_connectors_offsets
+          config.storage.topic=_internal_connectors_configs
+          status.storage.topic=_internal_connectors_status
+          config.storage.replication.factor=-1
+          offset.storage.replication.factor=-1
+          status.storage.replication.factor=-1
+          offset.flush.interval.ms=1000
+          producer.linger.ms=50
+          producer.batch.size=131072
+      CONNECT_BOOTSTRAP_SERVERS: redpanda:9092
+      CONNECT_GC_LOG_ENABLED: "false"
+      CONNECT_HEAP_OPTS: -Xms512M -Xmx512M
+      CONNECT_LOG_LEVEL: info
+
+  # MinIO service for object storage
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - urban-pulse-platform
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
+        mc mb local/urban-pulse --ignore-existing &&
+        mc mb local/urban-pulse/bronze --ignore-existing &&
+        mc mb local/urban-pulse/silver --ignore-existing &&
+        mc mb local/urban-pulse/gold --ignore-existing
+        exit 0;
+      "
