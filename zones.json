@@ -1,0 +1,44 @@
+[
+    {
+        "id": "zone1_urban_core",
+        "name": "Urban Core",
+        "anchor": [10.7755334, 106.6989747],
+        "description": "CBD - hành chính - dịch vụ",
+        "connects_to": ["zone2_eastern_innovation", "zone3_northern_industrial", "zone4_southern_port", "zone6_southern_coastal"]
+    },
+    {
+        "id": "zone2_eastern_innovation",
+        "name": "Eastern Innovation",
+        "anchor": [10.8666897, 106.7793007],
+        "description": "Thủ Đức - Dĩ An - Thuận An",
+        "connects_to": ["zone3_northern_industrial", "zone4_southern_port", "zone5_western_periurban"]
+    },
+    {
+        "id": "zone3_northern_industrial",
+        "name": "Northern Industrial",
+        "anchor": [11.1031199, 106.5495773],
+        "description": "Thủ Dầu Một - Bến Cát",
+        "connects_to": ["zone4_southern_port", "zone5_western_periurban", "zone6_southern_coastal"]
+    },
+    {
+        "id": "zone4_southern_port",
+        "name": "Southern Port",
+        "anchor": [10.7629962, 106.7722453],
+        "description": "Quận 7 - Nhà Bè - Cát Lái - cảng",
+        "connects_to": ["zone1_urban_core", "zone2_eastern_innovation", "zone3_northern_industrial", "zone5_western_periurban"]
+    },
+    {
+        "id": "zone5_western_periurban",
+        "name": "Western Peri-urban",
+        "anchor": [10.6866869, 106.5773591],
+        "description": "Bình Chánh - Hóc Môn - Củ Chi",
+        "connects_to": ["zone1_urban_core", "zone6_southern_coastal"]
+    },
+    {
+        "id": "zone6_southern_coastal",
+        "name": "Southern Coastal",
+        "anchor": [10.5842275, 107.0367637],
+        "description": "Phú Mỹ - Long Hải (cảng nước sâu, năng lượng)",
+        "connects_to": ["zone1_urban_core", "zone2_eastern_innovation", "zone4_southern_port", "zone5_western_periurban"]
+    }
+]
