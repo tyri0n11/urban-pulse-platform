@@ -82,7 +82,7 @@ def _calc_congestion_for_interval(congestion_data: list[dict], start_idx: int, e
         return None
 
     total_segments = len(relevant_segments)
-    counts = {"heavy": 0, "moderate": 0, "low": 0, "severe": 0, "unknown": 0}
+    counts = {"heavy": 0, "moderate": 0, "low": 0, "severe": 0}
 
     for seg in relevant_segments:
         value = seg.get("value", "unknown")

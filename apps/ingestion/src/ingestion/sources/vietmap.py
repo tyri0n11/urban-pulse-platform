@@ -1,4 +1,8 @@
-"""VietMap traffic route API source connector."""
+"""VietMap traffic route API source connector.
+
+Response shape (relevant parts):
+  paths[n].annotations.congestion → [{value: "low"|"moderate"|"heavy"|"severe"|"unknown", first, last}]
+"""
 
 from datetime import datetime, timezone
 
@@ -56,7 +60,7 @@ def fetch_route(
 
     paths: list[TrafficRoutePath] = []
     for p in data.get("paths", []):
-        congestion_segs: list[dict] = p.get("details", {}).get("congestion", [])
+        congestion_segs: list[dict] = p.get("annotations", {}).get("congestion", [])
         paths.append(
             TrafficRoutePath(
                 duration_s=p.get("time", 0) / 1000.0,
