@@ -1,19 +1,19 @@
-.PHONY: dev down logs status lint typecheck test test-unit test-integration build
+.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion
 
 dev:
 	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml up -d
 
 down:
-	docker compose -f infra/docker/docker-compose.base.yaml down
+	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml down
 
 logs:
-	docker compose -f infra/docker/docker-compose.base.yaml logs -f
+	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml logs -f
 
 status:
-	docker compose -f infra/docker/docker-compose.base.yaml ps
+	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml ps
 
 logs-ingestion:
-	docker compose -f infra/docker/docker-compose.base.yaml logs -f ingestion
+	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml logs -f ingestion
 
 shell-serving:
 	docker compose -f infra/docker/docker-compose.base.yaml exec serving /bin/bash
@@ -35,6 +35,9 @@ test-integration:
 
 build:
 	docker compose -f infra/docker/docker-compose.base.yaml build
+
+build-ingestion:
+	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml build ingestion
 
 build-serving:
 	docker compose -f infra/docker/docker-compose.base.yaml build serving

@@ -103,6 +103,8 @@ services:
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
+    env_file:
+      - ../../.env
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -139,6 +141,8 @@ services:
 
   minio-setup:
     image: minio/mc:latest
+    env_file:
+      - ../../.env
     depends_on:
       minio:
         condition: service_healthy

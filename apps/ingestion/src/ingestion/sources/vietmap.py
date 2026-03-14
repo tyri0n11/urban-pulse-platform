@@ -11,7 +11,6 @@ import requests
 from urbanpulse_core.models.traffic import (
     CongestionMetrics,
     TrafficRouteObservation,
-    TrafficRoutePath,
 )
 
 _BASE_URL = "https://maps.vietmap.vn/api/route/v3"
@@ -58,47 +57,17 @@ def fetch_route(
     resp.raise_for_status()
     data = resp.json()
 
-    paths: list[TrafficRoutePath] = []
-    for p in data.get("paths", []):
-        congestion_segs: list[dict] = p.get("annotations", {}).get("congestion", [])
-        paths.append(
-            TrafficRoutePath(
-                duration_s=p.get("time", 0) / 1000.0,
-                distance_m=p.get("distance", 0.0),
-                congestion=(
-                    _calc_congestion(congestion_segs) if congestion_segs else None
-                ),
-            )
-        )
-
-        """
-        LEGACY payload:
-        {
-            "route_id": "zone2_eastern_innovation_to_zone3_northern_industrial",
-            "origin": "Eastern Innovation",
-            "destination": "Northern Industrial",
-            "distance_meters": 45527.36,
-            "duration_ms": 3552508,
-            "duration_minutes": 59.2,
-            "congestion": {
-                "heavy_ratio": 0.04,
-                "moderate_ratio": 0.25,
-                "low_ratio": 0.66,
-                "severe_segments": 19,
-                "total_segments": 425
-            },
-            "timestamp_utc": "2026-03-11T16:28:41.011584+00:00",
-            "source": "MultiRouteFetcher"
-        }
-        """
+    first = (data.get("paths") or [{}])[0]
+    congestion_segs: list[dict] = first.get("annotations", {}).get("congestion", [])
+    duration_ms: float = first.get("time", 0.0)
 
     return TrafficRouteObservation(
         route_id=route_id,
         origin=origin,
         destination=destination,
-        origin_anchor=origin_anchor,
-        destination_anchor=destination_anchor,
-        paths=paths,
+        distance_meters=first.get("distance", 0.0),
+        duration_ms=duration_ms,
+        duration_minutes=round(duration_ms / 60000, 1),
+        congestion=_calc_congestion(congestion_segs) if congestion_segs else None,
         timestamp_utc=timestamp_utc,
-        api_status="ok",
     )

@@ -40,15 +40,14 @@ def run_once(publisher: Publisher, api_key: str) -> None:
                 api_key=api_key,
             )
             publisher.publish(obs)
-            first = obs.paths[0] if obs.paths else None
             logger.info(
-                "[%d/%d] %s → %s  dist=%.1f km  dur=%.0f s",
+                "[%d/%d] %s → %s  dist=%.1f km  dur=%.1f min",
                 i + 1,
                 total,
                 route["origin"],
                 route["destination"],
-                (first.distance_m / 1000) if first else 0,
-                first.duration_s if first else 0,
+                obs.distance_meters / 1000,
+                obs.duration_minutes,
             )
         except Exception:
             logger.exception("Failed to fetch route %s", route["route_id"])
