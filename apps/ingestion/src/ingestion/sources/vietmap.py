@@ -53,7 +53,7 @@ def fetch_route(
         f"&point={destination_anchor[0]},{destination_anchor[1]}"
         f"&points_encoded=false&vehicle={_VEHICLE}&annotations={_ANNOTATIONS}"
     )
-    fetched_at = datetime.now(timezone.utc)
+    timestamp_utc = datetime.now(timezone.utc)
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     data = resp.json()
@@ -75,7 +75,7 @@ def fetch_route(
         destination=destination,
         origin_anchor=origin_anchor,
         destination_anchor=destination_anchor,
-        fetched_at=fetched_at,
         paths=paths,
+        timestamp_utc=timestamp_utc,
         api_status="ok",
     )

@@ -25,6 +25,7 @@ class TrafficRouteObservation(BaseModel):
     destination: str
     origin_anchor: list[float]
     destination_anchor: list[float]
-    fetched_at: datetime
     paths: list[TrafficRoutePath]
+    timestamp_utc: datetime
     api_status: str = "ok"
+    source: str = "ingestion/traffic"
