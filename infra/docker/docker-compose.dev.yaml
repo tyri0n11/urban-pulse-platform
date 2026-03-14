@@ -1,4 +1,4 @@
-# Development overlay: enables hot-reload, debug ports, and local volume mounts
+# Shared infrastructure services — extend with dev/prod overlays
 name: urban-pulse-platform
 
 networks:
@@ -14,7 +14,7 @@ services:
     image: docker.redpanda.com/redpandadata/redpanda:v25.3.10
     command:
       - redpanda start
-      - kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
       - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
       - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
@@ -32,6 +32,12 @@ services:
       - urban-pulse-platform
     volumes:
       - redpanda:/var/lib/redpanda
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   console:
     image: docker.redpanda.com/redpandadata/console:v3.5.3
@@ -59,7 +65,8 @@ services:
     networks:
       - urban-pulse-platform
     depends_on:
-      - redpanda
+      redpanda:
+        condition: service_healthy
 
   connect:
     image: docker.redpanda.com/redpandadata/connectors:v1.0.23
@@ -69,7 +76,8 @@ services:
       - urban-pulse-platform
     #platform: 'linux/amd64'
     depends_on:
-      - redpanda
+      redpanda:
+        condition: service_healthy
     ports:
       - "8083:8083"
     environment:
@@ -99,8 +107,8 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     networks:
       - urban-pulse-platform
     volumes:
@@ -112,6 +120,23 @@ services:
       retries: 5
       start_period: 5s
 
+  ingestion:
+    container_name: ingestion-service
+    build:
+      context: ../..
+      dockerfile: apps/ingestion/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      DRY_RUN: ${DRY_RUN:-false}
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: on-failure
+
   minio-setup:
     image: minio/mc:latest
     depends_on:
@@ -121,7 +146,7 @@ services:
       - urban-pulse-platform
     entrypoint: >
       /bin/sh -c "
-        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-admin} ${MINIO_ROOT_PASSWORD:-password} &&
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
         mc mb local/urban-pulse --ignore-existing &&
         mc mb local/urban-pulse/bronze --ignore-existing &&
         mc mb local/urban-pulse/silver --ignore-existing &&

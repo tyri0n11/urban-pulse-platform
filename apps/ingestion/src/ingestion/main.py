@@ -18,7 +18,10 @@ def main() -> None:
     publisher: Publisher
     if settings.dry_run:
         publisher = StdoutPublisher()
-        logger.info("DRY_RUN=true — publishing to stdout (topic=%s), Kafka not required", TRAFFIC_TOPIC)
+        logger.info(
+            "DRY_RUN=true — publishing to stdout (topic=%s), Kafka not required",
+            TRAFFIC_TOPIC,
+        )
     else:
         publisher = KafkaPublisher()
         logger.info("Publishing to Kafka topic=%s", TRAFFIC_TOPIC)

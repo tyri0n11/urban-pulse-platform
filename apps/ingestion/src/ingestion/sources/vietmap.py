@@ -65,9 +65,32 @@ def fetch_route(
             TrafficRoutePath(
                 duration_s=p.get("time", 0) / 1000.0,
                 distance_m=p.get("distance", 0.0),
-                congestion=_calc_congestion(congestion_segs) if congestion_segs else None,
+                congestion=(
+                    _calc_congestion(congestion_segs) if congestion_segs else None
+                ),
             )
         )
+
+        """
+        LEGACY payload:
+        {
+            "route_id": "zone2_eastern_innovation_to_zone3_northern_industrial",
+            "origin": "Eastern Innovation",
+            "destination": "Northern Industrial",
+            "distance_meters": 45527.36,
+            "duration_ms": 3552508,
+            "duration_minutes": 59.2,
+            "congestion": {
+                "heavy_ratio": 0.04,
+                "moderate_ratio": 0.25,
+                "low_ratio": 0.66,
+                "severe_segments": 19,
+                "total_segments": 425
+            },
+            "timestamp_utc": "2026-03-11T16:28:41.011584+00:00",
+            "source": "MultiRouteFetcher"
+        }
+        """
 
     return TrafficRouteObservation(
         route_id=route_id,

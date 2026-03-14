@@ -39,6 +39,7 @@ resp = requests.get(url, timeout=30)
 resp.raise_for_status()
 data = resp.json()
 
+
 # ── Full payload (points/instructions stripped for readability) ──────────────
 def strip_verbose(obj):
     """Recursively remove large fields that obscure the structure."""
@@ -52,6 +53,7 @@ def strip_verbose(obj):
         return [strip_verbose(i) for i in obj]
     return obj
 
+
 print("=" * 60)
 print("FULL RESPONSE (points/instructions stripped)")
 print("=" * 60)
@@ -63,14 +65,18 @@ print("ANNOTATION DEEP-DIVE")
 print("=" * 60)
 
 for path_idx, path in enumerate(data.get("paths", [])):
-    print(f"\n── path[{path_idx}]  dist={path.get('distance', 0)/1000:.1f} km  "
-          f"time={path.get('time', 0)/1000:.0f} s ──")
+    print(
+        f"\n── path[{path_idx}]  dist={path.get('distance', 0)/1000:.1f} km  "
+        f"time={path.get('time', 0)/1000:.0f} s ──"
+    )
 
     # The API docs say `annotations`; test.py reads from `details` — check both
     for field in ("annotations", "details"):
         block = path.get(field)
         if block:
-            print(f"\n  [{field}] keys: {list(block.keys()) if isinstance(block, dict) else type(block)}")
+            print(
+                f"\n  [{field}] keys: {list(block.keys()) if isinstance(block, dict) else type(block)}"
+            )
             print(f"  [{field}] raw:")
             print(json.dumps(block, indent=4, ensure_ascii=False))
         else:

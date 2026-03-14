@@ -24,7 +24,9 @@ def run_once(publisher: Publisher, api_key: str) -> None:
     routes = _load_routes()
     total = len(routes)
     logger.info(
-        "Starting crawl cycle: %d routes, %ds inter-request delay", total, _INTER_REQUEST_DELAY_S
+        "Starting crawl cycle: %d routes, %ds inter-request delay",
+        total,
+        _INTER_REQUEST_DELAY_S,
     )
 
     for i, route in enumerate(routes):
