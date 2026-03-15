@@ -103,8 +103,8 @@ services:
 
   # MinIO service for object storage
   minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+    image: quay.io/minio/aistor/minio:latest
+    command: server /data --console-address ":9001" --license /minio.license
     env_file:
       - ../../.env
     ports:
@@ -117,6 +117,7 @@ services:
       - urban-pulse-platform
     volumes:
       - minio-data:/data
+      - ${HOME}/Downloads/minio.license:/minio.license:ro
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
