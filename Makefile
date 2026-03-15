@@ -1,22 +1,24 @@
 .PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion
 
+COMPOSE = docker compose --env-file .env -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml
+
 dev:
-	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml up -d
+	$(COMPOSE) up -d
 
 down:
-	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml down
+	$(COMPOSE) down
 
 logs:
-	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml logs -f
+	$(COMPOSE) logs -f
 
 status:
-	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml ps
+	$(COMPOSE) ps
 
 logs-ingestion:
-	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml logs -f ingestion
+	$(COMPOSE) logs -f ingestion
 
 shell-serving:
-	docker compose -f infra/docker/docker-compose.base.yaml exec serving /bin/bash
+	$(COMPOSE) exec serving /bin/bash
 
 lint:
 	uv run ruff check .
@@ -34,10 +36,13 @@ test-integration:
 	uv run pytest -m integration
 
 build:
-	docker compose -f infra/docker/docker-compose.base.yaml build
+	$(COMPOSE) build
 
 build-ingestion:
-	docker compose -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml build ingestion
+	$(COMPOSE) build ingestion
 
 build-serving:
-	docker compose -f infra/docker/docker-compose.base.yaml build serving
+	$(COMPOSE) build serving
+make setup:
+	cat .env.example > infra/docker/.env
+	nano infra/docker/.env

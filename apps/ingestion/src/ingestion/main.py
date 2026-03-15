@@ -1,6 +1,7 @@
 """Entry point for the ingestion service."""
 
 import logging
+import time
 
 from urbanpulse_core.config import settings
 from ingestion.orchestrator import run_once
@@ -12,6 +13,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+_CYCLE_INTERVAL_S = 300
 
 
 def main() -> None:
@@ -27,7 +30,10 @@ def main() -> None:
         logger.info("Publishing to Kafka topic=%s", TRAFFIC_TOPIC)
 
     try:
-        run_once(publisher, api_key=settings.vietmap_api_key)
+        while True:
+            run_once(publisher, api_key=settings.vietmap_api_key)
+            logger.info("Waiting %ds before next crawl cycle...", _CYCLE_INTERVAL_S)
+            # time.sleep(_CYCLE_INTERVAL_S)
     finally:
         publisher.close()
 

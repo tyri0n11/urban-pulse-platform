@@ -8,6 +8,8 @@ networks:
 volumes:
   redpanda:
   minio-data:
+  loki-data:
+  grafana-data:
 
 services:
   redpanda:
@@ -132,10 +134,33 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       DRY_RUN: ${DRY_RUN:-false}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
     networks:
       - urban-pulse-platform
     depends_on:
       redpanda:
+        condition: service_healthy
+    restart: on-failure
+
+  streaming:
+    container_name: streaming-service
+    build:
+      context: ../..
+      dockerfile: apps/streaming/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     restart: on-failure
 
@@ -157,3 +182,49 @@ services:
         mc mb local/urban-pulse/gold --ignore-existing
         exit 0;
       "
+
+  loki:
+    image: grafana/loki:3.4.2
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "3100:3100"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - ../../infra/monitoring/logging/loki-config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  promtail:
+    image: grafana/promtail:3.4.2
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - ../../infra/monitoring/logging/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    ports:
+      - "3000:3000"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../../infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    depends_on:
+      loki:
+        condition: service_healthy
