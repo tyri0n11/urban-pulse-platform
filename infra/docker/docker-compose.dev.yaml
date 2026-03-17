@@ -10,6 +10,7 @@ volumes:
   minio-data:
   loki-data:
   grafana-data:
+  dremio-data:
 
 services:
   redpanda:
@@ -183,6 +184,66 @@ services:
         mc mb local/urban-pulse/gold --ignore-existing
         exit 0;
       "
+
+  nessie:
+    image: projectnessie/nessie
+    container_name: nessie
+    ports:
+      - "19120:19120"
+    networks:
+      - urban-pulse-platform
+
+  dremio:
+    image: dremio/dremio-oss:latest
+    platform: linux/x86_64
+    container_name: dremio
+    ports:
+      - "9047:9047"
+      - "31010:31010"
+      - "32010:32010"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - dremio-data:/opt/dremio/data
+    depends_on:
+      - nessie
+      - minio
+
+  prefect-server:
+    image: prefecthq/prefect:3-latest
+    container_name: prefect-server
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    networks:
+      - urban-pulse-platform
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:4200/api/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  batch:
+    container_name: batch-service
+    build:
+      context: ../..
+      dockerfile: apps/batch/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      PREFECT_API_URL: http://prefect-server:4200/api
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: on-failure
 
   loki:
     image: grafana/loki:3.4.2
