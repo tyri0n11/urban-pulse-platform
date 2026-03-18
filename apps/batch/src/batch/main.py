@@ -22,10 +22,12 @@ def main() -> None:
         traffic_pipeline.to_deployment(
             name="traffic-pipeline-deployment",
             interval=timedelta(minutes=15),
+            tags=["scheduled"],
         ),
         
         bootstrap.to_deployment(
             name="bootstrap-deployment",
+            tags=["bootstrap"],
         ),
     )
 

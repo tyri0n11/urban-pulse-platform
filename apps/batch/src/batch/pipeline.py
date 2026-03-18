@@ -28,8 +28,13 @@ def task_baseline_learning() -> int:
 def traffic_pipeline() -> None:
     """Run the full bronze → silver → gold → baseline promotion pipeline."""
     b2s = task_bronze_to_silver.submit()
-    s2g = task_silver_to_gold.submit(wait_for=[b2s])
-    task_baseline_learning.submit(wait_for=[s2g])
+    # s2g = task_silver_to_gold.submit(wait_for=[b2s])
+    # task_baseline_learning.submit(wait_for=[s2g])
+
+
+'''
+BOOTSTRAP TASKS
+'''
 
 @task(name="bootstrap-traffic-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def bootstrap_traffic_silver() -> int:
@@ -39,6 +44,8 @@ def bootstrap_traffic_silver() -> int:
 
 @flow(name="bootstrap", log_prints=True)  # type: ignore[untyped-decorator]
 def bootstrap() -> None:
-    """Run the pipeline once immediately, without waiting for the scheduled run."""
+    """Backfill silver, then run gold and baseline on the promoted data."""
     logger.info("Bootstrapping medallion pipeline with an immediate run")
-    bootstrap_traffic_silver()
+    b2s = bootstrap_traffic_silver.submit()
+    s2g = task_silver_to_gold.submit(wait_for=[b2s])
+    task_baseline_learning.submit(wait_for=[s2g])
