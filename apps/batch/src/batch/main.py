@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from prefect import serve
 
-from batch.pipeline import bootstrap, traffic_pipeline
+from batch.pipeline import bootstrap, microbatch, traffic_pipeline
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,12 +19,11 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     logger.info("Starting batch service — serving deployments")
     serve(
-        traffic_pipeline.to_deployment(
-            name="traffic-pipeline-deployment",
-            interval=timedelta(minutes=15),
-            tags=["scheduled"],
+        microbatch.to_deployment(
+            name="microbatch-deployment",
+            interval=timedelta(minutes=5),
+            tags=["scheduled", "microbatch"],
         ),
-        
         bootstrap.to_deployment(
             name="bootstrap-deployment",
             tags=["bootstrap"],
