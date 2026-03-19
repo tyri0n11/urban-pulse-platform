@@ -54,5 +54,3 @@ def run_once(publisher: Publisher, api_key: str) -> None:
 
         if i < total - 1:
             time.sleep(_INTER_REQUEST_DELAY_S)
-
-    logger.info("Crawl cycle complete.")
