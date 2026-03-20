@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     minio_secret_key: str = "minioadmin"
     minio_secure: bool = False
 
+    # Iceberg
+    iceberg_catalog_uri: str = "http://localhost:19120/iceberg/"
+
     model_config = {"env_file": ".env", "case_sensitive": False, "extra": "ignore"}
 
 

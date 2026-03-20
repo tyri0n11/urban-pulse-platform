@@ -1,68 +1,48 @@
 {
-  "uid": "system-health",
-  "title": "System Health",
-  "tags": ["system", "urban-pulse"],
+  "uid": "batch-service",
+  "title": "Batch Service",
+  "tags": ["batch", "urban-pulse"],
   "timezone": "browser",
   "refresh": "30s",
-  "time": { "from": "now-3h", "to": "now" },
+  "time": { "from": "now-6h", "to": "now" },
   "schemaVersion": 39,
   "panels": [
     {
       "id": 1,
       "type": "stat",
-      "title": "Ingestion Status",
+      "title": "Total Logs",
       "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=\"ingestion-service\"}[5m])"
+          "expr": "count_over_time({service=\"batch-service\"}[$__range])"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            { "type": "range", "options": { "from": 1, "to": 999999, "result": { "text": "UP" } } },
-            { "type": "special", "options": { "match": "null", "result": { "text": "DOWN" } } }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 1 }
-            ]
-          },
-          "color": { "mode": "thresholds" }
-        }
-      }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Streaming Status",
+      "title": "Errors",
       "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=\"streaming-service\"}[5m])"
+          "expr": "count_over_time({service=\"batch-service\"} |= \"ERROR\" [$__range])"
         }
       ],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "fieldConfig": {
         "defaults": {
-          "mappings": [
-            { "type": "range", "options": { "from": 1, "to": 999999, "result": { "text": "UP" } } },
-            { "type": "special", "options": { "match": "null", "result": { "text": "DOWN" } } }
-          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 1 }
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
             ]
           },
           "color": { "mode": "thresholds" }
@@ -72,27 +52,23 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Batch Status",
+      "title": "Completed Flows",
       "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=\"batch-service\"}[5m])"
+          "expr": "count_over_time({service=\"batch-service\"} |= \"Finished in state Completed\" [$__range])"
         }
       ],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "fieldConfig": {
         "defaults": {
-          "mappings": [
-            { "type": "range", "options": { "from": 1, "to": 999999, "result": { "text": "UP" } } },
-            { "type": "special", "options": { "match": "null", "result": { "text": "DOWN" } } }
-          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
+              { "color": "dark-yellow", "value": null },
               { "color": "green", "value": 1 }
             ]
           },
@@ -103,14 +79,14 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Total Errors (all services)",
-      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "title": "Failed Flows",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=~\"ingestion-service|streaming-service|batch-service\"} |= \"ERROR\" [$__range])"
+          "expr": "count_over_time({service=\"batch-service\"} |= \"Finished in state Failed\" [$__range])"
         }
       ],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
@@ -130,14 +106,30 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Total Warnings",
-      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "title": "Rows Appended",
+      "description": "Total rows written to Iceberg silver table",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=~\"ingestion-service|streaming-service|batch-service\"} |= \"WARNING\" [$__range])"
+          "expr": "count_over_time({service=\"batch-service\"} |= \"appended\" [$__range])"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Retries",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "count_over_time({service=\"batch-service\"} |= \"Retry\" [$__range])"
         }
       ],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
@@ -147,7 +139,7 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 }
+              { "color": "orange", "value": 1 }
             ]
           },
           "color": { "mode": "thresholds" }
@@ -155,70 +147,73 @@
       }
     },
     {
-      "id": 6,
-      "type": "timeseries",
-      "title": "Log Volume by Service",
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum by (service) (rate({service=~\"ingestion-service|streaming-service|batch-service\"}[5m]))",
-          "legendFormat": "{{service}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 15, "stacking": { "mode": "normal" } } }
-      }
-    },
-    {
       "id": 7,
       "type": "timeseries",
-      "title": "Error Rate by Service",
-      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "title": "Log Rate by Level",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum by (service) (rate({service=~\"ingestion-service|streaming-service|batch-service\"} |= \"ERROR\" [5m]))",
-          "legendFormat": "{{service}}"
+          "expr": "sum by (level) (rate({service=\"batch-service\"}[5m]))",
+          "legendFormat": "{{level}}"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 }, "color": { "mode": "palette-classic" } }
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "ERROR" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "WARNING" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "INFO" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
+        ]
       }
     },
     {
       "id": 8,
       "type": "logs",
-      "title": "All Errors Across Services",
-      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "title": "Flow Run Events",
+      "description": "Flow start, complete, and failure events",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{service=~\"ingestion-service|streaming-service|batch-service\"} |= \"ERROR\""
+          "expr": "{service=\"batch-service\"} |~ \"(Beginning flow|Finished in state|appended|Retry)\""
         }
       ],
-      "options": { "showTime": true, "showLabels": true, "wrapLogMessage": true, "sortOrder": "Descending" }
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" }
     },
     {
       "id": 9,
       "type": "logs",
-      "title": "All Service Logs",
+      "title": "Error Logs",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service=\"batch-service\"} |= \"ERROR\""
+        }
+      ],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" }
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Recent Logs",
       "gridPos": { "x": 0, "y": 20, "w": 24, "h": 10 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{service=~\"ingestion-service|streaming-service|batch-service\"}"
+          "expr": "{service=\"batch-service\"}"
         }
       ],
-      "options": { "showTime": true, "showLabels": true, "wrapLogMessage": false, "sortOrder": "Descending", "enableLogDetails": true }
+      "options": { "showTime": true, "wrapLogMessage": false, "sortOrder": "Descending", "enableLogDetails": true }
     }
   ]
 }

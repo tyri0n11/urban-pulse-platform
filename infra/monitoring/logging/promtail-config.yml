@@ -15,7 +15,7 @@ scrape_configs:
         refresh_interval: 5s
         filters:
           - name: name
-            values: [ingestion-service, streaming-service]
+            values: [ingestion-service, streaming-service, batch-service]
     relabel_configs:
       # Strip leading slash from container name → service label
       - source_labels: [__meta_docker_container_name]
@@ -24,9 +24,12 @@ scrape_configs:
       - source_labels: [__meta_docker_container_log_stream]
         target_label: stream
     pipeline_stages:
-      # Parse log format: "2026-03-15 14:30:00,123 - logger.name - LEVEL - message"
+      # Parse Python logging: "2026-03-15 14:30:00,123 - logger.name - LEVEL - message"
       - regex:
           expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+) - (?P<logger>[^ ]+) - (?P<level>[A-Z]+) - (?P<message>.*)'
+      # Parse Prefect logging: "15:30:00.123 | INFO    | context - message"
+      - regex:
+          expression: '^(?P<timestamp>\d{2}:\d{2}:\d{2}\.\d+) \| (?P<level>[A-Z]+)\s+\| (?P<logger>[^ ]+) - (?P<message>.*)'
       - labels:
           level:
           logger:

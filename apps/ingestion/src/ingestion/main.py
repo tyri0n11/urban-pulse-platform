@@ -4,7 +4,7 @@ import logging
 import time
 
 from urbanpulse_core.config import settings
-from ingestion.orchestrator import run_once
+from ingestion.orchestrator import run
 from ingestion.publishers import Publisher, StdoutPublisher, TRAFFIC_TOPIC
 from ingestion.publishers.kafka import KafkaPublisher
 
@@ -31,9 +31,9 @@ def main() -> None:
 
     try:
         while True:
-            run_once(publisher, api_key=settings.vietmap_api_key)
+            run(publisher, api_key=settings.vietmap_api_key)
             logger.info("Waiting %ds before next crawl cycle...", _CYCLE_INTERVAL_S)
-            # time.sleep(_CYCLE_INTERVAL_S)
+            time.sleep(_CYCLE_INTERVAL_S)
     finally:
         publisher.close()
 

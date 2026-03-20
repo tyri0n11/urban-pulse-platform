@@ -13,7 +13,6 @@ from processors.base import BaseProcessor
 from sinks.minio import MinioClient
 
 BUFFER_SIZE = 20
-BOUNDED_LATENCY_SECONDS = 20
 
 class TrafficProcessor(BaseProcessor):
     BUCKET = "urban-pulse"

@@ -19,7 +19,7 @@ def _load_routes() -> list[dict]:
         return json.load(f)
 
 
-def run_once(publisher: Publisher, api_key: str) -> None:
+def run(publisher: Publisher, api_key: str) -> None:
     """Fetch all routes sequentially (10 s delay between calls) and publish each."""
     routes = _load_routes()
     total = len(routes)

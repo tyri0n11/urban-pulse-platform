@@ -102,30 +102,6 @@ services:
       CONNECT_HEAP_OPTS: -Xms512M -Xmx512M
       CONNECT_LOG_LEVEL: info
 
-  # MinIO service for object storage
-  minio:
-    image: quay.io/minio/aistor/minio:latest
-    command: server /data --console-address ":9001" --license /minio.license
-    env_file:
-      - ../../.env
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    networks:
-      - urban-pulse-platform
-    volumes:
-      - minio-data:/data
-      - ${HOME}/Downloads/minio.license:/minio.license:ro
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-
   ingestion:
     container_name: ingestion-service
     build:
@@ -166,6 +142,31 @@ services:
         condition: service_healthy
     restart: on-failure
 
+
+  # MinIO service for object storage
+  minio:
+    image: quay.io/minio/aistor/minio:latest
+    command: server /data --console-address ":9001" --license /minio.license
+    env_file:
+      - ../../.env
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - minio-data:/data
+      - ${HOME}/Downloads/minio.license:/minio.license:ro
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   minio-setup:
     image: minio/mc:latest
     env_file:
@@ -181,17 +182,29 @@ services:
         mc mb local/urban-pulse --ignore-existing &&
         mc mb local/urban-pulse/bronze --ignore-existing &&
         mc mb local/urban-pulse/silver --ignore-existing &&
-        mc mb local/urban-pulse/gold --ignore-existing
+        mc mb local/urban-pulse/gold --ignore-existing &&
+        mc mb local/warehouse --ignore-existing
         exit 0;
       "
 
   nessie:
-    image: projectnessie/nessie
+    image: ghcr.io/projectnessie/nessie:0.99.0
     container_name: nessie
     ports:
       - "19120:19120"
     networks:
       - urban-pulse-platform
+    volumes:
+      - ./nessie/application.properties:/deployments/config/application.properties:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:19120/iceberg/v1/config || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   dremio:
     image: dremio/dremio-oss:latest
@@ -208,6 +221,32 @@ services:
     depends_on:
       - nessie
       - minio
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9047/apiv2/server_status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  dremio-setup:
+    image: python:3.12-slim
+    container_name: dremio-setup
+    networks:
+      - urban-pulse-platform
+    env_file:
+      - ../../.env
+    volumes:
+      - ./dremio/setup.sh:/setup.sh:ro
+    entrypoint: >
+      /bin/sh -c "
+        apt-get update -qq && apt-get install -yqq curl > /dev/null 2>&1 &&
+        /setup.sh
+      "
+    depends_on:
+      dremio:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
 
   prefect-server:
     image: prefecthq/prefect:3-latest
@@ -236,12 +275,15 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      ICEBERG_CATALOG_URI: http://nessie:19120/iceberg/
     networks:
       - urban-pulse-platform
     depends_on:
       prefect-server:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      nessie:
         condition: service_healthy
     restart: on-failure
 

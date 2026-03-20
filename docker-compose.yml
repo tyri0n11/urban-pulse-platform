@@ -124,6 +124,7 @@ services:
         mc mb local/urban-pulse --ignore-existing &&
         mc mb local/urban-pulse/bronze --ignore-existing &&
         mc mb local/urban-pulse/silver --ignore-existing &&
-        mc mb local/urban-pulse/gold --ignore-existing
+        mc mb local/urban-pulse/gold --ignore-existing &&
+        mc mb local/warehouse --ignore-existing &&
         exit 0;
       "
