@@ -39,6 +39,8 @@ def main():
         while running:
             msg = consumer.poll(timeout=1.0)
             if msg is None:
+                for processor in processors.values():
+                    processor.check_time_flush()
                 continue
 
             processor = processors.get(msg.topic())

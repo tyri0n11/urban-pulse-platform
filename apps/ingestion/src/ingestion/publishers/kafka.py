@@ -1,5 +1,7 @@
 """Kafka publisher for streaming ingested events to topics."""
 
+import time
+
 from urbanpulse_core.config import settings
 from urbanpulse_core.models.traffic import TrafficRouteObservation
 from urbanpulse_infra.kafka import KafkaProducer
@@ -12,7 +14,10 @@ class KafkaPublisher:
 
     def publish(self, observation: TrafficRouteObservation) -> None:
         payload = observation.model_dump_json().encode()
-        self._producer.produce(TRAFFIC_TOPIC, key=observation.route_id, value=payload)
+        headers = {"ingest_ts": str(int(time.time() * 1000)).encode()}
+        self._producer.produce(
+            TRAFFIC_TOPIC, key=observation.route_id, value=payload, headers=headers
+        )
 
     def close(self) -> None:
         self._producer.flush()

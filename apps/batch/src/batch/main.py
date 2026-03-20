@@ -21,7 +21,7 @@ def main() -> None:
     serve(
         microbatch.to_deployment(
             name="microbatch-deployment",
-            interval=timedelta(days=1),
+            interval=timedelta(minutes=5),
             tags=["scheduled", "microbatch"],
         ),
         bootstrap.to_deployment(

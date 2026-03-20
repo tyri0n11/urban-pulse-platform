@@ -11,8 +11,19 @@ class KafkaProducer:
 
         self._producer: Any = Producer({"bootstrap.servers": bootstrap_servers})
 
-    def produce(self, topic: str, key: str, value: bytes) -> None:
-        self._producer.produce(topic, key=key.encode(), value=value)
+    def produce(
+        self,
+        topic: str,
+        key: str,
+        value: bytes,
+        headers: dict[str, bytes] | None = None,
+    ) -> None:
+        self._producer.produce(
+            topic,
+            key=key.encode(),
+            value=value,
+            headers=headers,
+        )
         self._producer.poll(0)
 
     def flush(self, timeout: float = 10.0) -> None:

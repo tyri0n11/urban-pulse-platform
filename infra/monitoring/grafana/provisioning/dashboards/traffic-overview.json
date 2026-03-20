@@ -150,6 +150,35 @@
         }
       ],
       "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Pipeline E2E Latency P90 / P95",
+      "description": "End-to-end latency from ingestion to streaming processing",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.90, {service=\"streaming-service\"} |= \"latency_e2e_ms\" | pattern `<_> latency_e2e_ms=<latency> <_>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.95, {service=\"streaming-service\"} |= \"latency_e2e_ms\" | pattern `<_> latency_e2e_ms=<latency> <_>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "P90" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "P95" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      }
     }
   ]
 }

@@ -1,6 +1,7 @@
 """Stream processor for real-time traffic events."""
 import io
 import json
+import time
 from uuid import uuid4
 
 import pyarrow as pa
@@ -12,7 +13,9 @@ from logger import Logger
 from processors.base import BaseProcessor
 from sinks.minio import MinioClient
 
-BUFFER_SIZE = 20
+BUFFER_SIZE = 10
+FLUSH_INTERVAL_S = 10
+
 
 class TrafficProcessor(BaseProcessor):
     BUCKET = "urban-pulse"
@@ -22,15 +25,40 @@ class TrafficProcessor(BaseProcessor):
         self.minio = minio
         self.logger = Logger("processor.traffic")
         self._buffer: list[TrafficRouteObservation] = []
+        self.last_flush_time: float = time.monotonic()
 
     def process(self, message: Message) -> None:
+        t_start = time.monotonic()
         raw: bytes = message.value()
         observation = TrafficRouteObservation.model_validate(json.loads(raw))
-        self.logger.info(f"Processing route {observation.route_id} with congestion {observation.congestion}")
+
+        # Compute end-to-end latency from ingest_ts header
+        latency_e2e_ms = 0
+        headers = message.headers()
+        if headers:
+            for key, val in headers:
+                if key == "ingest_ts" and val is not None:
+                    ingest_ts = int(val.decode())
+                    latency_e2e_ms = int(time.time() * 1000) - ingest_ts
+                    break
+
         self._buffer.append(observation)
-        self.logger.info(f"buffer_size={len(self._buffer)} buffer_capacity={BUFFER_SIZE}")
+
+        latency_processing_ms = int((time.monotonic() - t_start) * 1000)
+        self.logger.info(
+            f"route={observation.route_id} "
+            f"latency_e2e_ms={latency_e2e_ms} "
+            f"latency_processing_ms={latency_processing_ms} "
+            f"buffer_size={len(self._buffer)} buffer_capacity={BUFFER_SIZE}"
+        )
 
         if len(self._buffer) >= BUFFER_SIZE:
+            self.flush()
+
+    def check_time_flush(self) -> None:
+        """Flush if FLUSH_INTERVAL_S has elapsed since the last flush."""
+        if self._buffer and (time.monotonic() - self.last_flush_time) >= FLUSH_INTERVAL_S:
+            self.logger.info("Time-based flush triggered")
             self.flush()
 
     def flush(self) -> None:
@@ -38,6 +66,7 @@ class TrafficProcessor(BaseProcessor):
         if not self._buffer:
             return
 
+        t_start = time.monotonic()
         batch = self._buffer
         self._buffer = []
 
@@ -53,7 +82,13 @@ class TrafficProcessor(BaseProcessor):
 
         parquet_bytes = _to_parquet(batch)
         self.minio.upload_bytes(self.BUCKET, object_name, parquet_bytes)
-        self.logger.info(f"Flushed {len(batch)} records → {object_name}")
+
+        latency_flush_ms = int((time.monotonic() - t_start) * 1000)
+        self.last_flush_time = time.monotonic()
+        self.logger.info(
+            f"Flushed {len(batch)} records → {object_name} "
+            f"latency_flush_ms={latency_flush_ms} records={len(batch)}"
+        )
 
     def on_error(self, message: Message, error: Exception) -> None:
         self.logger.error(f"Failed to process message offset={message.offset()}: {error}")

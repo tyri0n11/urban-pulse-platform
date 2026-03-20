@@ -15,3 +15,6 @@ class BaseProcessor(ABC):
 
     def flush(self) -> None:
         """Xả buffer trước khi shutdown. Override nếu processor có buffer."""
+
+    def check_time_flush(self) -> None:
+        """Check if a time-based flush is needed. Override if processor has a buffer."""

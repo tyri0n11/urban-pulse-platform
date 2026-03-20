@@ -1,4 +1,4 @@
-.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion
+.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion bootstrap
 
 COMPOSE = docker compose --env-file .env -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml
 
@@ -43,6 +43,15 @@ build-ingestion:
 
 build-serving:
 	$(COMPOSE) build serving
+
+bootstrap:
+	$(COMPOSE) build batch
+	$(COMPOSE) up -d minio nessie
+	@echo "Waiting for Nessie to be healthy..."
+	@until docker inspect --format='{{.State.Health.Status}}' nessie 2>/dev/null | grep -q healthy; do sleep 2; done
+	$(COMPOSE) run --rm batch .venv/bin/python -m batch.bootstrap_cli
+	@echo "Bootstrap complete."
+
 make setup:
 	cat .env.example > infra/docker/.env
 	nano infra/docker/.env

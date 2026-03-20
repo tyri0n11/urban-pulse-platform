@@ -18,7 +18,7 @@ from pyiceberg.types import (
     IntegerType,
     NestedField,
     StringType,
-    TimestampType,
+    TimestamptzType,
 )
 
 from urbanpulse_core.config import settings
@@ -27,7 +27,7 @@ from urbanpulse_infra.iceberg import get_iceberg_catalog
 logger = logging.getLogger(__name__)
 
 _BRONZE_BASE = "s3://urban-pulse/bronze/traffic-route-bronze"
-_BRONZE_PATH = f"{_BRONZE_BASE}/year=2026/month=*/day=*/hour=*/*.parquet"
+_BRONZE_PATH = f"{_BRONZE_BASE}/year=*/month=*/day=*/hour=*/*.parquet"
 
 _SILVER_NS = "silver"
 _SILVER_TABLE = "silver.traffic_route"
@@ -44,7 +44,7 @@ _SILVER_SCHEMA = Schema(
     NestedField(9, "congestion_low_ratio", DoubleType()),
     NestedField(10, "congestion_severe_segments", IntegerType()),
     NestedField(11, "congestion_total_segments", IntegerType()),
-    NestedField(12, "timestamp_utc", TimestampType()),
+    NestedField(12, "timestamp_utc", TimestamptzType()),
     NestedField(13, "source", StringType()),
 )
 
@@ -60,7 +60,7 @@ _ARROW_SCHEMA = pa.schema([
     pa.field("congestion_low_ratio", pa.float64()),
     pa.field("congestion_severe_segments", pa.int32()),
     pa.field("congestion_total_segments", pa.int32()),
-    pa.field("timestamp_utc", pa.timestamp("us")),
+    pa.field("timestamp_utc", pa.timestamp("us", tz="UTC")),
     pa.field("source", pa.string()),
 ])
 
@@ -99,24 +99,67 @@ def _ensure_table(catalog: Catalog) -> Table:
         return table
 
 
+_BRONZE_TO_SILVER_RENAME: dict[str, str] = {
+    "heavy_ratio": "congestion_heavy_ratio",
+    "moderate_ratio": "congestion_moderate_ratio",
+    "low_ratio": "congestion_low_ratio",
+    "severe_segments": "congestion_severe_segments",
+    "total_segments": "congestion_total_segments",
+}
+
+_FALLBACK_VALUES: dict[str, float | int] = {
+    "congestion_heavy_ratio": 0.0,
+    "congestion_moderate_ratio": 0.0,
+    "congestion_low_ratio": 0.0,
+    "congestion_severe_segments": 0,
+    "congestion_total_segments": 0,
+}
+
+
 def _cast_to_arrow_schema(raw: pa.Table) -> pa.Table:
     """Cast a single bronze parquet table to the silver Arrow schema.
 
-    Handles mixed types across files (e.g. string vs timestamp, int64 vs double).
+    Handles mixed types across files (e.g. string vs timestamp, int64 vs double),
+    bronze→silver column renaming, and null fallbacks for congestion fields.
     """
+    # Rename bronze columns to silver names
+    rename_map = {}
+    for old, new in _BRONZE_TO_SILVER_RENAME.items():
+        if old in raw.schema.names and new not in raw.schema.names:
+            rename_map[old] = new
+    if rename_map:
+        raw = raw.rename_columns(
+            [rename_map.get(name, name) for name in raw.schema.names]
+        )
+
     columns: dict[str, pa.Array] = {}
     for field in _ARROW_SCHEMA:
         if field.name not in raw.schema.names:
-            # Missing column → fill with nulls
-            columns[field.name] = pa.nulls(len(raw), type=field.type)
+            # Missing column → use fallback if available, otherwise nulls
+            if field.name in _FALLBACK_VALUES:
+                columns[field.name] = pa.array(
+                    [_FALLBACK_VALUES[field.name]] * len(raw), type=field.type
+                )
+            else:
+                columns[field.name] = pa.nulls(len(raw), type=field.type)
             continue
         col = raw.column(field.name)
-        # If source is string but target is timestamp, parse ISO 8601
-        if pa.types.is_string(col.type) and pa.types.is_timestamp(field.type):
-            parsed = pa.compute.cast(col, pa.timestamp("us", tz="UTC"))
-            col = pa.compute.cast(parsed, field.type)
+        # Normalize timestamps → pa.timestamp("us", tz="UTC")
+        if pa.types.is_timestamp(field.type):
+            if pa.types.is_string(col.type):
+                # Old bronze data: ISO 8601 strings like "2026-01-26T18:06:14+00"
+                col = col.cast(pa.timestamp("us", tz="UTC"))
+            elif pa.types.is_timestamp(col.type) and col.type.tz is None:
+                # Tz-naive timestamp: assume UTC
+                col = pa.compute.assume_timezone(col, timezone="UTC")
+            if col.type != field.type:
+                col = col.cast(field.type)
         elif col.type != field.type:
             col = col.cast(field.type)
+        # Fill nulls with fallback values
+        if field.name in _FALLBACK_VALUES:
+            scalar = pa.scalar(_FALLBACK_VALUES[field.name], type=field.type)
+            col = pa.compute.if_else(pa.compute.is_null(col), scalar, col)
         columns[field.name] = col
     return pa.table(columns, schema=_ARROW_SCHEMA)
 
@@ -186,7 +229,11 @@ def microbatch(catalog: Catalog | None = None) -> int:
 
 
 def bootstrap(catalog: Catalog | None = None) -> int:
-    """Full backfill: promote ALL bronze data to silver Iceberg table."""
+    """Full backfill: promote ALL bronze data to silver Iceberg table.
+
+    Safe to re-run — deduplicates against existing silver rows by
+    (route_id, timestamp_utc) before appending.
+    """
     logger.info("bronze_to_silver bootstrap: full backfill")
     if catalog is None:
         catalog = _get_catalog()
@@ -199,7 +246,34 @@ def bootstrap(catalog: Catalog | None = None) -> int:
         return 0
 
     silver = _filter_nulls(raw)
+
+    # Deduplicate against existing silver data
+    existing = table.scan(selected_fields=("route_id", "timestamp_utc")).to_arrow()
+    if len(existing) > 0:
+        existing_keys = set(
+            zip(
+                existing.column("route_id").to_pylist(),
+                existing.column("timestamp_utc").to_pylist(),
+            )
+        )
+        new_keys = list(
+            zip(
+                silver.column("route_id").to_pylist(),
+                silver.column("timestamp_utc").to_pylist(),
+            )
+        )
+        mask = pa.array([k not in existing_keys for k in new_keys])
+        silver = silver.filter(mask)
+        logger.info(
+            "bronze_to_silver bootstrap: %d existing rows filtered, %d new rows to append",
+            len(existing),
+            len(silver),
+        )
+
     row_count = len(silver)
+    if row_count == 0:
+        logger.info("bronze_to_silver bootstrap: no new rows to append")
+        return 0
 
     table.append(silver)
     logger.info("bronze_to_silver bootstrap: appended %d rows → %s", row_count, _SILVER_TABLE)

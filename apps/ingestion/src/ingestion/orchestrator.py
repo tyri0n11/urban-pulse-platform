@@ -31,6 +31,7 @@ def run(publisher: Publisher, api_key: str) -> None:
 
     for i, route in enumerate(routes):
         try:
+            t0 = time.monotonic()
             obs = fetch_route(
                 route_id=route["route_id"],
                 origin=route["origin"],
@@ -39,15 +40,17 @@ def run(publisher: Publisher, api_key: str) -> None:
                 destination_anchor=route["destination_anchor"],
                 api_key=api_key,
             )
+            latency_api_ms = int((time.monotonic() - t0) * 1000)
             publisher.publish(obs)
             logger.info(
-                "[%d/%d] %s → %s  dist=%.1f km  dur=%.1f min",
+                "[%d/%d] %s → %s  dist=%.1f km  dur=%.1f min  latency_api_ms=%d",
                 i + 1,
                 total,
                 route["origin"],
                 route["destination"],
                 obs.distance_meters / 1000,
                 obs.duration_minutes,
+                latency_api_ms,
             )
         except Exception:
             logger.exception("Failed to fetch route %s", route["route_id"])

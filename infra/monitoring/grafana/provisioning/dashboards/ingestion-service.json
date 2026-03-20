@@ -145,6 +145,42 @@
         }
       ],
       "options": { "showTime": true, "wrapLogMessage": false, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "API Latency P50 / P90 / P95",
+      "description": "VietMap API call duration per route fetch",
+      "gridPos": { "x": 0, "y": 30, "w": 24, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.50, {service=\"ingestion-service\"} |= \"latency_api_ms\" | pattern `<_> latency_api_ms=<latency>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.90, {service=\"ingestion-service\"} |= \"latency_api_ms\" | pattern `<_> latency_api_ms=<latency>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.95, {service=\"ingestion-service\"} |= \"latency_api_ms\" | pattern `<_> latency_api_ms=<latency>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "P50" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "P90" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "P95" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      }
     }
   ]
 }

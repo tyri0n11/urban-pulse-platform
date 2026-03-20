@@ -171,7 +171,7 @@
       "id": 10,
       "type": "timeseries",
       "title": "Traffic Buffer Size",
-      "description": "Current number of records in the MinIO write buffer (max 20)",
+      "description": "Current number of records in the MinIO write buffer (max 10)",
       "gridPos": { "x": 0, "y": 28, "w": 24, "h": 8 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
@@ -186,20 +186,114 @@
         "defaults": {
           "unit": "short",
           "min": 0,
-          "max": 20,
+          "max": 10,
           "custom": { "lineWidth": 2, "fillOpacity": 15 },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 15 },
-              { "color": "red", "value": 20 }
+              { "color": "yellow", "value": 7 },
+              { "color": "red", "value": 10 }
             ]
           },
           "color": { "mode": "thresholds" }
         }
       },
       "options": { "tooltip": { "mode": "single" } }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "E2E Latency P50 / P90 / P95",
+      "description": "End-to-end latency from ingestion to streaming processing",
+      "gridPos": { "x": 0, "y": 36, "w": 12, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.50, {service=\"streaming-service\"} |= \"latency_e2e_ms\" | pattern `<_> latency_e2e_ms=<latency> <_>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.90, {service=\"streaming-service\"} |= \"latency_e2e_ms\" | pattern `<_> latency_e2e_ms=<latency> <_>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.95, {service=\"streaming-service\"} |= \"latency_e2e_ms\" | pattern `<_> latency_e2e_ms=<latency> <_>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "P50" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "P90" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "P95" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Processing Latency P90 / P95",
+      "description": "Time to process each message in the streaming service",
+      "gridPos": { "x": 12, "y": 36, "w": 12, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.90, {service=\"streaming-service\"} |= \"latency_processing_ms\" | pattern `<_> latency_processing_ms=<latency> <_>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.95, {service=\"streaming-service\"} |= \"latency_processing_ms\" | pattern `<_> latency_processing_ms=<latency> <_>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "P90" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "P95" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Flush Latency P90 / P95",
+      "description": "Time to write buffered records to MinIO",
+      "gridPos": { "x": 0, "y": 44, "w": 24, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.90, {service=\"streaming-service\"} |= \"latency_flush_ms\" | pattern `<_> latency_flush_ms=<latency> records=<_>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.95, {service=\"streaming-service\"} |= \"latency_flush_ms\" | pattern `<_> latency_flush_ms=<latency> records=<_>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "legendFormat": "P95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "P90" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "P95" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      }
     }
   ]
 }
