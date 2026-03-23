@@ -164,15 +164,19 @@ def _cast_to_arrow_schema(raw: pa.Table) -> pa.Table:
     return pa.table(columns, schema=_ARROW_SCHEMA)
 
 
-def _read_bronze_parquet(path: str) -> pa.Table | None:
-    """Read bronze parquet files from MinIO via s3fs, return None if no files."""
+def _get_s3fs() -> "s3fs.S3FileSystem":  # type: ignore[name-defined]
     import s3fs
 
-    fs = s3fs.S3FileSystem(
+    return s3fs.S3FileSystem(
         endpoint_url=f"http://{settings.minio_endpoint}",
         key=settings.minio_access_key,
         secret=settings.minio_secret_key,
     )
+
+
+def _read_bronze_parquet(path: str) -> pa.Table | None:
+    """Read bronze parquet files from MinIO via s3fs, return None if no files."""
+    fs = _get_s3fs()
 
     # Strip s3:// prefix for glob
     glob_pattern = path.removeprefix("s3://")
@@ -198,33 +202,47 @@ def _filter_nulls(table: pa.Table) -> pa.Table:
 
 
 def microbatch(catalog: Catalog | None = None) -> int:
-    """Promote yesterday's bronze records to silver Iceberg table.
+    """Upsert the current hour's bronze data into silver.
 
-    Scoped to a single day's partition — no full scan needed.
-    Returns the number of rows appended.
+    Each run reads only the current hour's bronze partition and overwrites
+    the same hour window in silver.  No watermark needed — idempotent and
+    always O(one hour of data).
+
+    Returns the number of rows written.
     """
+    from pyiceberg.expressions import And, GreaterThanOrEqual, LessThan
+
     if catalog is None:
         catalog = _get_catalog()
 
     table = _ensure_table(catalog)
+    now = datetime.now(timezone.utc)
 
-    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+    hour_start = now.replace(minute=0, second=0, microsecond=0)
+    hour_end = hour_start + timedelta(hours=1)
+
     bronze_path = (
-        f"{_BRONZE_BASE}/year={yesterday.year}/month={yesterday.month:02d}"
-        f"/day={yesterday.day:02d}/hour=*/*.parquet"
+        f"{_BRONZE_BASE}/year={hour_start.year}/month={hour_start.month:02d}"
+        f"/day={hour_start.day:02d}/hour={hour_start.hour:02d}/*.parquet"
     )
     logger.info("bronze_to_silver microbatch: reading %s", bronze_path)
 
     raw = _read_bronze_parquet(bronze_path)
     if raw is None or len(raw) == 0:
-        logger.info("bronze_to_silver microbatch: no bronze files for %s — skipping", bronze_path)
+        logger.info("bronze_to_silver microbatch: no bronze files for current hour — skipping")
         return 0
 
     silver = _filter_nulls(raw)
     row_count = len(silver)
 
-    table.append(silver)
-    logger.info("bronze_to_silver microbatch: appended %d rows → %s", row_count, _SILVER_TABLE)
+    table.overwrite(
+        silver,
+        overwrite_filter=And(
+            GreaterThanOrEqual("timestamp_utc", hour_start.isoformat()),
+            LessThan("timestamp_utc", hour_end.isoformat()),
+        ),
+    )
+    logger.info("bronze_to_silver microbatch: upserted %d rows for hour %s", row_count, hour_start)
     return row_count
 
 
@@ -278,3 +296,65 @@ def bootstrap(catalog: Catalog | None = None) -> int:
     table.append(silver)
     logger.info("bronze_to_silver bootstrap: appended %d rows → %s", row_count, _SILVER_TABLE)
     return row_count
+
+
+def backfill(
+    from_dt: datetime,
+    to_dt: datetime | None = None,
+    catalog: Catalog | None = None,
+) -> int:
+    """Backfill silver for a specific time range by re-processing bronze hour partitions.
+
+    Iterates every hour in [from_dt, to_dt] and overwrites that window in silver.
+    Safe to re-run — each hour is a clean overwrite, not an append.
+
+    Args:
+        from_dt: Start of backfill range (inclusive).
+        to_dt:   End of backfill range (inclusive). Defaults to now.
+
+    Returns:
+        Total number of rows written.
+    """
+    from pyiceberg.expressions import And, GreaterThanOrEqual, LessThan
+
+    if catalog is None:
+        catalog = _get_catalog()
+
+    table = _ensure_table(catalog)
+
+    if to_dt is None:
+        to_dt = datetime.now(timezone.utc)
+
+    # Normalise to hour boundaries
+    hour = from_dt.replace(minute=0, second=0, microsecond=0, tzinfo=from_dt.tzinfo or timezone.utc)
+    end = to_dt.replace(minute=0, second=0, microsecond=0, tzinfo=to_dt.tzinfo or timezone.utc)
+
+    total = 0
+    while hour <= end:
+        hour_end = hour + timedelta(hours=1)
+        path = (
+            f"{_BRONZE_BASE}/year={hour.year}/month={hour.month:02d}"
+            f"/day={hour.day:02d}/hour={hour.hour:02d}/*.parquet"
+        )
+        raw = _read_bronze_parquet(path)
+        if raw is None or len(raw) == 0:
+            logger.info("bronze_to_silver backfill: no data for %s — skipping", hour)
+            hour = hour_end
+            continue
+
+        silver = _filter_nulls(raw)
+        row_count = len(silver)
+
+        table.overwrite(
+            silver,
+            overwrite_filter=And(
+                GreaterThanOrEqual("timestamp_utc", hour.isoformat()),
+                LessThan("timestamp_utc", hour_end.isoformat()),
+            ),
+        )
+        logger.info("bronze_to_silver backfill: wrote %d rows for hour %s", row_count, hour)
+        total += row_count
+        hour = hour_end
+
+    logger.info("bronze_to_silver backfill: done — %d total rows written", total)
+    return total

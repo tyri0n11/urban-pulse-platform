@@ -11,6 +11,8 @@ volumes:
   loki-data:
   grafana-data:
   dremio-data:
+  nessie-data:
+  prefect-data:
 
 services:
   redpanda:
@@ -194,8 +196,12 @@ services:
       - "19120:19120"
     networks:
       - urban-pulse-platform
+    environment:
+      NESSIE_VERSION_STORE_TYPE: ROCKSDB
+      QUARKUS_ROCKSDB_DATABASE_PATH: /nessie/data
     volumes:
       - ./nessie/application.properties:/deployments/config/application.properties:ro
+      - nessie-data:/nessie/data
     depends_on:
       minio:
         condition: service_healthy
@@ -256,6 +262,10 @@ services:
       - "4200:4200"
     networks:
       - urban-pulse-platform
+    environment:
+      PREFECT_HOME: /prefect
+    volumes:
+      - prefect-data:/prefect
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:4200/api/health')\""]
       interval: 10s
@@ -285,7 +295,7 @@ services:
         condition: service_healthy
       nessie:
         condition: service_healthy
-    restart: on-failure
+    restart: always
 
   loki:
     image: grafana/loki:3.4.2
