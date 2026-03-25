@@ -13,8 +13,8 @@ from logger import Logger
 from processors.base import BaseProcessor
 from sinks.minio import MinioClient
 
-BUFFER_SIZE = 10
-FLUSH_INTERVAL_S = 10
+BUFFER_SIZE = 500
+FLUSH_INTERVAL_S = 30
 
 
 class TrafficProcessor(BaseProcessor):
@@ -27,7 +27,7 @@ class TrafficProcessor(BaseProcessor):
         self._buffer: list[TrafficRouteObservation] = []
         self.last_flush_time: float = time.monotonic()
 
-    def process(self, message: Message) -> None:
+    def process(self, message: Message) -> bool:
         t_start = time.monotonic()
         raw: bytes = message.value()
         observation = TrafficRouteObservation.model_validate(json.loads(raw))
@@ -53,22 +53,27 @@ class TrafficProcessor(BaseProcessor):
         )
 
         if len(self._buffer) >= BUFFER_SIZE:
-            self.flush()
+            return self.flush()
+        return False
 
-    def check_time_flush(self) -> None:
+    def check_time_flush(self) -> bool:
         """Flush if FLUSH_INTERVAL_S has elapsed since the last flush."""
         if self._buffer and (time.monotonic() - self.last_flush_time) >= FLUSH_INTERVAL_S:
             self.logger.info("Time-based flush triggered")
-            self.flush()
+            return self.flush()
+        return False
 
-    def flush(self) -> None:
-        """Write buffered records to MinIO and clear the buffer."""
+    def flush(self) -> bool:
+        """Write buffered records to MinIO and clear the buffer.
+
+        Returns True if data was successfully written.
+        Buffer is only cleared after a successful upload to prevent data loss.
+        """
         if not self._buffer:
-            return
+            return False
 
         t_start = time.monotonic()
         batch = self._buffer
-        self._buffer = []
 
         ts = batch[0].timestamp_utc
         object_name = (
@@ -83,12 +88,16 @@ class TrafficProcessor(BaseProcessor):
         parquet_bytes = _to_parquet(batch)
         self.minio.upload_bytes(self.BUCKET, object_name, parquet_bytes)
 
+        # Clear buffer only after successful upload
+        self._buffer = []
+
         latency_flush_ms = int((time.monotonic() - t_start) * 1000)
         self.last_flush_time = time.monotonic()
         self.logger.info(
             f"Flushed {len(batch)} records → {object_name} "
             f"latency_flush_ms={latency_flush_ms} records={len(batch)}"
         )
+        return True
 
     def on_error(self, message: Message, error: Exception) -> None:
         self.logger.error(f"Failed to process message offset={message.offset()}: {error}")
@@ -118,5 +127,5 @@ def _to_parquet(batch: list[TrafficRouteObservation]) -> bytes:
     )
 
     buf = io.BytesIO()
-    pq.write_table(table, buf)
+    pq.write_table(table, buf, compression="snappy")
     return buf.getvalue()

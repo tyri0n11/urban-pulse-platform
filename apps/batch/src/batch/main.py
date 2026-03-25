@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from prefect import serve
 
-from batch.pipeline import backfill, bootstrap, microbatch
+from batch.pipeline import backfill, bootstrap, medallion, microbatch
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,6 +23,12 @@ def main() -> None:
             name="microbatch-deployment",
             interval=timedelta(minutes=5),
             tags=["scheduled", "microbatch"],
+            concurrency_limit=1,
+        ),
+        medallion.to_deployment(
+            name="medallion-deployment",
+            interval=timedelta(hours=1),
+            tags=["scheduled", "medallion"],
             concurrency_limit=1,
         ),
         bootstrap.to_deployment(

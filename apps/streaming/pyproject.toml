@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "urbanpulse-core",
+    "urbanpulse-infra-clients",
     "confluent-kafka>=2.3.0",
     "minio>=7.2.0",
     "pyarrow>=15.0.0",
@@ -11,6 +12,7 @@ dependencies = [
 
 [tool.uv.sources]
 urbanpulse-core = { workspace = true }
+urbanpulse-infra-clients = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

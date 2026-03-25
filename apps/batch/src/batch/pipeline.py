@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from prefect import flow, task
 
-from batch.jobs import bronze_to_silver
+from batch.jobs import baseline_learning, bronze_to_silver, silver_to_gold
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,16 @@ logger = logging.getLogger(__name__)
 @task(name="microbatch-bronze-to-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_microbatch_bronze_to_silver() -> int:
     return bronze_to_silver.microbatch()
+
+
+@task(name="silver-to-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
+def task_silver_to_gold() -> int:
+    return silver_to_gold.run()
+
+
+@task(name="baseline-learning", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
+def task_baseline_learning() -> int:
+    return baseline_learning.run()
 
 
 # ---------------------------------------------------------------------------
@@ -33,22 +43,52 @@ def microbatch() -> None:
     task_microbatch_bronze_to_silver()
 
 
+@flow(name="medallion", log_prints=True)  # type: ignore[untyped-decorator]
+def medallion() -> None:
+    """Full medallion pipeline: silver → gold → baseline.
+
+    Runs hourly to aggregate silver into gold hourly summaries,
+    then recompute anomaly detection baselines.
+    """
+    gold_rows = task_silver_to_gold()
+    task_baseline_learning(wait_for=[gold_rows])
+
+
 # ---------------------------------------------------------------------------
 # Bootstrap
 # ---------------------------------------------------------------------------
 
 @task(name="bootstrap-traffic-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def bootstrap_traffic_silver() -> int:
-    """Run the bronze_to_silver job once, without waiting for the scheduled run."""
+    """Full backfill: all bronze → silver."""
     logger.info("Bootstrapping traffic silver with an immediate run")
     return bronze_to_silver.bootstrap()
 
 
+@task(name="bootstrap-silver-to-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
+def bootstrap_silver_to_gold() -> int:
+    """Full re-aggregate: all silver → gold hourly."""
+    logger.info("Bootstrapping silver to gold")
+    return silver_to_gold.bootstrap()
+
+
+@task(name="bootstrap-baseline-learning", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
+def bootstrap_baseline_learning() -> int:
+    """Recompute baselines from all gold data."""
+    logger.info("Bootstrapping baseline learning")
+    return baseline_learning.run()
+
+
 @flow(name="bootstrap", log_prints=True)  # type: ignore[untyped-decorator]
 def bootstrap() -> None:
-    """Run the pipeline once immediately, without waiting for the scheduled run."""
-    logger.info("Bootstrapping medallion pipeline with an immediate run")
-    bootstrap_traffic_silver()
+    """Full medallion bootstrap: bronze → silver → gold → baseline.
+
+    Runs each stage sequentially with explicit dependencies.
+    """
+    logger.info("Bootstrapping full medallion pipeline")
+    silver_rows = bootstrap_traffic_silver()
+    gold_rows = bootstrap_silver_to_gold(wait_for=[silver_rows])
+    bootstrap_baseline_learning(wait_for=[gold_rows])
 
 
 # ---------------------------------------------------------------------------

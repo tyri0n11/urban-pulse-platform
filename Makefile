@@ -1,4 +1,4 @@
-.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion bootstrap
+.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion bootstrap notebook
 
 COMPOSE = docker compose --env-file .env -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml
 
@@ -51,6 +51,9 @@ bootstrap:
 	@until docker inspect --format='{{.State.Health.Status}}' nessie 2>/dev/null | grep -q healthy; do sleep 2; done
 	$(COMPOSE) run --rm batch .venv/bin/python -m batch.bootstrap_cli
 	@echo "Bootstrap complete."
+
+notebook:
+	uv run jupyter lab platform/notebooks/
 
 make setup:
 	cat .env.example > infra/docker/.env
