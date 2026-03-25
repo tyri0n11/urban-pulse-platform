@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # Iceberg
     iceberg_catalog_uri: str = "http://localhost:19120/iceberg/"
 
+    # MLflow
+    mlflow_tracking_uri: str = "http://localhost:5000"
+
     model_config = {"env_file": ".env", "case_sensitive": False, "extra": "ignore"}
 
 

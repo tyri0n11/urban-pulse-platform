@@ -7,7 +7,7 @@ from pyiceberg.catalog import Catalog, load_catalog
 
 def get_iceberg_catalog(
     catalog_uri: str = "http://localhost:19120/iceberg/",
-    minio_endpoint: str = "localhost:9000",
+    minio_endpoint: str = "minio:9000",
     access_key: str = "minioadmin",
     secret_key: str = "minioadmin",
     warehouse: str = "s3://warehouse/",

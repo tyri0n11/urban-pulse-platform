@@ -3,11 +3,14 @@
 import logging
 from datetime import datetime, timezone
 
+import httpx
 from prefect import flow, task
 
 from batch.jobs import baseline_learning, bronze_to_silver, silver_to_gold
 
 logger = logging.getLogger(__name__)
+
+_ML_SERVICE_URL = "http://ml-service:8000"
 
 
 # ---------------------------------------------------------------------------
@@ -29,6 +32,17 @@ def task_baseline_learning() -> int:
     return baseline_learning.run()
 
 
+@task(name="trigger-ml-retrain", retries=2, retry_delay_seconds=30)  # type: ignore[untyped-decorator]
+def task_trigger_ml_retrain() -> dict[str, object]:
+    """Trigger ML training via HTTP call to ml-service."""
+    logger.info("Triggering ML retrain at %s", _ML_SERVICE_URL)
+    resp = httpx.post(f"{_ML_SERVICE_URL}/train", timeout=300)
+    resp.raise_for_status()
+    result = resp.json()
+    logger.info("ML retrain result: status=%s, run_id=%s", result["status"], result["run_id"])
+    return result  # type: ignore[return-value]
+
+
 # ---------------------------------------------------------------------------
 # Flows
 # ---------------------------------------------------------------------------
@@ -37,21 +51,31 @@ def task_baseline_learning() -> int:
 def microbatch() -> None:
     """Fast-path microbatch: promote new bronze records to silver.
 
-    Runs on a tight schedule (every 5 min) so the silver layer stays
-    close to real-time while keeping each DuckDB scan small.
+    Runs every 5 min so the silver layer stays close to real-time
+    while keeping each DuckDB scan small.
     """
     task_microbatch_bronze_to_silver()
 
 
-@flow(name="medallion", log_prints=True)  # type: ignore[untyped-decorator]
-def medallion() -> None:
-    """Full medallion pipeline: silver → gold → baseline.
+@flow(name="hourly-gold", log_prints=True)  # type: ignore[untyped-decorator]
+def hourly_gold() -> None:
+    """Hourly aggregation: silver → gold.
 
-    Runs hourly to aggregate silver into gold hourly summaries,
-    then recompute anomaly detection baselines.
+    Lightweight incremental job — only aggregates the current hour's
+    silver data into gold summaries. No full scans.
     """
-    gold_rows = task_silver_to_gold()
-    task_baseline_learning(wait_for=[gold_rows])
+    task_silver_to_gold()
+
+
+@flow(name="retrain", log_prints=True)  # type: ignore[untyped-decorator]
+def retrain() -> None:
+    """Periodic baseline recompute + model retrain.
+
+    Runs every 6 hours. Baseline does a full gold scan (expensive),
+    then triggers ML service to retrain on fresh baselines.
+    """
+    baseline_rows = task_baseline_learning()
+    task_trigger_ml_retrain(wait_for=[baseline_rows])
 
 
 # ---------------------------------------------------------------------------

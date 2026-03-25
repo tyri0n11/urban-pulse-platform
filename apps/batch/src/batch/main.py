@@ -5,15 +5,13 @@ from datetime import timedelta
 
 from prefect import serve
 
-from batch.pipeline import backfill, bootstrap, medallion, microbatch
+from batch.pipeline import backfill, bootstrap, hourly_gold, microbatch, retrain
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-
 
 
 def main() -> None:
@@ -23,24 +21,26 @@ def main() -> None:
             name="microbatch-deployment",
             interval=timedelta(minutes=5),
             tags=["scheduled", "microbatch"],
-            concurrency_limit=1,
         ),
-        medallion.to_deployment(
-            name="medallion-deployment",
+        hourly_gold.to_deployment(
+            name="hourly-gold-deployment",
             interval=timedelta(hours=1),
-            tags=["scheduled", "medallion"],
-            concurrency_limit=1,
+            tags=["scheduled", "gold"],
+        ),
+        retrain.to_deployment(
+            name="retrain-deployment",
+            interval=timedelta(hours=6),
+            tags=["scheduled", "retrain"],
         ),
         bootstrap.to_deployment(
             name="bootstrap-deployment",
             tags=["bootstrap"],
-            concurrency_limit=1,
         ),
         backfill.to_deployment(
             name="backfill-deployment",
             tags=["backfill"],
-            concurrency_limit=1,
         ),
+        limit=3,
     )
 
 

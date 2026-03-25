@@ -10,8 +10,6 @@ import argparse
 import logging
 import sys
 
-from pyiceberg.exceptions import NoSuchTableError
-
 from urbanpulse_core.config import settings
 from urbanpulse_infra.iceberg import get_iceberg_catalog
 
@@ -23,23 +21,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bootstrap_cli")
 
-_SILVER_TABLE = "silver.traffic_route"
-
-
 def _bootstrap_silver() -> int:
-    """Drop and re-create silver from all bronze data."""
+    """Backfill silver from all bronze data without recreating the table."""
     catalog = get_iceberg_catalog(
         catalog_uri=settings.iceberg_catalog_uri,
         minio_endpoint=settings.minio_endpoint,
         access_key=settings.minio_access_key,
         secret_key=settings.minio_secret_key,
     )
-
-    try:
-        catalog.drop_table(_SILVER_TABLE)
-        logger.info("Dropped table %s", _SILVER_TABLE)
-    except NoSuchTableError:
-        logger.info("Table %s does not exist — nothing to drop", _SILVER_TABLE)
 
     rows = bronze_to_silver.bootstrap(catalog=catalog)
     logger.info("Silver bootstrap: %d rows written", rows)

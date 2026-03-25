@@ -1,4 +1,4 @@
-.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion bootstrap notebook
+.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion bootstrap train
 
 COMPOSE = docker compose --env-file .env -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml
 
@@ -52,8 +52,10 @@ bootstrap:
 	$(COMPOSE) run --rm batch .venv/bin/python -m batch.bootstrap_cli
 	@echo "Bootstrap complete."
 
-notebook:
-	uv run jupyter lab platform/notebooks/
+train:
+	@echo "Triggering training via ML service API..."
+	@curl -sf http://localhost:8000/health > /dev/null 2>&1 || { echo "ML service not running — start with 'make dev'"; exit 1; }
+	@curl -s -X POST http://localhost:8000/train | python -m json.tool
 
 make setup:
 	cat .env.example > infra/docker/.env

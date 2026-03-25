@@ -15,7 +15,4 @@ markers = ["unit", "integration"]
 
 [dependency-groups]
 dev = [
-    "jupyterlab>=4.5.6",
-    "matplotlib>=3.10.8",
-    "seaborn>=0.13.2",
 ]
