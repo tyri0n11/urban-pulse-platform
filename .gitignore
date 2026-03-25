@@ -8,3 +8,9 @@ __pycache__/
 
 # Virtual environment
 .venv/
+
+# Claude Code
+.claude/
+
+# Jupyter
+.ipynb_checkpoints/
