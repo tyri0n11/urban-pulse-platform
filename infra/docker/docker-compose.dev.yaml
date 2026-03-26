@@ -201,6 +201,8 @@ services:
     environment:
       NESSIE_VERSION_STORE_TYPE: ROCKSDB
       QUARKUS_ROCKSDB_DATABASE_PATH: /nessie/data
+      S3_CREDS_NAME: ${NESSIE_S3_ACCESS_KEY}
+      S3_CREDS_SECRET: ${NESSIE_S3_SECRET_KEY}
     volumes:
       - ./nessie/application.properties:/deployments/config/application.properties:ro
       - nessie-data:/nessie/data

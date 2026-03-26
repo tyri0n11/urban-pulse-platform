@@ -110,7 +110,10 @@ def run() -> int:
             CAST(EXTRACT(DOW  FROM hour_utc) AS INTEGER) AS day_of_week,
             CAST(EXTRACT(HOUR FROM hour_utc) AS INTEGER) AS hour_of_day,
             AVG(avg_duration_minutes)                      AS baseline_duration_mean,
-            STDDEV(avg_duration_minutes)                   AS baseline_duration_stddev,
+            COALESCE(
+                STDDEV(avg_duration_minutes),
+                AVG(avg_duration_minutes) * 0.1
+            )                                              AS baseline_duration_stddev,
             AVG(avg_heavy_ratio)                           AS baseline_heavy_ratio_mean,
             CAST(COUNT(*) AS INTEGER)                      AS sample_count
         FROM gold
