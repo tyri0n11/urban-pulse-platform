@@ -9,3 +9,20 @@ datasources:
     isDefault: true
     jsonData:
       maxLines: 1000
+
+  - name: PostgreSQL
+    type: postgres
+    uid: postgres
+    url: postgres:5432
+    access: proxy
+    user: urbanpulse
+    secureJsonData:
+      password: urbanpulse
+    jsonData:
+      database: urbanpulse
+      sslmode: disable
+      maxOpenConns: 10
+      maxIdleConns: 5
+      connMaxLifetime: 14400
+      postgresVersion: 1600
+      timescaledb: false

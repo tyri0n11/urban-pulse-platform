@@ -15,7 +15,7 @@ scrape_configs:
         refresh_interval: 5s
         filters:
           - name: name
-            values: [ingestion-service, streaming-service, batch-service]
+            values: [ingestion-service, streaming-service, batch-service, ml-service, online-service, serving-service]
     relabel_configs:
       # Strip leading slash from container name → service label
       - source_labels: [__meta_docker_container_name]

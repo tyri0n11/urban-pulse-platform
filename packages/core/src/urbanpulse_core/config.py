@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # MLflow
     mlflow_tracking_uri: str = "http://localhost:5000"
 
+    # Postgres (online feature store)
+    postgres_dsn: str = "postgresql://urbanpulse:urbanpulse@localhost:5432/urbanpulse"
+
     model_config = {"env_file": ".env", "case_sensitive": False, "extra": "ignore"}
 
 
