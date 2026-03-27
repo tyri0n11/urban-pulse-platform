@@ -2,9 +2,10 @@
 
 import asyncpg
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from serving.dependencies import postgres_dsn
-from serving.routers import health, online
+from serving.routers import anomalies, health, metrics, online, predict
 
 
 def create_app() -> FastAPI:
@@ -14,8 +15,18 @@ def create_app() -> FastAPI:
         version="0.1.0",
     )
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_methods=["GET"],
+        allow_headers=["*"],
+    )
+
     app.include_router(health.router)
     app.include_router(online.router)
+    app.include_router(anomalies.router)
+    app.include_router(metrics.router)
+    app.include_router(predict.router)
 
     @app.on_event("startup")
     async def _startup() -> None:

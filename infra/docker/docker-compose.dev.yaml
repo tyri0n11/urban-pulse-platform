@@ -418,6 +418,10 @@ services:
       - ../../.env
     environment:
       POSTGRES_DSN: postgresql://urbanpulse:urbanpulse@postgres:5432/urbanpulse
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
     networks:
       - urban-pulse-platform
     depends_on:
@@ -463,7 +467,7 @@ services:
   grafana:
     image: grafana/grafana:11.6.0
     ports:
-      - "3000:3000"
+      - "3001:3000"
     networks:
       - urban-pulse-platform
     volumes:

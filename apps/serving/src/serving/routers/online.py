@@ -103,6 +103,107 @@ async def get_feature(
     return _row_to_dict(row)
 
 
+@router.get("/features/{route_id}/history")
+async def get_feature_history(
+    route_id: str,
+    hours: int = 24,
+    conn: asyncpg.Connection = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Return per-hour feature windows for a single route over the last N hours.
+
+    Each row is the latest snapshot within that hour window.
+    Default: last 24 hours.
+    """
+    if hours < 1 or hours > 168:
+        raise HTTPException(status_code=422, detail="hours must be between 1 and 168")
+
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT ON (window_start)
+            route_id,
+            window_start,
+            updated_at,
+            observation_count,
+            mean_duration_minutes,
+            stddev_duration_minutes,
+            last_duration_minutes,
+            mean_heavy_ratio,
+            duration_zscore,
+            is_anomaly,
+            last_ingest_lag_ms
+        FROM online_route_features
+        WHERE route_id = $1
+          AND window_start >= NOW() - ($2 * INTERVAL '1 hour')
+        ORDER BY window_start DESC, updated_at DESC
+        """,
+        route_id,
+        hours,
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No history found for route '{route_id}'")
+    return [_row_to_dict(r) for r in rows]
+
+
+@router.get("/routes")
+async def list_routes(
+    conn: asyncpg.Connection = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Return all known routes with latest feature snapshot.
+
+    Includes geographic coordinates loaded from routes.json for map rendering.
+    Routes with no online data yet are included with null feature fields.
+    """
+    import json
+    import os
+
+    # Load static route coordinates — copied to /app/routes.json in Dockerfile
+    routes_path = os.environ.get("ROUTES_JSON_PATH", "/app/routes.json")
+    route_coords: dict[str, dict[str, Any]] = {}
+    try:
+        with open(routes_path) as f:
+            for r in json.load(f):
+                route_coords[r["route_id"]] = {
+                    "origin": r.get("origin"),
+                    "destination": r.get("destination"),
+                    "origin_anchor": r.get("origin_anchor"),
+                    "destination_anchor": r.get("destination_anchor"),
+                }
+    except FileNotFoundError:
+        pass
+
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT ON (route_id)
+            route_id,
+            window_start,
+            updated_at,
+            observation_count,
+            mean_duration_minutes,
+            stddev_duration_minutes,
+            duration_zscore,
+            is_anomaly,
+            last_ingest_lag_ms
+        FROM online_route_features
+        ORDER BY route_id, updated_at DESC
+        """
+    )
+    online_by_id = {r["route_id"]: _row_to_dict(r) for r in rows}
+
+    # Merge coords + online features; include coord-only routes (no data yet)
+    result = []
+    seen = set()
+    for route_id, coords in route_coords.items():
+        entry: dict[str, Any] = {"route_id": route_id, **coords}
+        entry.update(online_by_id.get(route_id, {}))
+        result.append(entry)
+        seen.add(route_id)
+    # Include any routes that have online data but aren't in routes.json
+    for route_id, data in online_by_id.items():
+        if route_id not in seen:
+            result.append(data)
+    return result
+
+
 @router.get("/lag")
 async def ingestion_lag(
     conn: asyncpg.Connection = Depends(get_db),
