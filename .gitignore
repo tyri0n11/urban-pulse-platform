@@ -1,5 +1,5 @@
 .env
-
+.env.prod
 # Python
 __pycache__/
 *.pyc
@@ -14,3 +14,4 @@ __pycache__/
 
 # Jupyter
 .ipynb_checkpoints/
+infra/traefik/dynamic.yml
