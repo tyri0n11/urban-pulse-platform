@@ -7,10 +7,25 @@ from prefect import serve
 
 from batch.pipeline import backfill, bootstrap, hourly_gold, microbatch, retrain
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-)
+_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+_STREAM_HANDLER = logging.StreamHandler()
+_STREAM_HANDLER.setFormatter(logging.Formatter(_LOG_FORMAT))
+
+# Force batch module loggers to write to stdout regardless of Prefect's
+# logging interception — Prefect overrides basicConfig in task workers.
+for _name in (
+    "batch.jobs.bronze_to_silver",
+    "batch.jobs.silver_to_gold",
+    "batch.jobs.baseline_learning",
+    "batch.pipeline",
+    "batch.main",
+):
+    _log = logging.getLogger(_name)
+    _log.setLevel(logging.INFO)
+    _log.addHandler(_STREAM_HANDLER)
+    _log.propagate = False  # prevent duplicate output via root logger
+
+logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 

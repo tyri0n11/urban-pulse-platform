@@ -315,6 +315,9 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       ICEBERG_CATALOG_URI: http://nessie:19120/iceberg/
+      PREFECT_LOGGING_TO_API_ENABLED: "false"
+      PREFECT_LOGGING_EXTRA_LOGGERS: "batch.jobs.bronze_to_silver,batch.jobs.silver_to_gold,batch.jobs.baseline_learning,batch.pipeline"
+      PREFECT_LOGGING_LEVEL: INFO
     networks:
       - urban-pulse-platform
     depends_on:
