@@ -69,9 +69,19 @@ make setup:
 
 prod-setup:
 	@echo "Setting up production data directories..."
-	sudo mkdir -p /opt/urban-pulse/{redpanda,minio,nessie,dremio,mlflow,prefect,postgres,loki,grafana,traefik}
+	sudo mkdir -p /opt/urban-pulse/redpanda \
+	              /opt/urban-pulse/minio \
+	              /opt/urban-pulse/nessie \
+	              /opt/urban-pulse/dremio \
+	              /opt/urban-pulse/mlflow \
+	              /opt/urban-pulse/prefect \
+	              /opt/urban-pulse/postgres \
+	              /opt/urban-pulse/loki \
+	              /opt/urban-pulse/grafana \
+	              /opt/urban-pulse/traefik
 	sudo chown -R $(USER) /opt/urban-pulse
-	touch /opt/urban-pulse/traefik/acme.json && chmod 600 /opt/urban-pulse/traefik/acme.json
+	touch /opt/urban-pulse/traefik/acme.json
+	chmod 600 /opt/urban-pulse/traefik/acme.json
 	@echo "Copying env template..."
 	cp -n .env.prod.example .env.prod
 	@echo "Edit .env.prod with your real values, then run: make prod"
