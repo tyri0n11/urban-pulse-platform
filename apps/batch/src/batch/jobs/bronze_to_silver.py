@@ -229,6 +229,7 @@ def microbatch(catalog: Catalog | None = None) -> int:
 
     raw = _read_bronze_parquet(bronze_path)
     if raw is None or len(raw) == 0:
+        print(f"bronze_to_silver microbatch: no bronze files for current hour — skipping")
         logger.info("bronze_to_silver microbatch: no bronze files for current hour — skipping")
         return 0
 
@@ -242,6 +243,7 @@ def microbatch(catalog: Catalog | None = None) -> int:
             LessThan("timestamp_utc", hour_end.isoformat()),
         ),
     )
+    print(f"bronze_to_silver microbatch: upserted {row_count} rows for hour {hour_start}")
     logger.info("bronze_to_silver microbatch: upserted %d rows for hour %s", row_count, hour_start)
     return row_count
 

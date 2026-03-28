@@ -13,7 +13,6 @@ GET /predict/model/info
     Return metadata about the currently cached model (when it was loaded).
 """
 
-import time
 from typing import Any
 
 import asyncpg
@@ -100,25 +99,21 @@ async def predict_route(
 
 @router.get("/model/info")
 async def model_info() -> dict[str, Any]:
-    """Return metadata about the currently loaded model."""
-    cache = prediction_service._cache
-    ttl = prediction_service.MODEL_TTL
-    if cache.model is None:
-        return {
-            "loaded": False,
-            "model_uri": None,
-            "age_seconds": None,
-            "ttl_seconds": ttl,
-            "next_refresh_seconds": None,
-            "error": cache.last_error,
-        }
-
-    age_seconds = round(time.monotonic() - cache.loaded_at, 1)
+    """Return aggregate metadata about the currently loaded per-route models."""
+    info = prediction_service.cache_info()
     return {
-        "loaded": True,
-        "model_uri": cache.model_uri,
-        "age_seconds": age_seconds,
-        "ttl_seconds": ttl,
-        "next_refresh_seconds": max(0.0, round(ttl - age_seconds, 1)),
+        "loaded": info["loaded_routes"] > 0,
+        "model_uri": info["model_uri"],
+        "age_seconds": info["age_seconds"],
+        "ttl_seconds": info["ttl_seconds"],
+        "next_refresh_seconds": info["next_refresh_seconds"],
+        "loaded_routes": info["loaded_routes"],
+        "total_routes_seen": info["total_routes_seen"],
         "error": None,
     }
+
+
+@router.get("/model/routes")
+async def model_routes_status() -> list[dict[str, Any]]:
+    """Return per-route model cache status (loaded, age, error)."""
+    return prediction_service.route_cache_status()

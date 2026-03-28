@@ -173,6 +173,7 @@ def run() -> int:
         ),
     )
 
+    print(f"silver_to_gold: upserted {row_count} rows for hour {hour_start}")
     logger.info("silver_to_gold: upserted %d rows for hour %s", row_count, hour_start)
     return row_count
 

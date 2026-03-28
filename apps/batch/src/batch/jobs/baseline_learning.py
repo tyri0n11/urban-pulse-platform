@@ -129,5 +129,6 @@ def run() -> int:
     baseline_table = _ensure_baseline_table(catalog)
     baseline_table.overwrite(baseline_arrow)
 
+    print(f"baseline_learning: wrote {row_count} rows to {_BASELINE_TABLE}")
     logger.info("baseline_learning: wrote %d rows to %s", row_count, _BASELINE_TABLE)
     return row_count

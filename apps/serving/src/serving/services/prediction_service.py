@@ -1,8 +1,8 @@
-"""Prediction service: loads the latest IsolationForest model from MLflow
+"""Prediction service: loads per-route IsolationForest models from MLflow
 and scores current online features fetched from Postgres.
 
-Model is cached in-process and refreshed every MODEL_TTL seconds so that
-new training runs are automatically picked up without a restart.
+Each route has its own registered model: "iforest-{route_id}".
+Models are cached in-process per route and refreshed every MODEL_TTL seconds.
 
 Feature mapping from online_route_features → IsolationForest input:
     duration_zscore       → duration_zscore         (direct)
@@ -22,12 +22,11 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# How often to re-load the model from MLflow (seconds)
-MODEL_TTL = 3600.0
+MODEL_TTL = 3600.0  # seconds before reloading from MLflow
 
-# Registered model name — must match what ml/train.py uses
-_REGISTERED_MODEL = "traffic-anomaly-iforest"
-_MODEL_ALIAS = "champion"   # fall back to latest version if alias not set
+# Registered model name prefix — must match ml/train.py
+_MODEL_PREFIX = "iforest-"
+_MODEL_ALIAS = "champion"
 
 # Feature order MUST match ml/features/traffic_features.py FEATURE_COLUMNS
 _FEATURE_ORDER = [
@@ -42,33 +41,33 @@ _FEATURE_ORDER = [
 @dataclass
 class PredictionResult:
     route_id: str
-    iforest_score: float        # raw decision score (lower = more anomalous)
-    iforest_anomaly: bool       # True when model flags as anomaly
-    zscore_anomaly: bool        # from online consumer (stored in Postgres)
-    both_anomaly: bool          # both methods agree
+    iforest_score: float
+    iforest_anomaly: bool
+    zscore_anomaly: bool
+    both_anomaly: bool
 
 
 @dataclass
-class _ModelCache:
+class _RouteModelCache:
     model: Any = None
     loaded_at: float = 0.0
     model_uri: str = ""
     last_error: str | None = None
 
 
-_cache = _ModelCache()
+# Per-route cache: route_id → _RouteModelCache
+_cache: dict[str, _RouteModelCache] = {}
+# Track overall last load for /predict/model/info
+_last_load_at: float = 0.0
+_last_uri: str = ""
 
 
 def _mlflow_tracking_uri() -> str:
     return os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 
 
-def _load_model() -> Any:
-    """Load the latest registered IsolationForest from MLflow.
-
-    Uses mlflow.artifacts.download_artifacts + joblib to avoid the implicit
-    pandas dependency that mlflow.sklearn.load_model pulls in.
-    """
+def _load_route_model(route_id: str) -> tuple[Any, str]:
+    """Load the latest IsolationForest for a specific route from MLflow."""
     import tempfile
 
     import joblib
@@ -77,107 +76,100 @@ def _load_model() -> Any:
 
     mlflow.set_tracking_uri(_mlflow_tracking_uri())
     client = MlflowClient()
+    registered_name = f"{_MODEL_PREFIX}{route_id}"
 
-    # Resolve the model version: try @champion alias, fall back to latest
     try:
-        mv = client.get_model_version_by_alias(_REGISTERED_MODEL, _MODEL_ALIAS)
+        mv = client.get_model_version_by_alias(registered_name, _MODEL_ALIAS)
         version = mv.version
-        logger.info("prediction_service: resolved %s@%s → version %s", _REGISTERED_MODEL, _MODEL_ALIAS, version)
+        logger.info("prediction_service: %s@%s → version %s", registered_name, _MODEL_ALIAS, version)
     except Exception:
-        versions = client.get_latest_versions(_REGISTERED_MODEL)
+        versions = client.get_latest_versions(registered_name)
         if not versions:
-            raise RuntimeError(f"No versions found for model '{_REGISTERED_MODEL}'")
+            raise RuntimeError(f"No model found for route '{route_id}' (registered: {registered_name})")
         version = versions[-1].version
-        logger.info("prediction_service: alias not set, using latest version %s", version)
+        logger.info("prediction_service: %s alias not set, using latest version %s", registered_name, version)
 
-    mv = client.get_model_version(_REGISTERED_MODEL, version)
-    artifact_uri = mv.source  # e.g. s3://mlflow/.../artifacts/isolation_forest
+    mv = client.get_model_version(registered_name, version)
+    artifact_uri = mv.source
 
     with tempfile.TemporaryDirectory() as tmpdir:
         local_path = mlflow.artifacts.download_artifacts(artifact_uri=artifact_uri, dst_path=tmpdir)
-        # artifact is a directory; the pickle is model.pkl inside it
         pkl_path = os.path.join(local_path, "model.pkl")
         model = joblib.load(pkl_path)
 
-    logger.info("prediction_service: loaded IsolationForest version %s", version)
     return model, artifact_uri
 
 
-def _get_model() -> Any:
-    """Return cached model, refreshing if TTL has elapsed."""
+def _get_route_model(route_id: str) -> Any:
+    """Return cached model for route, refreshing if TTL elapsed or not loaded."""
+    global _last_load_at, _last_uri
+
     now = time.monotonic()
-    if _cache.model is None or (now - _cache.loaded_at) > MODEL_TTL:
+    entry = _cache.get(route_id)
+
+    if entry is None or entry.model is None or (now - entry.loaded_at) > MODEL_TTL:
+        if entry is None:
+            entry = _RouteModelCache()
+            _cache[route_id] = entry
         try:
-            model, uri = _load_model()
-            _cache.model = model
-            _cache.loaded_at = now
-            _cache.model_uri = uri
-            _cache.last_error = None
+            model, uri = _load_route_model(route_id)
+            entry.model = model
+            entry.loaded_at = now
+            entry.model_uri = uri
+            entry.last_error = None
+            _last_load_at = now
+            _last_uri = uri
         except Exception as exc:
-            _cache.last_error = str(exc)
-            logger.error("prediction_service: failed to load model: %s", exc)
+            entry.last_error = str(exc)
+            logger.warning("prediction_service: no model for route=%s — %s", route_id, exc)
             raise
-    return _cache.model
+
+    return entry.model
 
 
-def _build_feature_matrix(rows: list[dict[str, Any]]) -> tuple[np.ndarray, list[str]]:
-    """Convert Postgres rows → numpy matrix in FEATURE_ORDER.
+def _build_feature_vector(row: dict[str, Any]) -> np.ndarray:
+    """Convert one Postgres row → 1D feature vector."""
+    mean_dur = row.get("mean_duration_minutes") or 0.0
+    last_dur = row.get("last_duration_minutes") or mean_dur
 
-    Returns (X, route_ids) where X[i] corresponds to route_ids[i].
-    """
-    route_ids: list[str] = []
-    vectors: list[list[float]] = []
-
-    for row in rows:
-        mean_dur = row.get("mean_duration_minutes") or 0.0
-        last_dur = row.get("last_duration_minutes") or mean_dur
-
-        duration_zscore      = float(row.get("duration_zscore") or 0.0)
-        heavy_ratio_deviation = float(row.get("mean_heavy_ratio") or 0.0)
-        p95_to_mean_ratio    = (last_dur / mean_dur) if mean_dur > 0 else 1.0
-        observation_count    = float(row.get("observation_count") or 0)
-        max_severe_segments  = 0.0   # not collected in online path
-
-        route_ids.append(row["route_id"])
-        vectors.append([
-            duration_zscore,
-            heavy_ratio_deviation,
-            p95_to_mean_ratio,
-            observation_count,
-            max_severe_segments,
-        ])
-
-    X = np.array(vectors, dtype=np.float64)
-    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-    return X, route_ids
+    return np.array([
+        float(row.get("duration_zscore") or 0.0),
+        float(row.get("mean_heavy_ratio") or 0.0),
+        (last_dur / mean_dur) if mean_dur > 0 else 1.0,
+        float(row.get("observation_count") or 0),
+        0.0,  # max_severe_segments — not collected online
+    ], dtype=np.float64)
 
 
 def score_rows(rows: list[dict[str, Any]]) -> list[PredictionResult]:
-    """Score a list of online feature rows with the IsolationForest model.
+    """Score each row with its route-specific IsolationForest model.
 
-    Args:
-        rows: dicts from asyncpg fetchall (online_route_features columns).
-
-    Returns:
-        List of PredictionResult, one per row, in the same order.
+    Routes with no trained model are scored as non-anomalous (safe default).
     """
     if not rows:
         return []
 
-    model = _get_model()
-    X, route_ids = _build_feature_matrix(rows)
-
-    # sklearn IsolationForest: predict() returns -1 (anomaly) or +1 (normal)
-    raw_labels: np.ndarray = model.predict(X)
-    scores: np.ndarray = model.decision_function(X)
-
     results: list[PredictionResult] = []
-    for i, route_id in enumerate(route_ids):
-        iforest_anomaly = bool(raw_labels[i] == -1)
-        zscore_anomaly  = bool(rows[i].get("is_anomaly", False))
+    for row in rows:
+        route_id = row["route_id"]
+        zscore_anomaly = bool(row.get("is_anomaly", False))
+
+        try:
+            model = _get_route_model(route_id)
+            X = np.nan_to_num(
+                _build_feature_vector(row).reshape(1, -1),
+                nan=0.0, posinf=0.0, neginf=0.0,
+            )
+            iforest_anomaly = bool(model.predict(X)[0] == -1)
+            iforest_score = float(model.decision_function(X)[0])
+        except Exception:
+            # No model for this route yet — fall back to zscore only
+            iforest_anomaly = False
+            iforest_score = 0.0
+
         results.append(PredictionResult(
             route_id=route_id,
-            iforest_score=float(scores[i]),
+            iforest_score=iforest_score,
             iforest_anomaly=iforest_anomaly,
             zscore_anomaly=zscore_anomaly,
             both_anomaly=iforest_anomaly and zscore_anomaly,
@@ -190,3 +182,37 @@ def score_rows(rows: list[dict[str, Any]]) -> list[PredictionResult]:
         len(results), n_if, n_both,
     )
     return results
+
+
+def cache_info() -> dict[str, Any]:
+    """Return aggregate cache status for /predict/model/info."""
+    now = time.monotonic()
+    loaded_routes = [rid for rid, e in _cache.items() if e.model is not None]
+    oldest_load = min((e.loaded_at for e in _cache.values() if e.model is not None), default=0.0)
+    age = (now - oldest_load) if oldest_load else None
+    return {
+        "loaded_routes": len(loaded_routes),
+        "total_routes_seen": len(_cache),
+        "age_seconds": round(age, 1) if age is not None else None,
+        "ttl_seconds": MODEL_TTL,
+        "next_refresh_seconds": round(max(0.0, MODEL_TTL - age), 1) if age is not None else None,
+        "model_uri": _last_uri or None,
+    }
+
+
+def route_cache_status() -> list[dict[str, Any]]:
+    """Return per-route model cache status for /predict/model/routes."""
+    now = time.monotonic()
+    rows: list[dict[str, Any]] = []
+    for route_id, entry in sorted(_cache.items()):
+        loaded = entry.model is not None
+        age = round(now - entry.loaded_at, 1) if loaded else None
+        rows.append({
+            "route_id": route_id,
+            "loaded": loaded,
+            "age_seconds": age,
+            "next_refresh_seconds": round(max(0.0, MODEL_TTL - age), 1) if age is not None else None,
+            "model_uri": entry.model_uri or None,
+            "error": entry.last_error,
+        })
+    return rows

@@ -21,7 +21,7 @@ from urbanpulse_infra.iceberg import get_iceberg_catalog
 from urbanpulse_infra.mlflow import configure_mlflow, get_or_create_experiment
 
 from ml.evaluation.metrics import compute_metrics
-from ml.features.traffic_features import FEATURE_COLUMNS, build_features
+from ml.features.traffic_features import FEATURE_COLUMNS, build_features, list_route_ids
 from ml.models.isolation_forest import IsolationForestDetector
 from ml.models.zscore_detector import ZScoreDetector
 
@@ -136,9 +136,79 @@ class TrainResult:
         self.metrics = metrics
 
 
+def _train_single_route(
+    route_id: str,
+    catalog: object,
+    parent_run_id: str,
+) -> dict[str, object]:
+    """Train one IsolationForest for a single route as a child MLflow run."""
+    features = build_features(catalog, route_id=route_id)  # type: ignore[arg-type]
+    if features is None or features.num_rows < 10:
+        logger.warning("route=%s: not enough data (%d rows) — skipping", route_id, features.num_rows if features else 0)
+        return {"route_id": route_id, "status": "skipped", "sample_count": 0}
+
+    registered_name = f"iforest-{route_id}"
+
+    with mlflow.start_run(
+        run_name=f"route-{route_id}",
+        parent_run_id=parent_run_id,
+        tags={"route_id": route_id, "pipeline": "per-route-iforest"},
+        nested=True,
+    ):
+        mlflow.log_params({
+            "route_id": route_id,
+            "sample_count": features.num_rows,
+            "feature_columns": FEATURE_COLUMNS,
+        })
+
+        # Z-score labels for comparison
+        zscore = ZScoreDetector(threshold=3.0)
+        zscore_labels = zscore.predict(features)
+
+        # Train IsolationForest
+        iforest = IsolationForestDetector(contamination=0.05, n_estimators=100)
+        mlflow.log_params(iforest.get_params())
+        iforest.fit(features)
+        iforest_labels = iforest.predict(features)
+        scores = iforest.decision_scores(features)
+
+        mlflow.log_metrics({
+            "iforest_anomaly_count": int(iforest_labels.sum()),
+            "iforest_anomaly_rate": float(iforest_labels.sum()) / len(iforest_labels),
+            "iforest_score_mean": float(np.mean(scores)),
+            "iforest_score_p95": float(np.percentile(scores, 95)),
+        })
+
+        # Log cross-model metrics
+        metrics = compute_metrics(zscore_labels, iforest_labels)
+        mlflow.log_metrics(metrics)
+
+        # Register model under per-route name
+        X = iforest._to_numpy(features)
+        signature = infer_signature(X, iforest_labels)
+        mlflow.sklearn.log_model(
+            iforest.model,
+            artifact_path="isolation_forest",
+            signature=signature,
+            input_example=X[:5],
+            registered_model_name=registered_name,
+        )
+
+        logger.info(
+            "route=%s: trained %d samples, iforest=%d anomalies, agreement=%.3f",
+            route_id, features.num_rows, int(iforest_labels.sum()), metrics["model_agreement"],
+        )
+        return {
+            "route_id": route_id,
+            "status": "completed",
+            "sample_count": features.num_rows,
+            "iforest_anomalies": int(iforest_labels.sum()),
+        }
+
+
 def run_training() -> TrainResult:
-    """Execute the full training pipeline. Returns a TrainResult."""
-    logger.info("Starting ML training pipeline")
+    """Train one IsolationForest per route. Returns a TrainResult."""
+    logger.info("Starting per-route ML training pipeline")
 
     # --- Setup ---
     configure_mlflow(settings.mlflow_tracking_uri)
@@ -152,103 +222,53 @@ def run_training() -> TrainResult:
         secret_key=settings.minio_secret_key,
     )
 
-    # --- Feature Engineering ---
-    features = build_features(catalog)
-    if features is None or features.num_rows == 0:
-        logger.warning("No features available — ensure gold and baseline tables have data")
+    route_ids = list_route_ids(catalog)
+    if not route_ids:
+        logger.warning("No routes found in gold table — ensure batch pipeline has run")
         return TrainResult(run_id="", status="skipped", sample_count=0, metrics={})
 
-    logger.info("Feature table: %d rows", features.num_rows)
-    unique_routes = len(set(features.column("route_id").to_pylist()))
+    logger.info("Training per-route models for %d routes", len(route_ids))
 
-    # --- Single run with system metrics ---
+    # --- Parent run wraps all per-route child runs ---
     with mlflow.start_run(
-        run_name=f"train-{datetime.now(timezone.utc):%Y%m%d-%H%M}",
+        run_name=f"per-route-train-{datetime.now(timezone.utc):%Y%m%d-%H%M}",
         log_system_metrics=True,
         tags={
-            "mlflow.note.content": (
-                "Traffic anomaly detection training run.\n"
-                f"Data: {features.num_rows} samples, {unique_routes} routes, "
-                f"{len(FEATURE_COLUMNS)} features.\n"
-                "Models: Z-score (threshold) + IsolationForest (unsupervised)."
-            ),
-            "pipeline": "traffic-anomaly-detection",
+            "pipeline": "per-route-iforest",
             "data.source": "gold.traffic_hourly + gold.traffic_baseline",
-            "data.rows": str(features.num_rows),
-            "data.routes": str(unique_routes),
+            "data.routes": str(len(route_ids)),
         },
-    ) as run:
-        # --- Dataset input tracking ---
-        _log_dataset(features)
-
-        # --- Parameters ---
+    ) as parent_run:
         mlflow.log_params({
+            "route_count": len(route_ids),
             "feature_columns": FEATURE_COLUMNS,
             "feature_count": len(FEATURE_COLUMNS),
-            "sample_count": features.num_rows,
-            "unique_routes": unique_routes,
         })
 
-        # --- Feature distribution stats ---
-        _log_feature_stats(features)
+        results = [
+            _train_single_route(rid, catalog, parent_run.info.run_id)
+            for rid in sorted(route_ids)
+        ]
 
-        # --- Z-Score Detector ---
-        zscore = ZScoreDetector(threshold=3.0)
-        mlflow.log_params(zscore.get_params())
-        zscore_labels = zscore.predict(features)
-        mlflow.log_metrics({
-            "zscore_anomaly_count": int(zscore_labels.sum()),
-            "zscore_anomaly_rate": float(zscore_labels.sum()) / len(zscore_labels),
-        })
-
-        # --- Isolation Forest ---
-        iforest = IsolationForestDetector(contamination=0.05, n_estimators=100)
-        mlflow.log_params(iforest.get_params())
-        iforest.fit(features)
-        iforest_labels = iforest.predict(features)
-        scores = iforest.decision_scores(features)
+        completed = [r for r in results if r["status"] == "completed"]
+        total_samples = sum(r["sample_count"] for r in completed)
 
         mlflow.log_metrics({
-            "iforest_anomaly_count": int(iforest_labels.sum()),
-            "iforest_anomaly_rate": float(iforest_labels.sum()) / len(iforest_labels),
-            "iforest_score_mean": float(np.mean(scores)),
-            "iforest_score_std": float(np.std(scores)),
-            "iforest_score_p5": float(np.percentile(scores, 5)),
-            "iforest_score_p95": float(np.percentile(scores, 95)),
+            "routes_trained": len(completed),
+            "routes_skipped": len(results) - len(completed),
+            "total_samples": total_samples,
         })
-
-        # --- Log model with signature + input example ---
-        X = iforest._to_numpy(features)
-        signature = infer_signature(X, iforest_labels)
-        input_example = X[:5]  # first 5 rows as serving reference
-        mlflow.sklearn.log_model(
-            iforest.model,
-            artifact_path="isolation_forest",
-            signature=signature,
-            input_example=input_example,
-            registered_model_name="traffic-anomaly-iforest",
-        )
-
-        # --- Cross-model evaluation ---
-        metrics = compute_metrics(zscore_labels, iforest_labels)
-        mlflow.log_metrics(metrics)
-
-        # --- Diagnostic artifacts ---
-        _log_anomaly_details(features, zscore_labels, iforest_labels)
 
         logger.info(
-            "Training complete — run=%s, zscore=%d, iforest=%d, agreement=%.3f",
-            run.info.run_id,
-            int(zscore_labels.sum()),
-            int(iforest_labels.sum()),
-            metrics["model_agreement"],
+            "Per-route training complete — %d/%d routes trained, %d total samples",
+            len(completed), len(route_ids), total_samples,
         )
 
         return TrainResult(
-            run_id=run.info.run_id,
+            run_id=parent_run.info.run_id,
             status="completed",
-            sample_count=features.num_rows,
-            metrics=metrics,
+            sample_count=total_samples,
+            metrics={"routes_trained": float(len(completed))},
         )
 
 

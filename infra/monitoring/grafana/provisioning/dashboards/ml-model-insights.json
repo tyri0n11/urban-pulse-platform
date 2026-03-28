@@ -1,270 +1,355 @@
 {
   "uid": "ml-model-insights",
   "title": "ML Model Insights",
-  "tags": ["ml", "anomaly", "urban-pulse", "thesis"],
+  "tags": [
+    "ml",
+    "anomaly",
+    "urban-pulse",
+    "thesis"
+  ],
   "timezone": "browser",
   "refresh": "5m",
-  "time": { "from": "now-7d", "to": "now" },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "schemaVersion": 39,
   "panels": [
     {
       "id": 1,
       "type": "stat",
-      "title": "Last Z-Score Anomalies",
-      "description": "Anomalies flagged by Z-score detector in the most recent training run (|zscore| > 3.0)",
-      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Routes Trained (Last Run)",
+      "description": "Number of per-route IsolationForest models trained in the most recent run",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"Training complete\" | pattern `<_>zscore=<zscore>, iforest=<_>` | unwrap zscore | __error__=\"\" [$__range])"
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "last_over_time({service=\"ml-service\"} |= \"Per-route training complete\" | pattern `<_>\u2014 <trained>/<_> routes trained<_>` | unwrap trained | __error__=\"\" [$__range])"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 20 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 15
+              },
+              {
+                "color": "green",
+                "value": 20
+              }
             ]
           },
-          "color": { "mode": "thresholds" }
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Last IsolationForest Anomalies",
-      "description": "Anomalies flagged by IsolationForest in the most recent training run (contamination=5%)",
-      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Total Training Samples (Last Run)",
+      "description": "Total samples across all routes in the most recent training run",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"Training complete\" | pattern `<_>iforest=<iforest>, agreement=<_>` | unwrap iforest | __error__=\"\" [$__range])"
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "last_over_time({service=\"ml-service\"} |= \"Per-route training complete\" | pattern `<_> routes trained, <samples> total samples` | unwrap samples | __error__=\"\" [$__range])"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 20 }
-            ]
-          },
-          "color": { "mode": "thresholds" }
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
         }
       }
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Last Model Agreement",
-      "description": "Fraction of observations where Z-score and IsolationForest agree. Higher = more confident anomaly labels.",
-      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Avg IForest Anomalies per Route",
+      "description": "Average IsolationForest anomaly count across all per-route training runs",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"Training complete\" | pattern `<_>agreement=<agreement>` | unwrap agreement | __error__=\"\" [$__range])"
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "avg_over_time({service=\"ml-service\"} |= \"iforest=\" |= \"anomalies\" | pattern `<_>iforest=<n> anomalies<_>` | unwrap n | __error__=\"\" [$__range])"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1,
+          "unit": "short",
+          "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.7 },
-              { "color": "green", "value": 0.85 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
             ]
           },
-          "color": { "mode": "thresholds" }
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "Training Data Size",
-      "description": "Number of (route × hour) feature rows used in the most recent training run",
-      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Avg Model Agreement",
+      "description": "Average agreement between Z-score and IsolationForest across all routes",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"Feature table:\" | pattern `<_>Feature table: <rows> rows<_>` | unwrap rows | __error__=\"\" [$__range])"
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "avg_over_time({service=\"ml-service\"} |= \"agreement=\" | pattern `<_>agreement=<a>` | unwrap a | __error__=\"\" [$__range])"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": { "mode": "fixed", "fixedColor": "purple" }
-        }
-      }
-    },
-
-    {
-      "id": 5,
-      "type": "timeseries",
-      "title": "Anomaly Counts per Retrain Run",
-      "description": "Z-score vs IsolationForest anomaly counts across training runs over time. Divergence between models warrants investigation.",
-      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"Training complete\" | pattern `<_>zscore=<zscore>, iforest=<_>` | unwrap zscore | __error__=\"\" [1h])",
-          "legendFormat": "Z-Score anomalies"
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
         },
-        {
-          "refId": "B",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"Training complete\" | pattern `<_>iforest=<iforest>, agreement=<_>` | unwrap iforest | __error__=\"\" [1h])",
-          "legendFormat": "IsolationForest anomalies"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "Z-Score anomalies" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "IsolationForest anomalies" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
-        ]
-      }
-    },
-
-    {
-      "id": 6,
-      "type": "timeseries",
-      "title": "Model Agreement Over Time",
-      "description": "Agreement rate between Z-score and IsolationForest per retrain. Low agreement may indicate concept drift or data quality issues.",
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"Training complete\" | pattern `<_>agreement=<agreement>` | unwrap agreement | __error__=\"\" [1h])",
-          "legendFormat": "Agreement rate"
-        }
-      ],
+        "colorMode": "background",
+        "graphMode": "none"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "min": 0,
-          "max": 1,
-          "custom": { "lineWidth": 2, "fillOpacity": 15 },
+          "decimals": 3,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.7 },
-              { "color": "green", "value": 0.85 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.85
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
             ]
           },
-          "color": { "mode": "thresholds" }
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
-
     {
-      "id": 7,
+      "id": 5,
       "type": "timeseries",
-      "title": "Training Data Volume Trend",
-      "description": "Feature rows used per training run — grows as gold layer accumulates historical hours",
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Total IForest Anomalies Over Time (all routes)",
+      "description": "IsolationForest anomaly counts per route across training runs",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"Feature table:\" | pattern `<_>Feature table: <rows> rows<_>` | unwrap rows | __error__=\"\" [1h])",
-          "legendFormat": "Feature rows"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"IsolationForest: trained on\" | pattern `<_>IsolationForest: trained on <samples> samples<_>` | unwrap samples | __error__=\"\" [1h])",
-          "legendFormat": "IsolationForest training samples"
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum_over_time({service=\"ml-service\"} |= \"iforest=\" |= \"anomalies\" | pattern `<_>iforest=<n> anomalies<_>` | unwrap n | __error__=\"\" [$__interval])",
+          "legendFormat": "IForest Anomalies (all routes)"
         }
       ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "Feature rows" }, "properties": [{ "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "IsolationForest training samples" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] }
-        ]
+        "defaults": {
+          "unit": "short"
+        }
       }
     },
-
     {
-      "id": 8,
+      "id": 6,
       "type": "timeseries",
-      "title": "Anomaly Rate (% of observations)",
-      "description": "Percentage of traffic observations classified as anomalous per retrain run",
-      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Avg Model Agreement Over Time (all routes)",
+      "description": "Agreement between Z-score and IsolationForest signals per route",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"ZScoreDetector:\" | pattern `<_>ZScoreDetector: <anomalies>/<total> anomalies<_>` | label_format rate=\"\" | unwrap anomalies | __error__=\"\" [1h]) / last_over_time({service=\"ml-service\"} |= \"ZScoreDetector:\" | pattern `<_>ZScoreDetector: <anomalies>/<total> anomalies<_>` | unwrap total | __error__=\"\" [1h])",
-          "legendFormat": "Z-Score anomaly rate"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"IsolationForest:\" |= \"anomalies\" | pattern `<_>IsolationForest: <anomalies>/<total> anomalies` | label_format rate=\"\" | unwrap anomalies | __error__=\"\" [1h]) / last_over_time({service=\"ml-service\"} |= \"IsolationForest:\" |= \"anomalies\" | pattern `<_>IsolationForest: <anomalies>/<total> anomalies` | unwrap total | __error__=\"\" [1h])",
-          "legendFormat": "IsolationForest anomaly rate"
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "avg_over_time({service=\"ml-service\"} |= \"agreement=\" | pattern `<_>agreement=<a>` | unwrap a | __error__=\"\" [$__interval])",
+          "legendFormat": "Avg Agreement"
         }
       ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
+          "decimals": 3,
           "min": 0,
-          "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "Z-Score anomaly rate" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "IsolationForest anomaly rate" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
-        ]
+          "max": 1
+        }
       }
     },
-
     {
-      "id": 9,
+      "id": 7,
       "type": "logs",
       "title": "ML Training Run Events",
-      "description": "Training completions, feature extraction, and model fit logs",
-      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 10 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "description": "Per-route training logs and parent run summaries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{service=\"ml-service\"} |~ \"(Training complete|Feature table:|IsolationForest:|ZScoreDetector:|Starting ML|build_features)\""
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{service=\"ml-service\"} |~ \"(Per-route training complete|route=zone.*trained|IsolationForest: trained|Starting per-route)\""
         }
       ],
-      "options": { "showTime": true, "showLabels": false, "wrapLogMessage": true, "sortOrder": "Descending" }
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      }
     }
   ]
 }
