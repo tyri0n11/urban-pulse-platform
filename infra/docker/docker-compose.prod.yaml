@@ -563,10 +563,10 @@ services:
       context: ../../v0-urban-pulse-production-UI
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: https://api.yourdomain.com
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: https://api.yourdomain.com
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     networks:
       - urban-pulse-platform
     depends_on:
