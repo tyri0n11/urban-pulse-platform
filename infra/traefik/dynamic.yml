@@ -1,0 +1,16 @@
+# Traefik dynamic configuration
+# Defines shared middlewares referenced by Docker labels as "basicauth@file"
+#
+# Generate htpasswd entry:
+#   Linux:  htpasswd -nb admin yourpassword
+#   Docker: docker run --rm httpd:alpine htpasswd -nb admin yourpassword
+# Paste the output into the users list below (escape $ as $$)
+
+http:
+  middlewares:
+    basicauth:
+      basicAuth:
+        users:
+          # REPLACE THIS — generated with: htpasswd -nb admin yourpassword
+          # Note: all $ in the hash must be doubled ($$) in YAML
+          - "admin:$$apr1$$REPLACE$$ME"

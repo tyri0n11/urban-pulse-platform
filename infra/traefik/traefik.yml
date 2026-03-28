@@ -1,0 +1,39 @@
+# Traefik static configuration
+# Mounted read-only into the Traefik container at /traefik.yml
+
+# Entrypoints
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+
+# Docker provider — reads labels from running containers
+providers:
+  docker:
+    exposedByDefault: false   # opt-in per service with traefik.enable=true
+    network: urban-pulse-platform
+  # File provider for shared middlewares (basicAuth)
+  file:
+    filename: /dynamic.yml
+    watch: true
+
+# Let's Encrypt — free automatic SSL certificates
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: you@yourdomain.com   # replace with your email
+      storage: /acme.json
+      httpChallenge:
+        entryPoint: web
+
+# Traefik dashboard — accessible on LAN at http://<server-ip>:8080 (not exposed to internet)
+api:
+  dashboard: true
+  insecure: true
