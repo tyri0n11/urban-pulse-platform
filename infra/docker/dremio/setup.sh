@@ -4,8 +4,8 @@ set -e
 DREMIO_URL="http://dremio:9047"
 NESSIE_ENDPOINT="http://nessie:19120/api/v2"
 MINIO_ENDPOINT="minio:9000"
-S3_ACCESS_KEY="${NESSIE_S3_ACCESS_KEY:-minioadmin}"
-S3_SECRET_KEY="${NESSIE_S3_SECRET_KEY:-minioadmin}"
+S3_ACCESS_KEY="${NESSIE_S3_ACCESS_KEY:-${MINIO_ROOT_USER:-minioadmin}}"
+S3_SECRET_KEY="${NESSIE_S3_SECRET_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}"
 
 echo "Waiting for Dremio to be ready..."
 until curl -sf "$DREMIO_URL/apiv2/server_status" > /dev/null 2>&1; do
