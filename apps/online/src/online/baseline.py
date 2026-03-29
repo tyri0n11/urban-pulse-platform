@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 class BaselineEntry:
     mean: float
     stddev: float
+    heavy_ratio_mean: float = 0.0
 
 
 def load_baseline() -> dict[str, BaselineEntry]:
@@ -61,7 +62,8 @@ def load_baseline() -> dict[str, BaselineEntry]:
         if row["day_of_week"] == dow and row["hour_of_day"] == hour:
             mean = float(row["baseline_duration_mean"] or 0.0)
             stddev = float(row["baseline_duration_stddev"] or 0.0)
-            result[row["route_id"]] = BaselineEntry(mean=mean, stddev=stddev)
+            heavy_ratio_mean = float(row.get("baseline_heavy_ratio_mean") or 0.0)
+            result[row["route_id"]] = BaselineEntry(mean=mean, stddev=stddev, heavy_ratio_mean=heavy_ratio_mean)
 
     logger.info("baseline: loaded %d entries for dow=%d hour=%d", len(result), dow, hour)
     return result

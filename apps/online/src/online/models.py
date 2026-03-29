@@ -31,7 +31,10 @@ class RouteWindow:
     # End-to-end ingestion lag for the most recent message
     last_ingest_lag_ms: int = 0
 
-    def update(self, duration: float, heavy_ratio: float, ingest_lag_ms: int) -> None:
+    # Max severe segments seen in this window (for IForest feature)
+    max_severe_segments: float = 0.0
+
+    def update(self, duration: float, heavy_ratio: float, severe_segments: float, ingest_lag_ms: int) -> None:
         """Apply one observation, updating all accumulators in-place."""
         self.count += 1
 
@@ -45,6 +48,7 @@ class RouteWindow:
         self.sum_heavy_ratio += heavy_ratio
         self.last_heavy_ratio = heavy_ratio
         self.last_ingest_lag_ms = ingest_lag_ms
+        self.max_severe_segments = max(self.max_severe_segments, severe_segments)
 
     @property
     def stddev_duration(self) -> float:

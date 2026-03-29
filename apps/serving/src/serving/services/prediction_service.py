@@ -6,10 +6,10 @@ Models are cached in-process per route and refreshed every MODEL_TTL seconds.
 
 Feature mapping from online_route_features → IsolationForest input:
     duration_zscore       → duration_zscore         (direct)
-    heavy_ratio_deviation → mean_heavy_ratio         (proxy; no per-route baseline in serving)
-    p95_to_mean_ratio     → last_duration / mean     (proxy; p95 not stored online)
+    heavy_ratio_deviation → heavy_ratio_deviation   (computed by online service vs baseline)
+    p95_to_mean_ratio     → p95_to_mean_ratio       (computed by online service: mean+2σ/mean)
     observation_count     → observation_count        (direct)
-    max_severe_segments   → 0.0                      (not collected online; neutral fill)
+    max_severe_segments   → max_severe_segments     (tracked per window by online service)
 """
 
 import logging
@@ -128,16 +128,18 @@ def _get_route_model(route_id: str) -> Any:
 
 
 def _build_feature_vector(row: dict[str, Any]) -> np.ndarray:
-    """Convert one Postgres row → 1D feature vector."""
-    mean_dur = row.get("mean_duration_minutes") or 0.0
-    last_dur = row.get("last_duration_minutes") or mean_dur
+    """Convert one Postgres row → 1D feature vector.
 
+    Columns heavy_ratio_deviation, p95_to_mean_ratio, max_severe_segments
+    are computed by the online service and stored in Postgres, so training
+    and serving use identical feature definitions.
+    """
     return np.array([
         float(row.get("duration_zscore") or 0.0),
-        float(row.get("mean_heavy_ratio") or 0.0),
-        (last_dur / mean_dur) if mean_dur > 0 else 1.0,
+        float(row.get("heavy_ratio_deviation") or 0.0),
+        float(row.get("p95_to_mean_ratio") or 1.0),
         float(row.get("observation_count") or 0),
-        0.0,  # max_severe_segments — not collected online
+        float(row.get("max_severe_segments") or 0.0),
     ], dtype=np.float64)
 
 

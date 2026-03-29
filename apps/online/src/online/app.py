@@ -40,10 +40,17 @@ CREATE TABLE IF NOT EXISTS online_route_features (
     duration_zscore         DOUBLE PRECISION,
     is_anomaly              BOOLEAN          NOT NULL DEFAULT FALSE,
     last_ingest_lag_ms      BIGINT,
+    heavy_ratio_deviation   DOUBLE PRECISION,
+    p95_to_mean_ratio       DOUBLE PRECISION,
+    max_severe_segments     DOUBLE PRECISION,
     PRIMARY KEY (route_id, window_start)
 );
 CREATE INDEX IF NOT EXISTS idx_online_updated_at
     ON online_route_features (updated_at DESC);
+-- Migrate existing tables: add columns if they don't exist yet
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS heavy_ratio_deviation DOUBLE PRECISION;
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS p95_to_mean_ratio     DOUBLE PRECISION;
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS max_severe_segments   DOUBLE PRECISION;
 """
 
 _UPSERT_SQL = """
@@ -53,14 +60,16 @@ INSERT INTO online_route_features (
     mean_duration_minutes, stddev_duration_minutes, last_duration_minutes,
     mean_heavy_ratio, last_heavy_ratio,
     duration_zscore, is_anomaly,
-    last_ingest_lag_ms
+    last_ingest_lag_ms,
+    heavy_ratio_deviation, p95_to_mean_ratio, max_severe_segments
 ) VALUES (
     %(route_id)s, %(window_start)s, NOW(),
     %(observation_count)s,
     %(mean_duration_minutes)s, %(stddev_duration_minutes)s, %(last_duration_minutes)s,
     %(mean_heavy_ratio)s, %(last_heavy_ratio)s,
     %(duration_zscore)s, %(is_anomaly)s,
-    %(last_ingest_lag_ms)s
+    %(last_ingest_lag_ms)s,
+    %(heavy_ratio_deviation)s, %(p95_to_mean_ratio)s, %(max_severe_segments)s
 )
 ON CONFLICT (route_id, window_start) DO UPDATE SET
     updated_at              = NOW(),
@@ -72,7 +81,10 @@ ON CONFLICT (route_id, window_start) DO UPDATE SET
     last_heavy_ratio        = EXCLUDED.last_heavy_ratio,
     duration_zscore         = EXCLUDED.duration_zscore,
     is_anomaly              = EXCLUDED.is_anomaly,
-    last_ingest_lag_ms      = EXCLUDED.last_ingest_lag_ms
+    last_ingest_lag_ms      = EXCLUDED.last_ingest_lag_ms,
+    heavy_ratio_deviation   = EXCLUDED.heavy_ratio_deviation,
+    p95_to_mean_ratio       = EXCLUDED.p95_to_mean_ratio,
+    max_severe_segments     = EXCLUDED.max_severe_segments
 """
 
 
@@ -87,6 +99,7 @@ class OnlineFeatureProcessor:
     _BASELINE_TTL = 6 * 3600.0
 
     def __init__(self, pg_dsn: str) -> None:
+        self._pg_dsn = pg_dsn
         self._pg = psycopg2.connect(pg_dsn)
         self._pg.autocommit = True
         self._windows: dict[str, RouteWindow] = {}
@@ -98,6 +111,16 @@ class OnlineFeatureProcessor:
         logger.info("online-features: Postgres ready, table ensured")
 
         self._refresh_baseline()
+
+    def _reconnect(self) -> None:
+        """Re-establish Postgres connection after a drop."""
+        try:
+            self._pg.close()
+        except Exception:
+            pass
+        self._pg = psycopg2.connect(self._pg_dsn)
+        self._pg.autocommit = True
+        logger.warning("online-features: reconnected to Postgres")
 
     def _refresh_baseline(self) -> None:
         try:
@@ -138,31 +161,63 @@ class OnlineFeatureProcessor:
             self._windows[obs.route_id] = window
 
         heavy_ratio = obs.congestion.heavy_ratio if obs.congestion else 0.0
-        window.update(obs.duration_minutes, heavy_ratio, lag_ms)
+        severe_segments = float(obs.congestion.severe_segments) if obs.congestion else 0.0
+        window.update(obs.duration_minutes, heavy_ratio, severe_segments, lag_ms)
 
         # Z-score vs batch baseline
         baseline = self._baseline.get(obs.route_id)
         zscore: float | None = None
         is_anomaly = False
+        heavy_ratio_deviation: float = window.mean_heavy_ratio  # fallback: raw ratio
         if baseline and baseline.stddev > 0:
             zscore = (window.mean_duration - baseline.mean) / baseline.stddev
             is_anomaly = abs(zscore) > 3.0
+            heavy_ratio_deviation = window.mean_heavy_ratio - baseline.heavy_ratio_mean
+
+        # p95 approximation: mean + 2*stddev ≈ 97.7th pct under normality
+        # Matches training feature (gold.p95_duration / gold.avg_duration)
+        p95_approx = window.mean_duration + 2.0 * window.stddev_duration
+        p95_to_mean_ratio = (p95_approx / window.mean_duration) if window.mean_duration > 0 else 1.0
 
         window_start = datetime.fromtimestamp(hour_ts, tz=timezone.utc)
-        with self._pg.cursor() as cur:
-            cur.execute(_UPSERT_SQL, {
-                "route_id": obs.route_id,
-                "window_start": window_start,
-                "observation_count": window.count,
-                "mean_duration_minutes": window.mean_duration,
-                "stddev_duration_minutes": window.stddev_duration,
-                "last_duration_minutes": window.last_duration,
-                "mean_heavy_ratio": window.mean_heavy_ratio,
-                "last_heavy_ratio": window.last_heavy_ratio,
-                "duration_zscore": zscore,
-                "is_anomaly": is_anomaly,
-                "last_ingest_lag_ms": lag_ms,
-            })
+        try:
+            with self._pg.cursor() as cur:
+                cur.execute(_UPSERT_SQL, {
+                    "route_id": obs.route_id,
+                    "window_start": window_start,
+                    "observation_count": window.count,
+                    "mean_duration_minutes": window.mean_duration,
+                    "stddev_duration_minutes": window.stddev_duration,
+                    "last_duration_minutes": window.last_duration,
+                    "mean_heavy_ratio": window.mean_heavy_ratio,
+                    "last_heavy_ratio": window.last_heavy_ratio,
+                    "duration_zscore": zscore,
+                    "is_anomaly": is_anomaly,
+                    "last_ingest_lag_ms": lag_ms,
+                    "heavy_ratio_deviation": heavy_ratio_deviation,
+                    "p95_to_mean_ratio": p95_to_mean_ratio,
+                    "max_severe_segments": window.max_severe_segments,
+                })
+        except psycopg2.OperationalError:
+            logger.warning("online-features: Postgres connection lost, reconnecting")
+            self._reconnect()
+            with self._pg.cursor() as cur:
+                cur.execute(_UPSERT_SQL, {
+                    "route_id": obs.route_id,
+                    "window_start": window_start,
+                    "observation_count": window.count,
+                    "mean_duration_minutes": window.mean_duration,
+                    "stddev_duration_minutes": window.stddev_duration,
+                    "last_duration_minutes": window.last_duration,
+                    "mean_heavy_ratio": window.mean_heavy_ratio,
+                    "last_heavy_ratio": window.last_heavy_ratio,
+                    "duration_zscore": zscore,
+                    "is_anomaly": is_anomaly,
+                    "last_ingest_lag_ms": lag_ms,
+                    "heavy_ratio_deviation": heavy_ratio_deviation,
+                    "p95_to_mean_ratio": p95_to_mean_ratio,
+                    "max_severe_segments": window.max_severe_segments,
+                })
 
         logger.info(
             "online-features: route=%s obs=%d zscore=%s lag_ms=%d",
@@ -196,7 +251,7 @@ def main() -> None:
     consumer = Consumer({
         "bootstrap.servers": settings.kafka_bootstrap_servers,
         "group.id": GROUP_ID,
-        "auto.offset.reset": "latest",   # online features: only process new events
+        "auto.offset.reset": "earliest",  # replay from last committed offset on restart
         "enable.auto.commit": False,
     })
     consumer.subscribe([TOPIC])
