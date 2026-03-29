@@ -1,4 +1,4 @@
-.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion bootstrap train \
+.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion bootstrap train pull-model \
         prod prod-down prod-logs prod-status prod-build prod-bootstrap prod-train prod-setup
 
 COMPOSE     = docker compose --env-file .env -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml
@@ -48,6 +48,11 @@ build-serving:
 
 bootstrap:
 	$(COMPOSE) exec batch .venv/bin/python -m batch.bootstrap_cli
+
+pull-model:
+	@echo "Pulling $(OLLAMA_MODEL) into Ollama (this may take a few minutes)..."
+	$(COMPOSE) exec ollama ollama pull $(or $(OLLAMA_MODEL),qwen2.5:3b)
+	@echo "Model ready."
 
 train:
 	@echo "Triggering training via ML service API..."

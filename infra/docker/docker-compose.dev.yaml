@@ -8,6 +8,7 @@ networks:
 volumes:
   redpanda:
   minio-data:
+  ollama-data:
   loki-data:
   grafana-data:
   dremio-data:
@@ -425,6 +426,8 @@ services:
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: qwen2.5:3b
     networks:
       - urban-pulse-platform
     depends_on:
@@ -483,3 +486,20 @@ services:
     depends_on:
       loki:
         condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: on-failure

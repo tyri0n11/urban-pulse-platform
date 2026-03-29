@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from serving.dependencies import postgres_dsn
-from serving.routers import anomalies, health, metrics, online, predict, ws as sse_router
+from serving.routers import anomalies, explain, health, metrics, online, predict, ws as sse_router
 
 
 def create_app() -> FastAPI:
@@ -32,6 +32,7 @@ def create_app() -> FastAPI:
     app.include_router(anomalies.router)
     app.include_router(metrics.router)
     app.include_router(predict.router)
+    app.include_router(explain.router)
     app.include_router(sse_router.router)
 
     @app.on_event("startup")
