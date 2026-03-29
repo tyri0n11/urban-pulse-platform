@@ -560,7 +560,7 @@ services:
   ui:
     container_name: ui-service
     build:
-      context: ../../v0-urban-pulse-production-UI
+      context: ../../v0-urban-pulse-dashboard
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
