@@ -153,12 +153,19 @@ async def congestion_leaderboard(
             last_ingest_lag_ms
         FROM online_route_features
         WHERE duration_zscore IS NOT NULL
+          AND observation_count >= 3
         ORDER BY route_id, updated_at DESC
         """,
     )
-    # Sort by |zscore| in Python (avoids subquery complexity)
+
+    def _clamp_zscore(row: dict[str, Any]) -> dict[str, Any]:
+        z = row.get("duration_zscore")
+        if z is not None:
+            row["duration_zscore"] = max(-30.0, min(30.0, float(z)))
+        return row
+
     sorted_rows = sorted(
-        [_row_to_dict(r) for r in rows],
+        [_clamp_zscore(_row_to_dict(r)) for r in rows],
         key=lambda x: abs(x.get("duration_zscore") or 0),
         reverse=True,
     )
