@@ -47,12 +47,7 @@ build-serving:
 	$(COMPOSE) build serving
 
 bootstrap:
-	$(COMPOSE) build batch
-	$(COMPOSE) up -d minio nessie
-	@echo "Waiting for Nessie to be healthy..."
-	@until docker inspect --format='{{.State.Health.Status}}' nessie 2>/dev/null | grep -q healthy; do sleep 2; done
-	$(COMPOSE) run --rm batch .venv/bin/python -m batch.bootstrap_cli
-	@echo "Bootstrap complete."
+	$(COMPOSE) exec batch .venv/bin/python -m batch.bootstrap_cli
 
 train:
 	@echo "Triggering training via ML service API..."
@@ -102,12 +97,7 @@ prod-status:
 	$(COMPOSE_PROD) ps
 
 prod-bootstrap:
-	$(COMPOSE_PROD) build batch
-	$(COMPOSE_PROD) up -d minio nessie
-	@echo "Waiting for Nessie to be healthy..."
-	@until docker inspect --format='{{.State.Health.Status}}' nessie 2>/dev/null | grep -q healthy; do sleep 2; done
-	$(COMPOSE_PROD) run --rm batch .venv/bin/python -m batch.bootstrap_cli
-	@echo "Bootstrap complete."
+	$(COMPOSE_PROD) exec batch .venv/bin/python -m batch.bootstrap_cli
 
 prod-train:
 	@echo "Triggering training via ML service API..."
