@@ -223,7 +223,7 @@ class OnlineFeatureProcessor:
         zscore: float | None = None
         is_anomaly = False
         heavy_ratio_deviation: float = window.mean_heavy_ratio  # fallback: raw ratio
-        if baseline and baseline.stddev >= 1.0:
+        if baseline and baseline.stddev > 0:
             zscore = (window.mean_duration - baseline.mean) / baseline.stddev
             is_anomaly = abs(zscore) > 3.0
             heavy_ratio_deviation = window.mean_heavy_ratio - baseline.heavy_ratio_mean
