@@ -225,7 +225,7 @@ class OnlineFeatureProcessor:
         heavy_ratio_deviation: float = window.mean_heavy_ratio  # fallback: raw ratio
         if baseline and baseline.stddev > 0:
             zscore = (window.mean_duration - baseline.mean) / baseline.stddev
-            is_anomaly = abs(zscore) > 3.0
+            is_anomaly = abs(zscore) > baseline.zscore_threshold
             heavy_ratio_deviation = window.mean_heavy_ratio - baseline.heavy_ratio_mean
 
         # p95 approximation: mean + 2*stddev ≈ 97.7th pct under normality

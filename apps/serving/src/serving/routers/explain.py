@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from serving.dependencies import get_db
+from serving.geo_knowledge import build_system_prompt
 
 router = APIRouter(prefix="/anomalies", tags=["explain"])
 logger = logging.getLogger(__name__)
@@ -35,15 +36,19 @@ _CACHE_TTL = 900  # 15 min — anomaly context doesn't change fast
 # Simple in-process cache: route_id → (ts, explanation_text)
 _cache: dict[str, tuple[float, str]] = {}
 
-_SYSTEM_PROMPT = (
-    "You are a traffic analyst for Ho Chi Minh City. "
-    "Given real-time traffic sensor data, write a concise 2-3 sentence explanation "
-    "of why a route is anomalous. Be specific about the numbers. "
-    "Do not use bullet points. Do not add greetings or sign-offs."
+# Full system prompt: grounding + geo knowledge + analyst role
+# Build once at import time — geo knowledge is static
+_SYSTEM = build_system_prompt(
+    "You are a traffic analyst for Ho Chi Minh City metro region. "
+    "Given real-time sensor data for an anomalous route, write a concise 2–3 sentence explanation "
+    "of WHY the route is anomalous — reference the specific road names, the type of traffic "
+    "(container trucks, commuters, industrial freight), and what the numbers imply. "
+    "Be specific about the numbers. Do not use bullet points. Do not add greetings or sign-offs."
 )
 
 
-def _build_prompt(row: dict[str, Any], lang: str) -> str:
+def _build_user_prompt(row: dict[str, Any], lang: str) -> str:
+    """Build the user-turn prompt (data only — geo context is in system prompt)."""
     zscore = row.get("duration_zscore")
     heavy_dev = row.get("heavy_ratio_deviation") or 0.0
     p95 = row.get("p95_to_mean_ratio") or 1.0
@@ -57,33 +62,35 @@ def _build_prompt(row: dict[str, Any], lang: str) -> str:
 
     signal = []
     if is_z and is_if:
-        signal.append("BOTH z-score and IsolationForest flagged this route (highest confidence)")
+        signal.append("BOTH z-score and IsolationForest (highest confidence)")
     elif is_z:
-        signal.append("Z-score anomaly only")
+        signal.append("Z-score only (duration spike vs historical baseline)")
     elif is_if:
-        signal.append("IsolationForest anomaly only")
+        signal.append("IsolationForest only (multi-dimensional, duration OK)")
 
-    lang_instruction = "Respond in Vietnamese." if lang == "vi" else "Respond in English."
+    lang_instruction = "Trả lời bằng tiếng Việt." if lang == "vi" else "Respond in English."
 
-    return f"""{_SYSTEM_PROMPT}
+    return (
+        f"=== DỮ LIỆU BẤT THƯỜNG ===\n"
+        f"Tuyến: {origin} → {dest}\n"
+        f"Thời gian di chuyển trung bình hiện tại: {mean_dur:.1f} phút\n"
+        f"Z-Score so với baseline lịch sử: {f'{zscore:+.2f}' if zscore is not None else 'N/A'}\n"
+        f"Độ lệch tỉ lệ xe nặng so với baseline: {heavy_dev:+.1%}\n"
+        f"P95/Mean ratio (độ spike): {p95:.2f}x\n"
+        f"Đoạn đường nặng nhất trong cửa sổ: {severe}\n"
+        f"Số quan sát trong cửa sổ: {obs}\n"
+        f"Tín hiệu bất thường: {', '.join(signal) if signal else 'none'}\n\n"
+        f"{lang_instruction}\n"
+        f"Dựa vào kiến thức về hành lang này và mẫu giao thông điển hình, "
+        f"hãy giải thích trong 2–3 câu tại sao tuyến đường này đang bất thường:"
+    )
 
-Route: {origin} → {dest}
-Current mean travel time: {mean_dur:.1f} min
-Z-Score vs historical baseline: {f"{zscore:.2f}" if zscore is not None else "N/A (no baseline yet)"}
-Heavy vehicle ratio deviation from baseline: {heavy_dev:+.1%}
-P95/Mean ratio (spikiness): {p95:.2f}
-Max severe road segments this hour: {severe}
-Observations this window: {obs}
-Anomaly signals: {", ".join(signal) if signal else "none"}
 
-{lang_instruction}
-Explain why this route is anomalous:"""
-
-
-async def _stream_ollama(prompt: str) -> AsyncGenerator[str, None]:
-    """Stream SSE chunks from Ollama generate API."""
+async def _stream_ollama(system: str, prompt: str) -> AsyncGenerator[str, None]:
+    """Stream SSE chunks from Ollama generate API using separate system field."""
     payload = {
         "model": _MODEL,
+        "system": system,   # separate system context — model weights this strongly
         "prompt": prompt,
         "stream": True,
         "options": {"temperature": 0.3, "num_predict": 200},
@@ -168,13 +175,13 @@ async def explain_anomaly(
                                   headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     row = await _fetch_route_row(route_id, conn)
-    prompt = _build_prompt(row, lang)
+    user_prompt = _build_user_prompt(row, lang)
     logger.info("explain: route=%s lang=%s model=%s", route_id, lang, _MODEL)
 
     full_text: list[str] = []
 
     async def _stream_and_cache() -> AsyncGenerator[str, None]:
-        async for chunk_event in _stream_ollama(prompt):
+        async for chunk_event in _stream_ollama(_SYSTEM, user_prompt):
             yield chunk_event
             try:
                 data = json.loads(chunk_event.removeprefix("data: ").strip())

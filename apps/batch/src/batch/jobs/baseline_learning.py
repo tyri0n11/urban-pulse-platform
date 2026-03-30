@@ -36,6 +36,8 @@ _BASELINE_SCHEMA = Schema(
     NestedField(5, "baseline_duration_stddev", DoubleType()),
     NestedField(6, "baseline_heavy_ratio_mean", DoubleType()),
     NestedField(7, "sample_count", IntegerType()),
+    NestedField(8, "zscore_p95", DoubleType()),
+    NestedField(9, "zscore_p99", DoubleType()),
 )
 
 _BASELINE_ARROW_SCHEMA = pa.schema([
@@ -46,6 +48,8 @@ _BASELINE_ARROW_SCHEMA = pa.schema([
     pa.field("baseline_duration_stddev", pa.float64()),
     pa.field("baseline_heavy_ratio_mean", pa.float64()),
     pa.field("sample_count", pa.int32()),
+    pa.field("zscore_p95", pa.float64()),
+    pa.field("zscore_p99", pa.float64()),
 ])
 
 
@@ -102,25 +106,66 @@ def run() -> int:
         return 0
 
     # Compute baselines with DuckDB
+    # Step 1: compute per-slot stats (mean, stddev, heavy_ratio, count)
+    # Step 2: compute per-row z-scores using those slot stats
+    # Step 3: compute per-route p95/p99 of those z-scores (aggregated across all slots)
+    #         — replicated onto every slot row for the route so the online service
+    #           can do a simple O(1) lookup by (route_id, dow, hour).
     con = duckdb.connect()
     con.register("gold", gold_arrow)
     baseline_arrow = con.execute("""
+        WITH slot_stats AS (
+            SELECT
+                route_id,
+                CAST(EXTRACT(DOW  FROM hour_utc) AS INTEGER) AS day_of_week,
+                CAST(EXTRACT(HOUR FROM hour_utc) AS INTEGER) AS hour_of_day,
+                AVG(avg_duration_minutes)                      AS baseline_duration_mean,
+                GREATEST(
+                    COALESCE(
+                        STDDEV(avg_duration_minutes),
+                        AVG(avg_duration_minutes) * 0.1
+                    ),
+                    1.0
+                )                                              AS baseline_duration_stddev,
+                AVG(avg_heavy_ratio)                           AS baseline_heavy_ratio_mean,
+                CAST(COUNT(*) AS INTEGER)                      AS sample_count
+            FROM gold
+            GROUP BY route_id, day_of_week, hour_of_day
+        ),
+        row_zscores AS (
+            -- z-score for every individual gold row vs its slot baseline
+            SELECT
+                g.route_id,
+                ABS(
+                    (g.avg_duration_minutes - s.baseline_duration_mean)
+                    / s.baseline_duration_stddev
+                ) AS abs_zscore
+            FROM gold g
+            JOIN slot_stats s
+              ON  g.route_id = s.route_id
+              AND CAST(EXTRACT(DOW  FROM g.hour_utc) AS INTEGER) = s.day_of_week
+              AND CAST(EXTRACT(HOUR FROM g.hour_utc) AS INTEGER) = s.hour_of_day
+        ),
+        route_pct AS (
+            SELECT
+                route_id,
+                QUANTILE_CONT(abs_zscore, 0.95) AS zscore_p95,
+                QUANTILE_CONT(abs_zscore, 0.99) AS zscore_p99
+            FROM row_zscores
+            GROUP BY route_id
+        )
         SELECT
-            route_id,
-            CAST(EXTRACT(DOW  FROM hour_utc) AS INTEGER) AS day_of_week,
-            CAST(EXTRACT(HOUR FROM hour_utc) AS INTEGER) AS hour_of_day,
-            AVG(avg_duration_minutes)                      AS baseline_duration_mean,
-            GREATEST(
-                COALESCE(
-                    STDDEV(avg_duration_minutes),
-                    AVG(avg_duration_minutes) * 0.1
-                ),
-                1.0
-            )                                              AS baseline_duration_stddev,
-            AVG(avg_heavy_ratio)                           AS baseline_heavy_ratio_mean,
-            CAST(COUNT(*) AS INTEGER)                      AS sample_count
-        FROM gold
-        GROUP BY route_id, day_of_week, hour_of_day
+            s.route_id,
+            s.day_of_week,
+            s.hour_of_day,
+            s.baseline_duration_mean,
+            s.baseline_duration_stddev,
+            s.baseline_heavy_ratio_mean,
+            s.sample_count,
+            COALESCE(p.zscore_p95, 1.5)  AS zscore_p95,
+            COALESCE(p.zscore_p99, 2.0)  AS zscore_p99
+        FROM slot_stats s
+        LEFT JOIN route_pct p ON s.route_id = p.route_id
     """).arrow()
 
     if not isinstance(baseline_arrow, pa.Table):

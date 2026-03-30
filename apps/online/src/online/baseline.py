@@ -20,6 +20,7 @@ class BaselineEntry:
     mean: float
     stddev: float
     heavy_ratio_mean: float = 0.0
+    zscore_threshold: float = 2.0  # dynamic per-route p99; fallback 2.0
 
 
 def load_baseline() -> dict[str, BaselineEntry]:
@@ -63,7 +64,16 @@ def load_baseline() -> dict[str, BaselineEntry]:
             mean = float(row["baseline_duration_mean"] or 0.0)
             stddev = float(row["baseline_duration_stddev"] or 0.0)
             heavy_ratio_mean = float(row.get("baseline_heavy_ratio_mean") or 0.0)
-            result[row["route_id"]] = BaselineEntry(mean=mean, stddev=stddev, heavy_ratio_mean=heavy_ratio_mean)
+            # zscore_p99: dynamic threshold per-route; fall back to 2.0 if column missing
+            zscore_threshold = float(row.get("zscore_p99") or 2.0)
+            # Enforce a minimum of 1.5 to avoid pathologically low thresholds
+            zscore_threshold = max(zscore_threshold, 1.5)
+            result[row["route_id"]] = BaselineEntry(
+                mean=mean,
+                stddev=stddev,
+                heavy_ratio_mean=heavy_ratio_mean,
+                zscore_threshold=zscore_threshold,
+            )
 
     logger.info("baseline: loaded %d entries for dow=%d hour=%d", len(result), dow, hour)
     return result
