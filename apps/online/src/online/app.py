@@ -110,7 +110,61 @@ class OnlineFeatureProcessor:
             cur.execute(_CREATE_TABLE_SQL)
         logger.info("online-features: Postgres ready, table ensured")
 
+        self._restore_windows()
         self._refresh_baseline()
+
+    def _restore_windows(self) -> None:
+        """Restore in-memory RouteWindow state from Postgres for the current hour.
+
+        Reconstructs Welford accumulators from stored mean/stddev/count so
+        that a restart mid-hour continues accumulating rather than resetting.
+        M2 = stddev² × (count - 1) is the exact inverse of the stddev formula.
+        """
+        hour_ts = _current_hour_ts()
+        window_start = datetime.fromtimestamp(hour_ts, tz=timezone.utc)
+        try:
+            with self._pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT route_id, observation_count,
+                           mean_duration_minutes, stddev_duration_minutes,
+                           last_duration_minutes, mean_heavy_ratio, last_heavy_ratio,
+                           last_ingest_lag_ms, max_severe_segments
+                    FROM online_route_features
+                    WHERE window_start = %s
+                    """,
+                    (window_start,),
+                )
+                rows = cur.fetchall()
+        except Exception as exc:
+            logger.warning("online-features: could not restore windows — %s", exc)
+            return
+
+        restored = 0
+        for row in rows:
+            count = row["observation_count"] or 0
+            if count == 0:
+                continue
+            mean = float(row["mean_duration_minutes"] or 0.0)
+            stddev = float(row["stddev_duration_minutes"] or 0.0)
+            # Reconstruct Welford M2 from stored stddev: M2 = stddev² × (n-1)
+            m2 = (stddev ** 2) * max(count - 1, 0)
+            mean_heavy = float(row["mean_heavy_ratio"] or 0.0)
+            w = RouteWindow(
+                window_start_ts=hour_ts,
+                count=count,
+                mean_duration=mean,
+                M2_duration=m2,
+                last_duration=float(row["last_duration_minutes"] or 0.0),
+                sum_heavy_ratio=mean_heavy * count,
+                last_heavy_ratio=float(row["last_heavy_ratio"] or 0.0),
+                last_ingest_lag_ms=int(row["last_ingest_lag_ms"] or 0),
+                max_severe_segments=float(row["max_severe_segments"] or 0.0),
+            )
+            self._windows[row["route_id"]] = w
+            restored += 1
+
+        logger.info("online-features: restored %d route windows from Postgres", restored)
 
     def _reconnect(self) -> None:
         """Re-establish Postgres connection after a drop."""
@@ -169,7 +223,7 @@ class OnlineFeatureProcessor:
         zscore: float | None = None
         is_anomaly = False
         heavy_ratio_deviation: float = window.mean_heavy_ratio  # fallback: raw ratio
-        if baseline and baseline.stddev > 0:
+        if baseline and baseline.stddev >= 1.0:
             zscore = (window.mean_duration - baseline.mean) / baseline.stddev
             is_anomaly = abs(zscore) > 3.0
             heavy_ratio_deviation = window.mean_heavy_ratio - baseline.heavy_ratio_mean

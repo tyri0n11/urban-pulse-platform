@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-_CYCLE_INTERVAL_S = 300
+_CYCLE_INTERVAL_S = 10
 
 
 def main() -> None:
