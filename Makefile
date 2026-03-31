@@ -95,6 +95,11 @@ prod-down:
 prod-build:
 	$(COMPOSE_PROD) build
 
+prod-update-ui:
+	cd v0-urban-pulse-dashboard && git pull origin main
+	$(COMPOSE_PROD) build --no-cache ui
+	$(COMPOSE_PROD) up -d --force-recreate ui
+
 prod-logs:
 	$(COMPOSE_PROD) logs -f
 
