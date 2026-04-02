@@ -1,5 +1,5 @@
 .env
-
+.env.prod
 # Python
 __pycache__/
 *.pyc
@@ -8,3 +8,12 @@ __pycache__/
 
 # Virtual environment
 .venv/
+
+# Claude Code
+.claude/
+
+# Jupyter
+.ipynb_checkpoints/
+infra/traefik/dynamic.yml
+.DS_Store
+infra/traefik/dynamic.yml

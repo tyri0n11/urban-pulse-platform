@@ -1,0 +1,3983 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "urban-pulse-platform",
+    "languages": [
+      "python",
+      "bash"
+    ],
+    "frameworks": [
+      "Confluent Kafka",
+      "DuckDB",
+      "FastAPI",
+      "MLflow",
+      "Prefect",
+      "Pydantic",
+      "Uvicorn",
+      "pytest",
+      "scikit-learn"
+    ],
+    "description": "A Python monorepo (uv workspace) for a real-time urban data platform monitoring traffic, weather, and air quality in the Ho Chi Minh City metro region.",
+    "analyzedAt": "2026-03-26T09:33:26.322089+00:00",
+    "gitCommitHash": "9d56c8f5f3361ec19eee98d8fc1b301799df4422"
+  },
+  "nodes": [
+    {
+      "id": "file:api.py",
+      "type": "file",
+      "name": "api.py",
+      "filePath": "api.py",
+      "summary": "Quick payload inspector script that fetches a single VietMap Route v3 API response for the Urban Core to Eastern Innovation route, strips verbose fields, and pretty-prints the structure and annotation details.",
+      "tags": [
+        "api-inspector",
+        "vietmap",
+        "debug-script",
+        "traffic-data"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:api.py:strip_verbose",
+      "type": "function",
+      "name": "strip_verbose",
+      "filePath": "api.py",
+      "summary": "Recursively removes large fields (points, instructions, snapped_waypoints) from nested dicts/lists to make API response structure readable.",
+      "tags": [
+        "utility",
+        "json-cleanup"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        44,
+        54
+      ]
+    },
+    {
+      "id": "file:apps/batch/src/batch/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "apps/batch/src/batch/__init__.py",
+      "summary": "Package initializer for the batch processing application. Empty file serving as Python package marker.",
+      "tags": [
+        "package-init",
+        "batch"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/batch/src/batch/bootstrap_cli.py",
+      "type": "file",
+      "name": "bootstrap_cli.py",
+      "filePath": "apps/batch/src/batch/bootstrap_cli.py",
+      "summary": "CLI entry point for running the full medallion bootstrap pipeline (bronze to silver to gold to baseline), with flags to selectively run only silver or gold stages.",
+      "tags": [
+        "cli",
+        "bootstrap",
+        "medallion-pipeline",
+        "entry-point"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:apps/batch/src/batch/bootstrap_cli.py:_bootstrap_silver",
+      "type": "function",
+      "name": "_bootstrap_silver",
+      "filePath": "apps/batch/src/batch/bootstrap_cli.py",
+      "summary": "Backfills silver layer from all bronze data using the Iceberg catalog without recreating the table.",
+      "tags": [
+        "bootstrap",
+        "silver-layer"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        24,
+        35
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/bootstrap_cli.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "apps/batch/src/batch/bootstrap_cli.py",
+      "summary": "Parses CLI arguments and orchestrates the bootstrap pipeline, running silver and/or gold stages based on flags.",
+      "tags": [
+        "cli",
+        "entry-point",
+        "orchestration"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        52,
+        75
+      ]
+    },
+    {
+      "id": "file:apps/batch/src/batch/jobs/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "apps/batch/src/batch/jobs/__init__.py",
+      "summary": "Package initializer for batch jobs subpackage. Empty file serving as Python package marker.",
+      "tags": [
+        "package-init",
+        "batch-jobs"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/batch/src/batch/jobs/baseline_learning.py",
+      "type": "file",
+      "name": "baseline_learning.py",
+      "filePath": "apps/batch/src/batch/jobs/baseline_learning.py",
+      "summary": "Computes traffic baseline statistics (mean/stddev of duration and heavy ratio per route, day-of-week, and hour-of-day) from the gold Iceberg table using DuckDB, writing results to a baseline Iceberg table for anomaly detection.",
+      "tags": [
+        "batch-job",
+        "baseline",
+        "anomaly-detection",
+        "iceberg",
+        "duckdb"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/baseline_learning.py:_ensure_baseline_table",
+      "type": "function",
+      "name": "_ensure_baseline_table",
+      "filePath": "apps/batch/src/batch/jobs/baseline_learning.py",
+      "summary": "Creates the gold namespace and baseline Iceberg table if they do not already exist.",
+      "tags": [
+        "iceberg",
+        "table-management"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        61,
+        76
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/baseline_learning.py:run",
+      "type": "function",
+      "name": "run",
+      "filePath": "apps/batch/src/batch/jobs/baseline_learning.py",
+      "summary": "Main entry point that reads all gold hourly data, computes per-route baseline statistics with DuckDB SQL, and overwrites the baseline Iceberg table.",
+      "tags": [
+        "batch-job",
+        "duckdb",
+        "baseline-compute"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        79,
+        131
+      ]
+    },
+    {
+      "id": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "type": "file",
+      "name": "bronze_to_silver.py",
+      "filePath": "apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "summary": "Promotes raw bronze Parquet traffic data from MinIO to a cleaned, typed silver Iceberg table. Supports three modes: microbatch (current hour upsert), bootstrap (full backfill with deduplication), and backfill (specific time range).",
+      "tags": [
+        "batch-job",
+        "medallion-pipeline",
+        "bronze-to-silver",
+        "iceberg",
+        "data-cleaning"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:_ensure_table",
+      "type": "function",
+      "name": "_ensure_table",
+      "filePath": "apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "summary": "Creates the silver namespace and partitioned Iceberg table (partitioned by day on timestamp_utc) if they do not exist.",
+      "tags": [
+        "iceberg",
+        "table-management"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        77,
+        99
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:_cast_to_arrow_schema",
+      "type": "function",
+      "name": "_cast_to_arrow_schema",
+      "filePath": "apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "summary": "Casts a raw bronze Parquet Arrow table to the silver schema, handling column renames, type coercion (including string-to-timestamp and tz-naive timestamps), and null fallbacks for congestion fields.",
+      "tags": [
+        "data-transformation",
+        "arrow",
+        "schema-casting"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        119,
+        164
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:_read_bronze_parquet",
+      "type": "function",
+      "name": "_read_bronze_parquet",
+      "filePath": "apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "summary": "Reads bronze Parquet files from MinIO via s3fs glob pattern, casting each to the silver schema and concatenating into a single Arrow table.",
+      "tags": [
+        "minio",
+        "parquet",
+        "data-ingestion"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        177,
+        192
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:microbatch",
+      "type": "function",
+      "name": "microbatch",
+      "filePath": "apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "summary": "Upserts the current hour's bronze data into the silver Iceberg table using an idempotent overwrite filter on the timestamp window.",
+      "tags": [
+        "microbatch",
+        "upsert",
+        "iceberg"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        204,
+        246
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:bootstrap",
+      "type": "function",
+      "name": "bootstrap",
+      "filePath": "apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "summary": "Full backfill that promotes all bronze data to silver, deduplicating against existing silver rows by (route_id, timestamp_utc) before appending.",
+      "tags": [
+        "bootstrap",
+        "backfill",
+        "deduplication"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        249,
+        298
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:backfill",
+      "type": "function",
+      "name": "backfill",
+      "filePath": "apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "summary": "Backfills silver for a specific time range by iterating every hour and overwriting the corresponding silver window from bronze partitions.",
+      "tags": [
+        "backfill",
+        "time-range",
+        "iceberg"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        301,
+        360
+      ]
+    },
+    {
+      "id": "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+      "type": "file",
+      "name": "silver_to_gold.py",
+      "filePath": "apps/batch/src/batch/jobs/silver_to_gold.py",
+      "summary": "Aggregates silver traffic data into gold-layer hourly summaries (observation count, avg/p95 duration, congestion ratios) using DuckDB SQL, writing results to a gold Iceberg table. Supports both incremental hourly runs and full bootstrap.",
+      "tags": [
+        "batch-job",
+        "medallion-pipeline",
+        "silver-to-gold",
+        "iceberg",
+        "duckdb"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/silver_to_gold.py:_ensure_gold_table",
+      "type": "function",
+      "name": "_ensure_gold_table",
+      "filePath": "apps/batch/src/batch/jobs/silver_to_gold.py",
+      "summary": "Creates the gold namespace and day-partitioned gold Iceberg table if they do not exist.",
+      "tags": [
+        "iceberg",
+        "table-management"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        88,
+        110
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/silver_to_gold.py:_scan_to_table",
+      "type": "function",
+      "name": "_scan_to_table",
+      "filePath": "apps/batch/src/batch/jobs/silver_to_gold.py",
+      "summary": "Converts PyIceberg scan results to Arrow Table, handling both older (pa.Table) and newer (RecordBatchReader) PyIceberg versions.",
+      "tags": [
+        "compatibility",
+        "arrow",
+        "iceberg"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        113,
+        121
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/silver_to_gold.py:_aggregate_silver",
+      "type": "function",
+      "name": "_aggregate_silver",
+      "filePath": "apps/batch/src/batch/jobs/silver_to_gold.py",
+      "summary": "Aggregates silver Arrow table into gold schema using DuckDB SQL with hourly grouping, computing observation counts, duration stats, and congestion ratios.",
+      "tags": [
+        "duckdb",
+        "aggregation",
+        "data-transformation"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        124,
+        131
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/silver_to_gold.py:run",
+      "type": "function",
+      "name": "run",
+      "filePath": "apps/batch/src/batch/jobs/silver_to_gold.py",
+      "summary": "Incremental hourly job that reads the current hour's silver partition, aggregates it, and upserts into the gold Iceberg table.",
+      "tags": [
+        "incremental",
+        "hourly",
+        "iceberg"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        134,
+        177
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/jobs/silver_to_gold.py:bootstrap",
+      "type": "function",
+      "name": "bootstrap",
+      "filePath": "apps/batch/src/batch/jobs/silver_to_gold.py",
+      "summary": "Full re-aggregate that scans all silver data into gold Iceberg table, overwriting the entire gold table.",
+      "tags": [
+        "bootstrap",
+        "full-scan"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        180,
+        205
+      ]
+    },
+    {
+      "id": "file:apps/batch/src/batch/logger.py",
+      "type": "file",
+      "name": "logger.py",
+      "filePath": "apps/batch/src/batch/logger.py",
+      "summary": "Simple logging wrapper class that provides info, warning, and error methods using Python's standard logging module with a stream handler.",
+      "tags": [
+        "logging",
+        "utility",
+        "wrapper"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:apps/batch/src/batch/logger.py:Logger",
+      "type": "class",
+      "name": "Logger",
+      "filePath": "apps/batch/src/batch/logger.py",
+      "summary": "Thin wrapper around Python's standard logging.Logger that configures a StreamHandler with DEBUG level and timestamp formatting.",
+      "tags": [
+        "logging",
+        "wrapper"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        3,
+        19
+      ]
+    },
+    {
+      "id": "file:apps/batch/src/batch/main.py",
+      "type": "file",
+      "name": "main.py",
+      "filePath": "apps/batch/src/batch/main.py",
+      "summary": "Entry point for the batch processing service that registers and serves Prefect flow deployments (microbatch every 5m, hourly-gold every 1h, retrain every 6h, plus manual bootstrap and backfill).",
+      "tags": [
+        "entry-point",
+        "prefect",
+        "deployment",
+        "scheduling"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:apps/batch/src/batch/main.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "apps/batch/src/batch/main.py",
+      "summary": "Configures and serves five Prefect flow deployments with their respective schedules and concurrency limit of 3.",
+      "tags": [
+        "prefect",
+        "deployment",
+        "scheduling"
+      ],
+      "complexity": "moderate",
+      "lineRange": [
+        17,
+        44
+      ]
+    },
+    {
+      "id": "file:apps/batch/src/batch/pipeline.py",
+      "type": "file",
+      "name": "pipeline.py",
+      "filePath": "apps/batch/src/batch/pipeline.py",
+      "summary": "Defines the medallion batch pipeline as Prefect tasks and flows: microbatch (bronze-to-silver), hourly-gold (silver-to-gold), retrain (baseline + ML trigger), bootstrap (full pipeline), and backfill (time-range silver recovery).",
+      "tags": [
+        "prefect",
+        "pipeline",
+        "orchestration",
+        "medallion-pipeline",
+        "workflow"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:apps/batch/src/batch/pipeline.py:task_trigger_ml_retrain",
+      "type": "function",
+      "name": "task_trigger_ml_retrain",
+      "filePath": "apps/batch/src/batch/pipeline.py",
+      "summary": "Prefect task that triggers ML model retraining via an HTTP POST to the ml-service endpoint.",
+      "tags": [
+        "prefect-task",
+        "ml-retrain",
+        "http"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        36,
+        43
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/pipeline.py:retrain",
+      "type": "function",
+      "name": "retrain",
+      "filePath": "apps/batch/src/batch/pipeline.py",
+      "summary": "Prefect flow that runs baseline recomputation from gold data, then triggers ML service retrain with dependency ordering.",
+      "tags": [
+        "prefect-flow",
+        "retrain",
+        "orchestration"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        71,
+        78
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/pipeline.py:bootstrap",
+      "type": "function",
+      "name": "bootstrap",
+      "filePath": "apps/batch/src/batch/pipeline.py",
+      "summary": "Prefect flow that runs full medallion bootstrap sequentially: bronze-to-silver, then silver-to-gold, then baseline learning.",
+      "tags": [
+        "prefect-flow",
+        "bootstrap",
+        "orchestration"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        107,
+        115
+      ]
+    },
+    {
+      "id": "function:apps/batch/src/batch/pipeline.py:backfill",
+      "type": "function",
+      "name": "backfill",
+      "filePath": "apps/batch/src/batch/pipeline.py",
+      "summary": "Prefect flow for manually backfilling silver data for a missed time range, triggerable from Prefect UI or CLI.",
+      "tags": [
+        "prefect-flow",
+        "backfill"
+      ],
+      "complexity": "simple",
+      "lineRange": [
+        128,
+        141
+      ]
+    },
+    {
+      "id": "file:apps/ingestion/src/ingestion/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "apps/ingestion/src/ingestion/__init__.py",
+      "summary": "Empty package init file that marks the ingestion directory as a Python package.",
+      "tags": [
+        "package-init",
+        "ingestion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ingestion/src/ingestion/logger.py",
+      "type": "file",
+      "name": "logger.py",
+      "filePath": "apps/ingestion/src/ingestion/logger.py",
+      "summary": "Simple logging wrapper class providing info, error, and warning methods with a standard StreamHandler formatter. Appears to be a legacy/unused logger since the rest of the ingestion service uses stdlib logging directly.",
+      "tags": [
+        "logging",
+        "utility",
+        "ingestion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:apps/ingestion/src/ingestion/logger.py:Logger",
+      "type": "class",
+      "name": "Logger",
+      "filePath": "apps/ingestion/src/ingestion/logger.py",
+      "summary": "Thin wrapper around Python's stdlib logging.Logger that configures a StreamHandler with timestamp formatting. Exposes info(), error(), and warning() convenience methods.",
+      "tags": [
+        "logging",
+        "wrapper"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ingestion/src/ingestion/main.py",
+      "type": "file",
+      "name": "main.py",
+      "filePath": "apps/ingestion/src/ingestion/main.py",
+      "summary": "Entry point for the ingestion service. Selects between StdoutPublisher (dry-run mode) and KafkaPublisher based on config, then runs an infinite crawl loop with a 300-second interval between cycles.",
+      "tags": [
+        "entry-point",
+        "ingestion",
+        "service-main",
+        "kafka"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:apps/ingestion/src/ingestion/main.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "apps/ingestion/src/ingestion/main.py",
+      "summary": "Service entry point that initializes the appropriate publisher (stdout or Kafka) based on dry_run setting, then enters an infinite loop calling the orchestrator's run() with a 5-minute sleep between cycles. Ensures publisher.close() on exit.",
+      "tags": [
+        "entry-point",
+        "infinite-loop",
+        "publisher-selection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ingestion/src/ingestion/orchestrator.py",
+      "type": "file",
+      "name": "orchestrator.py",
+      "filePath": "apps/ingestion/src/ingestion/orchestrator.py",
+      "summary": "Orchestrates a single ingestion crawl cycle: loads route definitions from a JSON file, sequentially fetches traffic data for each route via the VietMap API with a 10-second inter-request delay, and publishes observations to the configured publisher.",
+      "tags": [
+        "orchestration",
+        "ingestion",
+        "crawl-cycle",
+        "traffic"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:apps/ingestion/src/ingestion/orchestrator.py:run",
+      "type": "function",
+      "name": "run",
+      "filePath": "apps/ingestion/src/ingestion/orchestrator.py",
+      "summary": "Executes a full crawl cycle: iterates over all configured routes, calls fetch_route for each with error handling per route, publishes results, and sleeps 10s between requests to avoid API rate limits. Logs progress with route index, distance, duration, and API latency.",
+      "tags": [
+        "orchestration",
+        "crawl",
+        "rate-limiting",
+        "error-handling"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ingestion/src/ingestion/publishers/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "apps/ingestion/src/ingestion/publishers/__init__.py",
+      "summary": "Defines the Publisher protocol (interface) for ingestion event publishing and provides a StdoutPublisher implementation for dry-run mode that outputs newline-delimited JSON to stdout. Also exports the TRAFFIC_TOPIC constant.",
+      "tags": [
+        "protocol",
+        "publisher",
+        "dry-run",
+        "ingestion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:apps/ingestion/src/ingestion/publishers/__init__.py:Publisher",
+      "type": "class",
+      "name": "Publisher",
+      "filePath": "apps/ingestion/src/ingestion/publishers/__init__.py",
+      "summary": "Protocol (structural typing interface) defining the contract for ingestion publishers: publish(observation) and close() methods. Used as a dependency injection point for stdout vs Kafka implementations.",
+      "tags": [
+        "protocol",
+        "interface",
+        "publisher"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:apps/ingestion/src/ingestion/publishers/__init__.py:StdoutPublisher",
+      "type": "class",
+      "name": "StdoutPublisher",
+      "filePath": "apps/ingestion/src/ingestion/publishers/__init__.py",
+      "summary": "Dry-run publisher that serializes TrafficRouteObservation to newline-delimited JSON (with topic and key metadata) and prints to stdout. Requires no Kafka infrastructure.",
+      "tags": [
+        "publisher",
+        "dry-run",
+        "stdout",
+        "json"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ingestion/src/ingestion/publishers/kafka.py",
+      "type": "file",
+      "name": "kafka.py",
+      "filePath": "apps/ingestion/src/ingestion/publishers/kafka.py",
+      "summary": "Kafka-backed publisher that produces TrafficRouteObservation messages to the traffic-route-bronze topic with ingest_ts headers via the urbanpulse_infra KafkaProducer client.",
+      "tags": [
+        "kafka",
+        "publisher",
+        "ingestion",
+        "producer"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:apps/ingestion/src/ingestion/publishers/kafka.py:KafkaPublisher",
+      "type": "class",
+      "name": "KafkaPublisher",
+      "filePath": "apps/ingestion/src/ingestion/publishers/kafka.py",
+      "summary": "Concrete publisher that wraps urbanpulse_infra.kafka.KafkaProducer to serialize and produce TrafficRouteObservation payloads to Redpanda/Kafka with millisecond ingest timestamps in message headers.",
+      "tags": [
+        "kafka",
+        "publisher",
+        "producer",
+        "redpanda"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ingestion/src/ingestion/sources/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "apps/ingestion/src/ingestion/sources/__init__.py",
+      "summary": "Empty package init file for the ingestion sources subpackage.",
+      "tags": [
+        "package-init",
+        "ingestion",
+        "sources"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ingestion/src/ingestion/sources/openmeteo.py",
+      "type": "file",
+      "name": "openmeteo.py",
+      "filePath": "apps/ingestion/src/ingestion/sources/openmeteo.py",
+      "summary": "Placeholder/stub file for the Open-Meteo weather data source connector. Currently empty (no implementation).",
+      "tags": [
+        "stub",
+        "weather",
+        "source",
+        "ingestion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ingestion/src/ingestion/sources/vietmap.py",
+      "type": "file",
+      "name": "vietmap.py",
+      "filePath": "apps/ingestion/src/ingestion/sources/vietmap.py",
+      "summary": "VietMap traffic API source connector. Fetches route directions between origin/destination coordinates, parses congestion annotations from the response, and returns typed TrafficRouteObservation domain objects with congestion metrics.",
+      "tags": [
+        "api-client",
+        "vietmap",
+        "traffic",
+        "source",
+        "ingestion",
+        "http"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:apps/ingestion/src/ingestion/sources/vietmap.py:fetch_route",
+      "type": "function",
+      "name": "fetch_route",
+      "filePath": "apps/ingestion/src/ingestion/sources/vietmap.py",
+      "summary": "Fetches a single route from the VietMap directions API using origin/destination coordinates, parses distance, duration, and congestion segment annotations, and returns a fully typed TrafficRouteObservation with UTC timestamp.",
+      "tags": [
+        "api-call",
+        "http",
+        "vietmap",
+        "traffic",
+        "data-fetching"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ingestion/src/ingestion/sources/waqi.py",
+      "type": "file",
+      "name": "waqi.py",
+      "filePath": "apps/ingestion/src/ingestion/sources/waqi.py",
+      "summary": "Placeholder/stub file for the WAQI (World Air Quality Index) data source connector. Currently empty (no implementation).",
+      "tags": [
+        "stub",
+        "air-quality",
+        "source",
+        "ingestion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ingestion/tests/test_orchestrator.py",
+      "type": "file",
+      "name": "test_orchestrator.py",
+      "filePath": "apps/ingestion/tests/test_orchestrator.py",
+      "summary": "Placeholder test file for the ingestion orchestrator. Currently contains only a docstring with no test implementations.",
+      "tags": [
+        "test",
+        "placeholder",
+        "ingestion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ml/src/ml/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "apps/ml/src/ml/__init__.py",
+      "summary": "Package init for the ML app. Empty file that marks the ml directory as a Python package.",
+      "tags": [
+        "init",
+        "ml"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ml/src/ml/api.py",
+      "type": "file",
+      "name": "api.py",
+      "filePath": "apps/ml/src/ml/api.py",
+      "summary": "FastAPI service for triggering and monitoring ML training runs. Exposes /health, /status, and /train endpoints. Uses thread-safe in-memory state to prevent concurrent training and track run status. The /train endpoint synchronously invokes run_training and returns metrics.",
+      "tags": [
+        "api",
+        "fastapi",
+        "ml",
+        "training",
+        "rest"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ml/src/ml/evaluation/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "apps/ml/src/ml/evaluation/__init__.py",
+      "summary": "Package init for the ML evaluation subpackage. Empty marker file.",
+      "tags": [
+        "init",
+        "ml",
+        "evaluation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ml/src/ml/evaluation/metrics.py",
+      "type": "file",
+      "name": "metrics.py",
+      "filePath": "apps/ml/src/ml/evaluation/metrics.py",
+      "summary": "Evaluation metrics for unsupervised anomaly detection. Computes proxy metrics (anomaly rates, inter-model agreement, Jaccard similarity) since there are no ground-truth labels. Output is formatted for MLflow logging.",
+      "tags": [
+        "ml",
+        "evaluation",
+        "metrics",
+        "anomaly-detection",
+        "unsupervised"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ml/src/ml/features/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "apps/ml/src/ml/features/__init__.py",
+      "summary": "Package init for the ML features subpackage. Empty marker file.",
+      "tags": [
+        "init",
+        "ml",
+        "features"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ml/src/ml/features/traffic_features.py",
+      "type": "file",
+      "name": "traffic_features.py",
+      "filePath": "apps/ml/src/ml/features/traffic_features.py",
+      "summary": "Feature engineering pipeline for traffic anomaly detection. Joins gold hourly traffic observations with baseline statistics from Iceberg tables via DuckDB SQL to compute deviation-based features: duration z-score, heavy ratio deviation, p95/mean ratio, observation count, and max severe segments.",
+      "tags": [
+        "ml",
+        "features",
+        "traffic",
+        "duckdb",
+        "iceberg",
+        "feature-engineering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ml/src/ml/models/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "apps/ml/src/ml/models/__init__.py",
+      "summary": "Package init for the ML models subpackage. Empty marker file.",
+      "tags": [
+        "init",
+        "ml",
+        "models"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ml/src/ml/models/isolation_forest.py",
+      "type": "file",
+      "name": "isolation_forest.py",
+      "filePath": "apps/ml/src/ml/models/isolation_forest.py",
+      "summary": "Scikit-learn IsolationForest wrapper for multivariate traffic anomaly detection. Handles feature extraction from Arrow tables, NaN/inf sanitization, model training, prediction (converting sklearn's -1/1 labels to 1/0), decision scoring, and parameter export for MLflow.",
+      "tags": [
+        "ml",
+        "model",
+        "anomaly-detection",
+        "isolation-forest",
+        "sklearn",
+        "unsupervised"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ml/src/ml/models/zscore_detector.py",
+      "type": "file",
+      "name": "zscore_detector.py",
+      "filePath": "apps/ml/src/ml/models/zscore_detector.py",
+      "summary": "Simple threshold-based Z-score anomaly detector. Flags observations as anomalous when the absolute duration z-score exceeds a configurable threshold (default 3.0). No training required -- operates directly on pre-computed feature columns.",
+      "tags": [
+        "ml",
+        "model",
+        "anomaly-detection",
+        "zscore",
+        "threshold",
+        "statistical"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:apps/ml/src/ml/api.py:train",
+      "type": "function",
+      "name": "train",
+      "filePath": "apps/ml/src/ml/api.py",
+      "summary": "POST /train endpoint that synchronously triggers a full ML training run. Uses a threading lock to prevent concurrent training. Returns training status, run ID, sample count, and evaluation metrics. Catches exceptions and updates in-memory state accordingly.",
+      "tags": [
+        "api",
+        "endpoint",
+        "training",
+        "fastapi"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:apps/ml/src/ml/evaluation/metrics.py:compute_metrics",
+      "type": "function",
+      "name": "compute_metrics",
+      "filePath": "apps/ml/src/ml/evaluation/metrics.py",
+      "summary": "Computes evaluation metrics comparing Z-score and IsolationForest detector outputs. Returns anomaly rates for each model, inter-model agreement fraction, and Jaccard similarity of anomaly sets. Handles empty arrays safely.",
+      "tags": [
+        "metrics",
+        "evaluation",
+        "anomaly-detection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:apps/ml/src/ml/features/traffic_features.py:build_features",
+      "type": "function",
+      "name": "build_features",
+      "filePath": "apps/ml/src/ml/features/traffic_features.py",
+      "summary": "Builds the feature table by loading gold and baseline Iceberg tables, joining them via DuckDB SQL on route_id/day_of_week/hour_of_day, and computing deviation-based features. Returns an Arrow table or None if data is missing.",
+      "tags": [
+        "feature-engineering",
+        "iceberg",
+        "duckdb",
+        "traffic"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:apps/ml/src/ml/api.py:TrainResponse",
+      "type": "class",
+      "name": "TrainResponse",
+      "filePath": "apps/ml/src/ml/api.py",
+      "summary": "Pydantic response model for the /train endpoint. Contains training status, MLflow run ID, sample count, and evaluation metrics dictionary.",
+      "tags": [
+        "pydantic",
+        "schema",
+        "api"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:apps/ml/src/ml/api.py:TrainStatus",
+      "type": "class",
+      "name": "TrainStatus",
+      "filePath": "apps/ml/src/ml/api.py",
+      "summary": "Pydantic response model for the /status endpoint. Tracks whether training is currently active, last run ID, status, and start timestamp.",
+      "tags": [
+        "pydantic",
+        "schema",
+        "api"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:apps/ml/src/ml/models/isolation_forest.py:IsolationForestDetector",
+      "type": "class",
+      "name": "IsolationForestDetector",
+      "filePath": "apps/ml/src/ml/models/isolation_forest.py",
+      "summary": "Wrapper around sklearn IsolationForest for traffic anomaly detection. Provides fit/predict/decision_scores methods that accept PyArrow Tables, handles feature column extraction and NaN sanitization, converts sklearn label convention to 0/1, and exposes hyperparameters for MLflow logging.",
+      "tags": [
+        "ml",
+        "model",
+        "isolation-forest",
+        "sklearn",
+        "wrapper"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:apps/ml/src/ml/models/zscore_detector.py:ZScoreDetector",
+      "type": "class",
+      "name": "ZScoreDetector",
+      "filePath": "apps/ml/src/ml/models/zscore_detector.py",
+      "summary": "Threshold-based anomaly detector using pre-computed duration Z-scores. Flags observations exceeding a configurable threshold as anomalies. Stateless -- no training required.",
+      "tags": [
+        "ml",
+        "model",
+        "zscore",
+        "statistical",
+        "threshold"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:apps/ml/src/ml/train.py",
+      "type": "file",
+      "name": "train.py",
+      "summary": "ML training pipeline entry point that reads gold and baseline Iceberg tables, engineers features, trains Z-score and IsolationForest anomaly detectors, and logs all parameters, metrics, artifacts, and models to MLflow.",
+      "tags": [
+        "ml",
+        "training",
+        "mlflow",
+        "anomaly-detection",
+        "iceberg",
+        "sklearn",
+        "pipeline"
+      ],
+      "complexity": "complex",
+      "lines": 258,
+      "filePath": "apps/ml/src/ml/train.py"
+    },
+    {
+      "id": "class::apps/ml/src/ml/train.py::TrainResult",
+      "type": "class",
+      "name": "TrainResult",
+      "summary": "Simple data class holding the outcome of a training run: run_id, status, sample_count, and a metrics dictionary.",
+      "tags": [
+        "data-class",
+        "ml",
+        "result"
+      ],
+      "complexity": "simple",
+      "lines": 10,
+      "filePath": "apps/ml/src/ml/train.py"
+    },
+    {
+      "id": "function::apps/ml/src/ml/train.py::run_training",
+      "type": "function",
+      "name": "run_training",
+      "summary": "Executes the full ML training pipeline: configures MLflow, loads Iceberg catalog, builds features, trains Z-score and IsolationForest detectors, logs dataset/params/metrics/model to MLflow, and returns a TrainResult.",
+      "tags": [
+        "ml",
+        "training",
+        "pipeline",
+        "mlflow",
+        "iceberg",
+        "entry-point"
+      ],
+      "complexity": "complex",
+      "lines": 114,
+      "filePath": "apps/ml/src/ml/train.py"
+    },
+    {
+      "id": "function::apps/ml/src/ml/train.py::_log_feature_stats",
+      "type": "function",
+      "name": "_log_feature_stats",
+      "summary": "Computes per-feature distribution statistics (mean, std, percentiles) and logs them as MLflow metrics and a JSON artifact.",
+      "tags": [
+        "ml",
+        "mlflow",
+        "statistics",
+        "logging"
+      ],
+      "complexity": "moderate",
+      "lines": 31,
+      "filePath": "apps/ml/src/ml/train.py"
+    },
+    {
+      "id": "function::apps/ml/src/ml/train.py::_log_anomaly_details",
+      "type": "function",
+      "name": "_log_anomaly_details",
+      "summary": "Builds per-route anomaly summaries from Z-score and IsolationForest labels, collects sample anomalous observations where both models agree, and logs them as JSON artifacts to MLflow.",
+      "tags": [
+        "ml",
+        "mlflow",
+        "anomaly-detection",
+        "diagnostics"
+      ],
+      "complexity": "moderate",
+      "lines": 43,
+      "filePath": "apps/ml/src/ml/train.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "summary": "Empty package init for the serving app module.",
+      "tags": [
+        "serving",
+        "package-init"
+      ],
+      "complexity": "simple",
+      "lines": 0,
+      "filePath": "apps/serving/src/serving/__init__.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/app.py",
+      "type": "file",
+      "name": "app.py",
+      "summary": "Stub file for FastAPI application factory and middleware configuration (docstring only, not yet implemented).",
+      "tags": [
+        "serving",
+        "fastapi",
+        "stub"
+      ],
+      "complexity": "simple",
+      "lines": 1,
+      "filePath": "apps/serving/src/serving/app.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/dependencies.py",
+      "type": "file",
+      "name": "dependencies.py",
+      "summary": "Stub file for FastAPI dependency injection providers for DB clients and config (docstring only, not yet implemented).",
+      "tags": [
+        "serving",
+        "fastapi",
+        "dependency-injection",
+        "stub"
+      ],
+      "complexity": "simple",
+      "lines": 1,
+      "filePath": "apps/serving/src/serving/dependencies.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/main.py",
+      "type": "file",
+      "name": "main.py",
+      "summary": "Stub file for the serving API uvicorn launcher entry point (docstring only, not yet implemented).",
+      "tags": [
+        "serving",
+        "entry-point",
+        "uvicorn",
+        "stub"
+      ],
+      "complexity": "simple",
+      "lines": 1,
+      "filePath": "apps/serving/src/serving/main.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/routers/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "summary": "Empty package init for the serving routers subpackage.",
+      "tags": [
+        "serving",
+        "routers",
+        "package-init"
+      ],
+      "complexity": "simple",
+      "lines": 0,
+      "filePath": "apps/serving/src/serving/routers/__init__.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/routers/anomalies.py",
+      "type": "file",
+      "name": "anomalies.py",
+      "summary": "Stub file for anomaly query and streaming router endpoints (docstring only, not yet implemented).",
+      "tags": [
+        "serving",
+        "fastapi",
+        "router",
+        "anomaly",
+        "stub"
+      ],
+      "complexity": "simple",
+      "lines": 1,
+      "filePath": "apps/serving/src/serving/routers/anomalies.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/routers/health.py",
+      "type": "file",
+      "name": "health.py",
+      "summary": "Stub file for liveness and readiness health check router endpoints (docstring only, not yet implemented).",
+      "tags": [
+        "serving",
+        "fastapi",
+        "router",
+        "health-check",
+        "stub"
+      ],
+      "complexity": "simple",
+      "lines": 1,
+      "filePath": "apps/serving/src/serving/routers/health.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/routers/metrics.py",
+      "type": "file",
+      "name": "metrics.py",
+      "summary": "Stub file for traffic and environmental metrics router endpoints (docstring only, not yet implemented).",
+      "tags": [
+        "serving",
+        "fastapi",
+        "router",
+        "metrics",
+        "stub"
+      ],
+      "complexity": "simple",
+      "lines": 1,
+      "filePath": "apps/serving/src/serving/routers/metrics.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/schemas/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "summary": "Empty package init for the serving schemas subpackage.",
+      "tags": [
+        "serving",
+        "schemas",
+        "package-init"
+      ],
+      "complexity": "simple",
+      "lines": 0,
+      "filePath": "apps/serving/src/serving/schemas/__init__.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/schemas/anomaly.py",
+      "type": "file",
+      "label": "anomaly.py",
+      "filePath": "apps/serving/src/serving/schemas/anomaly.py",
+      "summary": "Placeholder module for Pydantic request/response schemas for anomaly endpoints. Currently contains only a docstring with no implemented schemas.",
+      "tags": [
+        "serving",
+        "schemas",
+        "pydantic",
+        "anomaly",
+        "stub"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 2,
+        "functions": 0,
+        "classes": 0
+      },
+      "name": "anomaly.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/schemas/traffic.py",
+      "type": "file",
+      "label": "traffic.py",
+      "filePath": "apps/serving/src/serving/schemas/traffic.py",
+      "summary": "Placeholder module for Pydantic request/response schemas for traffic metric endpoints. Currently contains only a docstring with no implemented schemas.",
+      "tags": [
+        "serving",
+        "schemas",
+        "pydantic",
+        "traffic",
+        "stub"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 2,
+        "functions": 0,
+        "classes": 0
+      },
+      "name": "traffic.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/services/__init__.py",
+      "type": "file",
+      "label": "__init__.py",
+      "filePath": "apps/serving/src/serving/services/__init__.py",
+      "summary": "Empty package init for the serving services subpackage.",
+      "tags": [
+        "serving",
+        "services",
+        "init"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 1,
+        "functions": 0,
+        "classes": 0
+      },
+      "name": "__init__.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/services/anomaly_service.py",
+      "type": "file",
+      "label": "anomaly_service.py",
+      "filePath": "apps/serving/src/serving/services/anomaly_service.py",
+      "summary": "Placeholder module for business logic that queries and scores anomaly events. Currently contains only a docstring.",
+      "tags": [
+        "serving",
+        "services",
+        "anomaly",
+        "stub"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 2,
+        "functions": 0,
+        "classes": 0
+      },
+      "name": "anomaly_service.py"
+    },
+    {
+      "id": "file:apps/serving/src/serving/services/prediction_service.py",
+      "type": "file",
+      "label": "prediction_service.py",
+      "filePath": "apps/serving/src/serving/services/prediction_service.py",
+      "summary": "Placeholder module for business logic that serves real-time model predictions. Currently contains only a docstring.",
+      "tags": [
+        "serving",
+        "services",
+        "prediction",
+        "ml",
+        "stub"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 2,
+        "functions": 0,
+        "classes": 0
+      },
+      "name": "prediction_service.py"
+    },
+    {
+      "id": "file:apps/serving/tests/conftest.py",
+      "type": "file",
+      "label": "conftest.py",
+      "filePath": "apps/serving/tests/conftest.py",
+      "summary": "Placeholder pytest fixtures and configuration for serving API tests. Currently contains only a docstring.",
+      "tags": [
+        "serving",
+        "tests",
+        "pytest",
+        "fixtures",
+        "stub"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 2,
+        "functions": 0,
+        "classes": 0
+      },
+      "name": "conftest.py"
+    },
+    {
+      "id": "file:apps/serving/tests/test_routers.py",
+      "type": "file",
+      "label": "test_routers.py",
+      "filePath": "apps/serving/tests/test_routers.py",
+      "summary": "Placeholder test module for serving API routers. Currently contains only a docstring with no test implementations.",
+      "tags": [
+        "serving",
+        "tests",
+        "pytest",
+        "routers",
+        "stub"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 2,
+        "functions": 0,
+        "classes": 0
+      },
+      "name": "test_routers.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/__init__.py",
+      "type": "file",
+      "label": "__init__.py",
+      "filePath": "apps/streaming/src/streaming/__init__.py",
+      "summary": "Empty package init for the streaming application.",
+      "tags": [
+        "streaming",
+        "init"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 1,
+        "functions": 0,
+        "classes": 0
+      },
+      "name": "__init__.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/consumers/kafka.py",
+      "type": "file",
+      "label": "kafka.py",
+      "filePath": "apps/streaming/src/streaming/consumers/kafka.py",
+      "summary": "Kafka consumer wrapper for the streaming app. Encapsulates confluent_kafka Consumer with subscribe, poll, commit, and stop lifecycle methods. Handles partition EOF and error conditions during polling.",
+      "tags": [
+        "streaming",
+        "kafka",
+        "consumer",
+        "confluent-kafka",
+        "messaging"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 48,
+        "functions": 0,
+        "classes": 1
+      },
+      "name": "kafka.py"
+    },
+    {
+      "id": "class::apps/streaming/src/streaming/consumers/kafka.py::KafkaConsumer",
+      "type": "class",
+      "label": "KafkaConsumer",
+      "filePath": "apps/streaming/src/streaming/consumers/kafka.py",
+      "startLine": 6,
+      "endLine": 48,
+      "summary": "Wrapper around confluent_kafka.Consumer providing a simplified interface for subscribing to topics, polling messages with error handling (including partition EOF), manual commit, and graceful shutdown.",
+      "tags": [
+        "streaming",
+        "kafka",
+        "consumer",
+        "wrapper"
+      ],
+      "complexity": "simple",
+      "methods": [
+        "__init__",
+        "start",
+        "poll",
+        "commit",
+        "stop"
+      ],
+      "bases": [],
+      "name": "kafka.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/logger.py",
+      "type": "file",
+      "label": "logger.py",
+      "filePath": "apps/streaming/src/streaming/logger.py",
+      "summary": "Simple logging utility for the streaming app. Wraps Python's standard logging module with a Logger class providing info, error, and warning convenience methods with a consistent format.",
+      "tags": [
+        "streaming",
+        "logging",
+        "utility"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 23,
+        "functions": 0,
+        "classes": 1
+      },
+      "name": "logger.py"
+    },
+    {
+      "id": "class::apps/streaming/src/streaming/logger.py::Logger",
+      "type": "class",
+      "label": "Logger",
+      "filePath": "apps/streaming/src/streaming/logger.py",
+      "startLine": 4,
+      "endLine": 22,
+      "summary": "Lightweight logging wrapper that configures a named Python logger with INFO level, a StreamHandler, and a timestamp-name-level-message formatter. Provides info(), error(), and warning() convenience methods.",
+      "tags": [
+        "streaming",
+        "logging",
+        "utility"
+      ],
+      "complexity": "simple",
+      "methods": [
+        "__init__",
+        "info",
+        "error",
+        "warning"
+      ],
+      "bases": [],
+      "name": "logger.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/main.py",
+      "type": "file",
+      "label": "main.py",
+      "filePath": "apps/streaming/src/streaming/main.py",
+      "language": "python",
+      "loc": 90,
+      "summary": "Entry point for the streaming service. Sets up signal handlers, creates a Kafka consumer for the traffic-route-bronze topic, dispatches messages to the TrafficProcessor, handles dead-letter queue publishing for failed messages, and performs graceful shutdown with buffer draining.",
+      "tags": [
+        "streaming",
+        "kafka-consumer",
+        "entry-point",
+        "dead-letter-queue",
+        "signal-handling"
+      ],
+      "complexity": "moderate",
+      "name": "main.py"
+    },
+    {
+      "id": "function::apps/streaming/src/streaming/main.py::main",
+      "type": "function",
+      "label": "main",
+      "filePath": "apps/streaming/src/streaming/main.py",
+      "startLine": 42,
+      "endLine": 86,
+      "loc": 45,
+      "summary": "Main event loop that creates Kafka consumer and processor instances, polls for messages, dispatches to the appropriate processor, commits offsets on flush, and handles graceful shutdown with buffer draining.",
+      "tags": [
+        "entry-point",
+        "event-loop",
+        "kafka-consumer"
+      ],
+      "complexity": "moderate",
+      "name": "main.py"
+    },
+    {
+      "id": "function::apps/streaming/src/streaming/main.py::_publish_to_dlq",
+      "type": "function",
+      "label": "_publish_to_dlq",
+      "filePath": "apps/streaming/src/streaming/main.py",
+      "startLine": 22,
+      "endLine": 39,
+      "loc": 18,
+      "summary": "Best-effort publish of a failed Kafka message to a dead-letter topic by appending '-dlq' suffix to the original topic name, forwarding the original value with an error header.",
+      "tags": [
+        "error-handling",
+        "dead-letter-queue",
+        "kafka"
+      ],
+      "complexity": "simple",
+      "name": "main.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/processors/__init__.py",
+      "type": "file",
+      "label": "processors/__init__.py",
+      "filePath": "apps/streaming/src/streaming/processors/__init__.py",
+      "language": "python",
+      "loc": 0,
+      "summary": "Empty package init for the streaming processors module.",
+      "tags": [
+        "package-init"
+      ],
+      "complexity": "simple",
+      "name": "__init__.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/processors/air_quality.py",
+      "type": "file",
+      "label": "air_quality.py",
+      "filePath": "apps/streaming/src/streaming/processors/air_quality.py",
+      "language": "python",
+      "loc": 1,
+      "summary": "Placeholder module for a future air quality stream processor. Currently contains only a docstring.",
+      "tags": [
+        "streaming",
+        "placeholder",
+        "air-quality"
+      ],
+      "complexity": "simple",
+      "name": "air_quality.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/processors/base.py",
+      "type": "file",
+      "label": "base.py",
+      "filePath": "apps/streaming/src/streaming/processors/base.py",
+      "language": "python",
+      "loc": 25,
+      "summary": "Defines the abstract BaseProcessor class that all stream processors must implement, providing the process(), on_error(), flush(), and check_time_flush() interface methods.",
+      "tags": [
+        "streaming",
+        "abstract-base-class",
+        "processor-interface"
+      ],
+      "complexity": "simple",
+      "name": "base.py"
+    },
+    {
+      "id": "class::apps/streaming/src/streaming/processors/base.py::BaseProcessor",
+      "type": "class",
+      "label": "BaseProcessor",
+      "filePath": "apps/streaming/src/streaming/processors/base.py",
+      "startLine": 8,
+      "endLine": 25,
+      "loc": 18,
+      "summary": "Abstract base class for stream processors. Defines the contract: process() handles a single Kafka message and returns whether a flush occurred; on_error() for custom error handling; flush() for shutdown buffer draining; check_time_flush() for time-based flushing.",
+      "tags": [
+        "abstract-base-class",
+        "processor-interface",
+        "confluent-kafka"
+      ],
+      "complexity": "simple",
+      "name": "base.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/processors/traffic.py",
+      "type": "file",
+      "label": "traffic.py",
+      "filePath": "apps/streaming/src/streaming/processors/traffic.py",
+      "language": "python",
+      "loc": 131,
+      "summary": "Implements the TrafficProcessor that consumes traffic-route-bronze Kafka messages, validates them as TrafficRouteObservation, buffers records, and flushes to MinIO as partitioned Parquet files. Includes end-to-end latency tracking and time-based flushing.",
+      "tags": [
+        "streaming",
+        "traffic",
+        "parquet",
+        "minio",
+        "buffering",
+        "latency-tracking"
+      ],
+      "complexity": "moderate",
+      "name": "traffic.py"
+    },
+    {
+      "id": "class::apps/streaming/src/streaming/processors/traffic.py::TrafficProcessor",
+      "type": "class",
+      "label": "TrafficProcessor",
+      "filePath": "apps/streaming/src/streaming/processors/traffic.py",
+      "startLine": 20,
+      "endLine": 103,
+      "loc": 84,
+      "summary": "Concrete stream processor for traffic route data. Deserializes Kafka messages into TrafficRouteObservation models, buffers up to 500 records, then flushes as Snappy-compressed Parquet to MinIO bronze layer with time-partitioned paths. Supports both size-based and time-based (30s) flush triggers.",
+      "tags": [
+        "processor",
+        "traffic",
+        "buffering",
+        "parquet",
+        "minio"
+      ],
+      "complexity": "moderate",
+      "name": "traffic.py"
+    },
+    {
+      "id": "function::apps/streaming/src/streaming/processors/traffic.py::_to_parquet",
+      "type": "function",
+      "label": "_to_parquet",
+      "filePath": "apps/streaming/src/streaming/processors/traffic.py",
+      "startLine": 106,
+      "endLine": 131,
+      "loc": 26,
+      "summary": "Converts a list of TrafficRouteObservation Pydantic models into Snappy-compressed Parquet bytes using PyArrow, extracting all traffic fields including congestion metrics.",
+      "tags": [
+        "serialization",
+        "parquet",
+        "pyarrow"
+      ],
+      "complexity": "moderate",
+      "name": "traffic.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/processors/weather.py",
+      "type": "file",
+      "label": "weather.py",
+      "filePath": "apps/streaming/src/streaming/processors/weather.py",
+      "language": "python",
+      "loc": 1,
+      "summary": "Placeholder module for a future weather stream processor. Currently contains only a docstring.",
+      "tags": [
+        "streaming",
+        "placeholder",
+        "weather"
+      ],
+      "complexity": "simple",
+      "name": "weather.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/sinks/__init__.py",
+      "type": "file",
+      "label": "sinks/__init__.py",
+      "filePath": "apps/streaming/src/streaming/sinks/__init__.py",
+      "language": "python",
+      "loc": 0,
+      "summary": "Empty package init for the streaming sinks module.",
+      "tags": [
+        "package-init"
+      ],
+      "complexity": "simple",
+      "name": "__init__.py"
+    },
+    {
+      "id": "file:apps/streaming/src/streaming/sinks/minio.py",
+      "type": "file",
+      "label": "minio.py",
+      "filePath": "apps/streaming/src/streaming/sinks/minio.py",
+      "language": "python",
+      "loc": 39,
+      "summary": "MinIO sink client for the streaming service. Wraps the minio Python SDK to upload raw bytes to MinIO object storage, auto-creating buckets if they do not exist.",
+      "tags": [
+        "streaming",
+        "minio",
+        "object-storage",
+        "sink"
+      ],
+      "complexity": "simple",
+      "name": "minio.py"
+    },
+    {
+      "id": "class::apps/streaming/src/streaming/sinks/minio.py::MinioClient",
+      "type": "class",
+      "label": "MinioClient",
+      "filePath": "apps/streaming/src/streaming/sinks/minio.py",
+      "startLine": 10,
+      "endLine": 39,
+      "loc": 30,
+      "summary": "Simple MinIO client wrapper that initializes a connection using app settings and provides upload_bytes() for writing raw bytes to a bucket, with automatic bucket creation.",
+      "tags": [
+        "minio",
+        "object-storage",
+        "client-wrapper"
+      ],
+      "complexity": "simple",
+      "name": "minio.py"
+    },
+    {
+      "id": "file:infra/docker/dremio/setup.sh",
+      "type": "file",
+      "label": "setup.sh",
+      "filePath": "infra/docker/dremio/setup.sh",
+      "language": "shell",
+      "loc": 150,
+      "summary": "Shell script that bootstraps Dremio configuration: waits for Dremio readiness, creates the admin user, logs in for an auth token, then creates Nessie (Iceberg catalog) and MinIO (S3 direct) data sources with proper S3-compatible endpoint configuration.",
+      "tags": [
+        "infrastructure",
+        "dremio",
+        "nessie",
+        "iceberg",
+        "minio",
+        "setup-script"
+      ],
+      "complexity": "moderate",
+      "name": "setup.sh"
+    },
+    {
+      "id": "function::infra/docker/dremio/setup.sh::create_source",
+      "type": "function",
+      "label": "create_source",
+      "filePath": "infra/docker/dremio/setup.sh",
+      "startLine": 62,
+      "endLine": 89,
+      "loc": 28,
+      "summary": "Helper function that idempotently creates a Dremio data source via the REST API. Checks if the source already exists before attempting creation, reports success or failure with HTTP status.",
+      "tags": [
+        "dremio",
+        "rest-api",
+        "idempotent"
+      ],
+      "complexity": "simple",
+      "name": "setup.sh"
+    },
+    {
+      "id": "file:infra/scripts/healthcheck.sh",
+      "type": "file",
+      "label": "healthcheck.sh",
+      "filePath": "infra/scripts/healthcheck.sh",
+      "language": "shell",
+      "loc": 3,
+      "summary": "Minimal shell script stub for running health checks against platform services.",
+      "tags": [
+        "infrastructure",
+        "health-check"
+      ],
+      "complexity": "simple",
+      "name": "healthcheck.sh"
+    },
+    {
+      "id": "file:infra/scripts/init-minio-buckets.sh",
+      "type": "file",
+      "label": "init-minio-buckets.sh",
+      "filePath": "infra/scripts/init-minio-buckets.sh",
+      "language": "bash",
+      "summary": "Shell script that creates the required MinIO buckets (bronze, silver, gold, mlflow-artifacts) for the data lake medallion architecture.",
+      "tags": [
+        "infrastructure",
+        "minio",
+        "setup",
+        "shell"
+      ],
+      "complexity": "simple",
+      "lines": 3,
+      "name": "init-minio-buckets.sh"
+    },
+    {
+      "id": "file:infra/scripts/init-redpanda-topics.sh",
+      "type": "file",
+      "label": "init-redpanda-topics.sh",
+      "filePath": "infra/scripts/init-redpanda-topics.sh",
+      "language": "bash",
+      "summary": "Shell script that creates the required Redpanda/Kafka topics for the urban-pulse ingestion pipeline.",
+      "tags": [
+        "infrastructure",
+        "redpanda",
+        "kafka",
+        "setup",
+        "shell"
+      ],
+      "complexity": "simple",
+      "lines": 3,
+      "name": "init-redpanda-topics.sh"
+    },
+    {
+      "id": "file:packages/core/src/urbanpulse_core/__init__.py",
+      "type": "file",
+      "label": "urbanpulse_core/__init__.py",
+      "filePath": "packages/core/src/urbanpulse_core/__init__.py",
+      "language": "python",
+      "summary": "Empty package init for the urbanpulse_core shared library, which provides domain models and configuration used across all apps.",
+      "tags": [
+        "core",
+        "package-init"
+      ],
+      "complexity": "simple",
+      "lines": 0,
+      "name": "__init__.py"
+    },
+    {
+      "id": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "file",
+      "label": "config.py",
+      "filePath": "packages/core/src/urbanpulse_core/config.py",
+      "language": "python",
+      "summary": "Central configuration module using pydantic-settings BaseSettings. Defines connection parameters for Kafka/Redpanda, MinIO, Iceberg catalog, MLflow, and API keys. Loads from environment variables and .env files. Exports a singleton 'settings' instance.",
+      "tags": [
+        "core",
+        "config",
+        "pydantic",
+        "settings",
+        "environment"
+      ],
+      "complexity": "simple",
+      "lines": 30,
+      "name": "config.py"
+    },
+    {
+      "id": "class::packages/core/src/urbanpulse_core/config.py::Settings",
+      "type": "class",
+      "label": "Settings",
+      "filePath": "packages/core/src/urbanpulse_core/config.py",
+      "language": "python",
+      "summary": "Pydantic BaseSettings subclass that centralizes all platform configuration: API keys, Kafka bootstrap servers, MinIO credentials, Iceberg catalog URI, and MLflow tracking URI. Supports .env file loading with case-insensitive matching.",
+      "tags": [
+        "config",
+        "pydantic",
+        "settings"
+      ],
+      "complexity": "simple",
+      "startLine": 6,
+      "endLine": 29,
+      "bases": [
+        "BaseSettings"
+      ],
+      "name": "config.py"
+    },
+    {
+      "id": "file:packages/core/src/urbanpulse_core/exceptions.py",
+      "type": "file",
+      "label": "exceptions.py",
+      "filePath": "packages/core/src/urbanpulse_core/exceptions.py",
+      "language": "python",
+      "summary": "Placeholder for the shared exception hierarchy for the urban-pulse platform. Currently contains only a docstring.",
+      "tags": [
+        "core",
+        "exceptions",
+        "stub"
+      ],
+      "complexity": "simple",
+      "lines": 1,
+      "name": "exceptions.py"
+    },
+    {
+      "id": "file:packages/core/src/urbanpulse_core/models/__init__.py",
+      "type": "file",
+      "label": "models/__init__.py",
+      "filePath": "packages/core/src/urbanpulse_core/models/__init__.py",
+      "language": "python",
+      "summary": "Empty package init for the urbanpulse_core.models sub-package containing domain model definitions.",
+      "tags": [
+        "core",
+        "models",
+        "package-init"
+      ],
+      "complexity": "simple",
+      "lines": 0,
+      "name": "__init__.py"
+    },
+    {
+      "id": "file:packages/core/src/urbanpulse_core/models/anomaly.py",
+      "type": "file",
+      "label": "anomaly.py",
+      "filePath": "packages/core/src/urbanpulse_core/models/anomaly.py",
+      "language": "python",
+      "summary": "Placeholder for domain model definitions for detected anomaly events. Currently contains only a docstring.",
+      "tags": [
+        "core",
+        "models",
+        "anomaly",
+        "stub"
+      ],
+      "complexity": "simple",
+      "lines": 1,
+      "name": "anomaly.py"
+    },
+    {
+      "id": "file:packages/core/src/urbanpulse_core/models/traffic.py",
+      "type": "file",
+      "label": "traffic.py",
+      "filePath": "packages/core/src/urbanpulse_core/models/traffic.py",
+      "language": "python",
+      "summary": "Pydantic domain models for traffic route observations. Defines CongestionMetrics (ratios and segment counts) and TrafficRouteObservation (route ID, origin/destination, distance, duration, congestion, timestamp).",
+      "tags": [
+        "core",
+        "models",
+        "traffic",
+        "pydantic",
+        "domain"
+      ],
+      "complexity": "simple",
+      "lines": 25,
+      "name": "traffic.py"
+    },
+    {
+      "id": "class::packages/core/src/urbanpulse_core/models/traffic.py::CongestionMetrics",
+      "type": "class",
+      "label": "CongestionMetrics",
+      "filePath": "packages/core/src/urbanpulse_core/models/traffic.py",
+      "language": "python",
+      "summary": "Pydantic model representing traffic congestion ratios (heavy, moderate, low) and segment counts for a route observation.",
+      "tags": [
+        "model",
+        "pydantic",
+        "traffic",
+        "congestion"
+      ],
+      "complexity": "simple",
+      "startLine": 8,
+      "endLine": 15,
+      "bases": [
+        "BaseModel"
+      ],
+      "name": "traffic.py"
+    },
+    {
+      "id": "class::packages/core/src/urbanpulse_core/models/traffic.py::TrafficRouteObservation",
+      "type": "class",
+      "label": "TrafficRouteObservation",
+      "filePath": "packages/core/src/urbanpulse_core/models/traffic.py",
+      "language": "python",
+      "summary": "Pydantic model for a single traffic route observation with route ID, origin/destination zones, distance, duration, optional congestion metrics, timestamp, and source identifier.",
+      "tags": [
+        "model",
+        "pydantic",
+        "traffic",
+        "observation",
+        "domain"
+      ],
+      "complexity": "simple",
+      "startLine": 16,
+      "endLine": 26,
+      "bases": [
+        "BaseModel"
+      ],
+      "name": "traffic.py"
+    },
+    {
+      "id": "file:packages/core/src/urbanpulse_core/models/weather.py",
+      "type": "file",
+      "label": "weather.py",
+      "filePath": "packages/core/src/urbanpulse_core/models/weather.py",
+      "language": "python",
+      "summary": "Placeholder for domain model definitions for weather observation records. Currently contains only a docstring.",
+      "tags": [
+        "core",
+        "models",
+        "weather",
+        "stub"
+      ],
+      "complexity": "simple",
+      "lines": 1,
+      "name": "weather.py"
+    },
+    {
+      "id": "file:packages/core/src/urbanpulse_core/models/zones.py",
+      "type": "file",
+      "label": "zones.py",
+      "filePath": "packages/core/src/urbanpulse_core/models/zones.py",
+      "language": "python",
+      "summary": "Placeholder for domain model definitions for city zone geometries and metadata. Currently contains only a docstring.",
+      "tags": [
+        "core",
+        "models",
+        "zones",
+        "stub"
+      ],
+      "complexity": "simple",
+      "lines": 1,
+      "name": "zones.py"
+    },
+    {
+      "id": "file:packages/infra-clients/src/urbanpulse_infra/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "packages/infra-clients/src/urbanpulse_infra/__init__.py",
+      "summary": "Package initializer for the urbanpulse_infra shared library exposing infrastructure client factories.",
+      "tags": [
+        "entry-point",
+        "barrel",
+        "infrastructure"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/infra-clients/src/urbanpulse_infra/duckdb.py",
+      "type": "file",
+      "name": "duckdb.py",
+      "filePath": "packages/infra-clients/src/urbanpulse_infra/duckdb.py",
+      "summary": "Factory function for creating DuckDB in-memory connections pre-configured with httpfs and MinIO/S3 credentials for reading Iceberg tables from object storage.",
+      "tags": [
+        "factory",
+        "infrastructure",
+        "data-access",
+        "config"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:packages/infra-clients/src/urbanpulse_infra/duckdb.py:get_duckdb_connection",
+      "type": "function",
+      "name": "get_duckdb_connection",
+      "filePath": "packages/infra-clients/src/urbanpulse_infra/duckdb.py",
+      "lineRange": [
+        6,
+        21
+      ],
+      "summary": "Creates an in-memory DuckDB connection with httpfs loaded and S3/MinIO credentials applied, enabling SQL queries against MinIO-backed Iceberg tables.",
+      "tags": [
+        "factory",
+        "infrastructure",
+        "data-access"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "type": "file",
+      "name": "iceberg.py",
+      "filePath": "packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "summary": "Factory for creating PyIceberg REST catalog clients connected to a Nessie Iceberg catalog endpoint backed by MinIO object storage.",
+      "tags": [
+        "factory",
+        "infrastructure",
+        "data-access",
+        "config"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:packages/infra-clients/src/urbanpulse_infra/iceberg.py:get_iceberg_catalog",
+      "type": "function",
+      "name": "get_iceberg_catalog",
+      "filePath": "packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "lineRange": [
+        8,
+        27
+      ],
+      "summary": "Instantiates a PyIceberg REST catalog pointed at the Nessie Iceberg API, wiring in S3-compatible MinIO storage credentials.",
+      "tags": [
+        "factory",
+        "infrastructure",
+        "data-access"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/infra-clients/src/urbanpulse_infra/kafka.py",
+      "type": "file",
+      "name": "kafka.py",
+      "filePath": "packages/infra-clients/src/urbanpulse_infra/kafka.py",
+      "summary": "Thin wrapper around confluent_kafka.Producer providing a typed KafkaProducer class with produce and flush methods for publishing messages to Redpanda topics.",
+      "tags": [
+        "factory",
+        "infrastructure",
+        "event-handler",
+        "messaging"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:packages/infra-clients/src/urbanpulse_infra/kafka.py:KafkaProducer",
+      "type": "class",
+      "name": "KafkaProducer",
+      "filePath": "packages/infra-clients/src/urbanpulse_infra/kafka.py",
+      "lineRange": [
+        6,
+        30
+      ],
+      "summary": "Typed wrapper around confluent_kafka.Producer with a clean interface for producing keyed, header-annotated messages to Kafka/Redpanda topics.",
+      "tags": [
+        "factory",
+        "infrastructure",
+        "messaging"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/infra-clients/src/urbanpulse_infra/minio.py",
+      "type": "file",
+      "name": "minio.py",
+      "filePath": "packages/infra-clients/src/urbanpulse_infra/minio.py",
+      "summary": "Stub module for MinIO client factory and bucket helper utilities \u2014 not yet implemented.",
+      "tags": [
+        "factory",
+        "infrastructure",
+        "stub"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/infra-clients/src/urbanpulse_infra/mlflow.py",
+      "type": "file",
+      "name": "mlflow.py",
+      "filePath": "packages/infra-clients/src/urbanpulse_infra/mlflow.py",
+      "summary": "Helper functions for configuring the MLflow tracking URI and safely retrieving or creating named experiments.",
+      "tags": [
+        "factory",
+        "infrastructure",
+        "ml",
+        "config"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:packages/infra-clients/src/urbanpulse_infra/mlflow.py:get_or_create_experiment",
+      "type": "function",
+      "name": "get_or_create_experiment",
+      "filePath": "packages/infra-clients/src/urbanpulse_infra/mlflow.py",
+      "lineRange": [
+        11,
+        16
+      ],
+      "summary": "Idempotently returns an MLflow experiment ID by name, creating the experiment if it does not already exist.",
+      "tags": [
+        "factory",
+        "ml",
+        "infrastructure"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/observability/src/urbanpulse_obs/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "packages/observability/src/urbanpulse_obs/__init__.py",
+      "summary": "Package initializer for the urbanpulse_obs shared observability library.",
+      "tags": [
+        "entry-point",
+        "barrel",
+        "observability"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/observability/src/urbanpulse_obs/logging.py",
+      "type": "file",
+      "name": "logging.py",
+      "filePath": "packages/observability/src/urbanpulse_obs/logging.py",
+      "summary": "Stub module for structured logging configuration using structlog or standard logging \u2014 not yet implemented.",
+      "tags": [
+        "observability",
+        "logging",
+        "stub"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/observability/src/urbanpulse_obs/metrics.py",
+      "type": "file",
+      "name": "metrics.py",
+      "filePath": "packages/observability/src/urbanpulse_obs/metrics.py",
+      "summary": "Stub module for Prometheus metrics registration and instrumentation helpers \u2014 not yet implemented.",
+      "tags": [
+        "observability",
+        "metrics",
+        "stub"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:packages/observability/src/urbanpulse_obs/tracing.py",
+      "type": "file",
+      "name": "tracing.py",
+      "filePath": "packages/observability/src/urbanpulse_obs/tracing.py",
+      "summary": "Stub module for OpenTelemetry tracing setup and span helper utilities \u2014 not yet implemented.",
+      "tags": [
+        "observability",
+        "tracing",
+        "stub"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:routes_generator.py",
+      "type": "file",
+      "label": "routes_generator.py",
+      "filePath": "routes_generator.py",
+      "summary": "CLI utility that reads zones.json and generates directed inter-zone routes. For each zone, it iterates over its connects_to list and builds route objects with origin/destination names and anchor coordinates, writing the result to routes.json.",
+      "tags": [
+        "utility",
+        "codegen",
+        "zones",
+        "routes",
+        "json",
+        "cli"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 47,
+        "functions": 1,
+        "classes": 1
+      },
+      "name": "routes_generator.py"
+    },
+    {
+      "id": "class::routes_generator.py::Route",
+      "type": "class",
+      "label": "Route",
+      "filePath": "routes_generator.py",
+      "startLine": 8,
+      "endLine": 14,
+      "summary": "TypedDict schema defining the shape of a route object with route_id, origin, destination, and their anchor coordinates.",
+      "tags": [
+        "typing",
+        "schema",
+        "route"
+      ],
+      "complexity": "simple",
+      "methods": [],
+      "bases": [
+        "TypedDict"
+      ],
+      "name": "routes_generator.py"
+    },
+    {
+      "id": "func::routes_generator.py::generate_routes",
+      "type": "function",
+      "label": "generate_routes",
+      "filePath": "routes_generator.py",
+      "startLine": 16,
+      "endLine": 36,
+      "summary": "Reads zones.json, builds a lookup by zone ID, then iterates each zone's connects_to list to produce directed Route dicts with origin/destination names and anchor coordinates.",
+      "tags": [
+        "utility",
+        "zones",
+        "routes",
+        "generator"
+      ],
+      "complexity": "simple",
+      "name": "routes_generator.py"
+    },
+    {
+      "id": "file:test.py",
+      "type": "file",
+      "label": "test.py",
+      "filePath": "test.py",
+      "summary": "Ad-hoc integration test script for the VietMap traffic routing API. Defines HCMC zone anchors, calls the VietMap directions endpoint for every zone pair, calculates congestion ratios from the response, and appends raw results to routes.json. Uses dotenv for API key management.",
+      "tags": [
+        "test",
+        "vietmap",
+        "api",
+        "traffic",
+        "integration",
+        "adhoc"
+      ],
+      "complexity": "simple",
+      "metrics": {
+        "lines": 141,
+        "functions": 5,
+        "classes": 0
+      },
+      "name": "test.py"
+    },
+    {
+      "id": "func::test.py::_get_a_route",
+      "type": "function",
+      "label": "_get_a_route",
+      "filePath": "test.py",
+      "startLine": 49,
+      "endLine": 66,
+      "summary": "Generator that calls the VietMap route API for a given origin/destination coordinate pair, strips verbose fields (points, instructions), computes congestion ratios, appends raw JSON to routes.json, and yields the response data.",
+      "tags": [
+        "vietmap",
+        "api",
+        "http",
+        "traffic",
+        "generator"
+      ],
+      "complexity": "simple",
+      "name": "test.py"
+    },
+    {
+      "id": "func::test.py::_calc_congestion_for_interval",
+      "type": "function",
+      "label": "_calc_congestion_for_interval",
+      "filePath": "test.py",
+      "startLine": 69,
+      "endLine": 114,
+      "summary": "Calculates congestion statistics (heavy/moderate/low ratios and severe count) for a given point interval within congestion segment data returned by the VietMap API.",
+      "tags": [
+        "traffic",
+        "congestion",
+        "metrics",
+        "calculation"
+      ],
+      "complexity": "simple",
+      "name": "test.py"
+    },
+    {
+      "id": "func::test.py::test_vietmap_api",
+      "type": "function",
+      "label": "test_vietmap_api",
+      "filePath": "test.py",
+      "startLine": 117,
+      "endLine": 127,
+      "summary": "Iterates all zone pairs (excluding self-pairs) and calls _get_a_route for each, printing results. Serves as an integration smoke test for the VietMap directions API across all HCMC zones.",
+      "tags": [
+        "test",
+        "vietmap",
+        "integration",
+        "zones"
+      ],
+      "complexity": "simple",
+      "name": "test.py"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:api.py",
+      "target": "function:api.py:strip_verbose",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/bootstrap_cli.py",
+      "target": "function:apps/batch/src/batch/bootstrap_cli.py:_bootstrap_silver",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/bootstrap_cli.py",
+      "target": "function:apps/batch/src/batch/bootstrap_cli.py:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/baseline_learning.py",
+      "target": "function:apps/batch/src/batch/jobs/baseline_learning.py:_ensure_baseline_table",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/baseline_learning.py",
+      "target": "function:apps/batch/src/batch/jobs/baseline_learning.py:run",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "target": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:_ensure_table",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "target": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:_cast_to_arrow_schema",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "target": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:_read_bronze_parquet",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "target": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:microbatch",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "target": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:bootstrap",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "target": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:backfill",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+      "target": "function:apps/batch/src/batch/jobs/silver_to_gold.py:_ensure_gold_table",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+      "target": "function:apps/batch/src/batch/jobs/silver_to_gold.py:_scan_to_table",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+      "target": "function:apps/batch/src/batch/jobs/silver_to_gold.py:_aggregate_silver",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+      "target": "function:apps/batch/src/batch/jobs/silver_to_gold.py:run",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+      "target": "function:apps/batch/src/batch/jobs/silver_to_gold.py:bootstrap",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/logger.py",
+      "target": "class:apps/batch/src/batch/logger.py:Logger",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/main.py",
+      "target": "function:apps/batch/src/batch/main.py:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/pipeline.py",
+      "target": "function:apps/batch/src/batch/pipeline.py:task_trigger_ml_retrain",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/pipeline.py",
+      "target": "function:apps/batch/src/batch/pipeline.py:retrain",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/pipeline.py",
+      "target": "function:apps/batch/src/batch/pipeline.py:bootstrap",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/pipeline.py",
+      "target": "function:apps/batch/src/batch/pipeline.py:backfill",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/batch/src/batch/bootstrap_cli.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/bootstrap_cli.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/bootstrap_cli.py",
+      "target": "file:apps/batch/src/batch/jobs/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/baseline_learning.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/baseline_learning.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/main.py",
+      "target": "file:apps/batch/src/batch/pipeline.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/pipeline.py",
+      "target": "file:apps/batch/src/batch/jobs/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/batch/src/batch/bootstrap_cli.py",
+      "target": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/batch/src/batch/bootstrap_cli.py",
+      "target": "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/batch/src/batch/bootstrap_cli.py",
+      "target": "file:apps/batch/src/batch/jobs/baseline_learning.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/batch/src/batch/pipeline.py",
+      "target": "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/batch/src/batch/pipeline.py",
+      "target": "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/batch/src/batch/pipeline.py",
+      "target": "file:apps/batch/src/batch/jobs/baseline_learning.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/batch/src/batch/main.py",
+      "target": "file:apps/batch/src/batch/pipeline.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "function:apps/batch/src/batch/pipeline.py:retrain",
+      "target": "function:apps/batch/src/batch/jobs/baseline_learning.py:run",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:apps/batch/src/batch/pipeline.py:bootstrap",
+      "target": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:bootstrap",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:apps/batch/src/batch/pipeline.py:backfill",
+      "target": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:backfill",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:apps/batch/src/batch/bootstrap_cli.py:_bootstrap_silver",
+      "target": "function:apps/batch/src/batch/jobs/bronze_to_silver.py:bootstrap",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:apps/batch/src/batch/bootstrap_cli.py:main",
+      "target": "function:apps/batch/src/batch/bootstrap_cli.py:_bootstrap_silver",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/logger.py",
+      "target": "class:apps/ingestion/src/ingestion/logger.py:Logger",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/main.py",
+      "target": "function:apps/ingestion/src/ingestion/main.py:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/orchestrator.py",
+      "target": "function:apps/ingestion/src/ingestion/orchestrator.py:run",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/__init__.py",
+      "target": "class:apps/ingestion/src/ingestion/publishers/__init__.py:Publisher",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/__init__.py",
+      "target": "class:apps/ingestion/src/ingestion/publishers/__init__.py:StdoutPublisher",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/kafka.py",
+      "target": "class:apps/ingestion/src/ingestion/publishers/kafka.py:KafkaPublisher",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/sources/vietmap.py",
+      "target": "function:apps/ingestion/src/ingestion/sources/vietmap.py:fetch_route",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/main.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/main.py",
+      "target": "file:apps/ingestion/src/ingestion/orchestrator.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/main.py",
+      "target": "file:apps/ingestion/src/ingestion/publishers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/main.py",
+      "target": "file:apps/ingestion/src/ingestion/publishers/kafka.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/orchestrator.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/orchestrator.py",
+      "target": "file:apps/ingestion/src/ingestion/publishers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/orchestrator.py",
+      "target": "file:apps/ingestion/src/ingestion/sources/vietmap.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/__init__.py",
+      "target": "file:packages/core/src/urbanpulse_core/models/traffic.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/kafka.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/kafka.py",
+      "target": "file:packages/core/src/urbanpulse_core/models/traffic.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/kafka.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/kafka.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/kafka.py",
+      "target": "file:apps/ingestion/src/ingestion/publishers/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/sources/vietmap.py",
+      "target": "file:packages/core/src/urbanpulse_core/models/traffic.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "function:apps/ingestion/src/ingestion/main.py:main",
+      "target": "function:apps/ingestion/src/ingestion/orchestrator.py:run",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:apps/ingestion/src/ingestion/orchestrator.py:run",
+      "target": "function:apps/ingestion/src/ingestion/sources/vietmap.py:fetch_route",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:apps/ingestion/src/ingestion/main.py:main",
+      "target": "class:apps/ingestion/src/ingestion/publishers/__init__.py:StdoutPublisher",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:apps/ingestion/src/ingestion/main.py:main",
+      "target": "class:apps/ingestion/src/ingestion/publishers/kafka.py:KafkaPublisher",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/main.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/orchestrator.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/kafka.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/kafka.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/sources/vietmap.py",
+      "target": "file:packages/core/src/urbanpulse_core/models/traffic.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/main.py",
+      "target": "function:apps/ingestion/src/ingestion/main.py:main",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/orchestrator.py",
+      "target": "function:apps/ingestion/src/ingestion/orchestrator.py:run",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/__init__.py",
+      "target": "class:apps/ingestion/src/ingestion/publishers/__init__.py:Publisher",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/__init__.py",
+      "target": "class:apps/ingestion/src/ingestion/publishers/__init__.py:StdoutPublisher",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/publishers/kafka.py",
+      "target": "class:apps/ingestion/src/ingestion/publishers/kafka.py:KafkaPublisher",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/sources/vietmap.py",
+      "target": "function:apps/ingestion/src/ingestion/sources/vietmap.py:fetch_route",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ingestion/src/ingestion/logger.py",
+      "target": "class:apps/ingestion/src/ingestion/logger.py:Logger",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ingestion/tests/test_orchestrator.py",
+      "target": "file:apps/ingestion/src/ingestion/orchestrator.py",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:apps/ml/src/ml/api.py",
+      "target": "file:apps/ml/src/ml/train.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:apps/ml/src/ml/api.py",
+      "target": "function:apps/ml/src/ml/api.py:train",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ml/src/ml/api.py",
+      "target": "class:apps/ml/src/ml/api.py:TrainResponse",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ml/src/ml/api.py",
+      "target": "class:apps/ml/src/ml/api.py:TrainStatus",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "function:apps/ml/src/ml/api.py:train",
+      "target": "file:apps/ml/src/ml/train.py",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ml/src/ml/evaluation/metrics.py",
+      "target": "function:apps/ml/src/ml/evaluation/metrics.py:compute_metrics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ml/src/ml/evaluation/metrics.py",
+      "target": "function:apps/ml/src/ml/evaluation/metrics.py:compute_metrics",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ml/src/ml/features/traffic_features.py",
+      "target": "function:apps/ml/src/ml/features/traffic_features.py:build_features",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ml/src/ml/features/traffic_features.py",
+      "target": "function:apps/ml/src/ml/features/traffic_features.py:build_features",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ml/src/ml/features/traffic_features.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ml/src/ml/models/isolation_forest.py",
+      "target": "class:apps/ml/src/ml/models/isolation_forest.py:IsolationForestDetector",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ml/src/ml/models/isolation_forest.py",
+      "target": "class:apps/ml/src/ml/models/isolation_forest.py:IsolationForestDetector",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ml/src/ml/models/isolation_forest.py",
+      "target": "file:apps/ml/src/ml/features/traffic_features.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "class:apps/ml/src/ml/models/isolation_forest.py:IsolationForestDetector",
+      "target": "file:apps/ml/src/ml/features/traffic_features.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ml/src/ml/models/zscore_detector.py",
+      "target": "class:apps/ml/src/ml/models/zscore_detector.py:ZScoreDetector",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:apps/ml/src/ml/models/zscore_detector.py",
+      "target": "class:apps/ml/src/ml/models/zscore_detector.py:ZScoreDetector",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:apps/ml/src/ml/models/zscore_detector.py",
+      "target": "file:apps/ml/src/ml/features/traffic_features.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "class:apps/ml/src/ml/models/zscore_detector.py:ZScoreDetector",
+      "target": "file:apps/ml/src/ml/features/traffic_features.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ml/src/ml/api.py",
+      "target": "file:apps/ml/src/ml/models/isolation_forest.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ml/src/ml/api.py",
+      "target": "file:apps/ml/src/ml/models/zscore_detector.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ml/src/ml/api.py",
+      "target": "file:apps/ml/src/ml/evaluation/metrics.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ml/src/ml/api.py",
+      "target": "file:apps/ml/src/ml/features/traffic_features.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports settings from urbanpulse_core.config"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports get_iceberg_catalog from urbanpulse_infra.iceberg"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/mlflow.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports configure_mlflow, get_or_create_experiment from urbanpulse_infra.mlflow"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "file:apps/ml/src/ml/evaluation/metrics.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports compute_metrics from ml.evaluation.metrics"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "file:apps/ml/src/ml/features/traffic_features.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports FEATURE_COLUMNS, build_features from ml.features.traffic_features"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "file:apps/ml/src/ml/models/isolation_forest.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports IsolationForestDetector from ml.models.isolation_forest"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "file:apps/ml/src/ml/models/zscore_detector.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports ZScoreDetector from ml.models.zscore_detector"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "class::apps/ml/src/ml/train.py::TrainResult",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "function::apps/ml/src/ml/train.py::run_training",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "function::apps/ml/src/ml/train.py::_log_feature_stats",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "function::apps/ml/src/ml/train.py::_log_anomaly_details",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "function::apps/ml/src/ml/train.py::run_training",
+      "target": "function::apps/ml/src/ml/train.py::_log_feature_stats",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "run_training calls _log_feature_stats to log feature distribution stats"
+    },
+    {
+      "source": "function::apps/ml/src/ml/train.py::run_training",
+      "target": "function::apps/ml/src/ml/train.py::_log_anomaly_details",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "run_training calls _log_anomaly_details to log diagnostic artifacts"
+    },
+    {
+      "source": "function::apps/ml/src/ml/train.py::run_training",
+      "target": "class::apps/ml/src/ml/train.py::TrainResult",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "run_training constructs TrainResult instances"
+    },
+    {
+      "source": "function::apps/ml/src/ml/train.py::run_training",
+      "target": "file:apps/ml/src/ml/features/traffic_features.py",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "calls build_features to engineer features from Iceberg tables"
+    },
+    {
+      "source": "function::apps/ml/src/ml/train.py::run_training",
+      "target": "file:apps/ml/src/ml/evaluation/metrics.py",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "calls compute_metrics for cross-model evaluation"
+    },
+    {
+      "source": "function::apps/ml/src/ml/train.py::run_training",
+      "target": "file:apps/ml/src/ml/models/isolation_forest.py",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "instantiates and uses IsolationForestDetector"
+    },
+    {
+      "source": "function::apps/ml/src/ml/train.py::run_training",
+      "target": "file:apps/ml/src/ml/models/zscore_detector.py",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "instantiates and uses ZScoreDetector"
+    },
+    {
+      "source": "function::apps/ml/src/ml/train.py::run_training",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "calls get_iceberg_catalog to connect to data catalog"
+    },
+    {
+      "source": "function::apps/ml/src/ml/train.py::run_training",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/mlflow.py",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "calls configure_mlflow and get_or_create_experiment"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "detail": "uses settings for MLflow URI, MinIO credentials, and Iceberg catalog URI"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "detail": "depends on Iceberg catalog client for data access"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/mlflow.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "detail": "depends on MLflow client for experiment tracking setup"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "function::apps/ml/src/ml/train.py::run_training",
+      "type": "exports",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "exports run_training as the main public entry point"
+    },
+    {
+      "source": "file:apps/ml/src/ml/train.py",
+      "target": "class::apps/ml/src/ml/train.py::TrainResult",
+      "type": "exports",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "exports TrainResult class for callers to inspect training outcomes"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/consumers/kafka.py",
+      "target": "file:apps/streaming/src/streaming/logger.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "metadata": {
+        "specifiers": [
+          "Logger"
+        ],
+        "line": 3
+      }
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/consumers/kafka.py",
+      "target": "class::apps/streaming/src/streaming/consumers/kafka.py::KafkaConsumer",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/consumers/kafka.py",
+      "target": "class::apps/streaming/src/streaming/consumers/kafka.py::KafkaConsumer",
+      "type": "exports",
+      "weight": 0.8,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/logger.py",
+      "target": "class::apps/streaming/src/streaming/logger.py::Logger",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/logger.py",
+      "target": "class::apps/streaming/src/streaming/logger.py::Logger",
+      "type": "exports",
+      "weight": 0.8,
+      "direction": "forward"
+    },
+    {
+      "source": "class::apps/streaming/src/streaming/consumers/kafka.py::KafkaConsumer",
+      "target": "class::apps/streaming/src/streaming/logger.py::Logger",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "metadata": {
+        "reason": "KafkaConsumer instantiates Logger in __init__"
+      }
+    },
+    {
+      "source": "file:apps/serving/tests/test_routers.py",
+      "target": "file:apps/serving/src/serving/routers/anomalies.py",
+      "type": "tested_by",
+      "weight": 0.5,
+      "direction": "forward",
+      "metadata": {
+        "reason": "Test module for serving API routers"
+      }
+    },
+    {
+      "source": "file:apps/serving/tests/test_routers.py",
+      "target": "file:apps/serving/src/serving/routers/health.py",
+      "type": "tested_by",
+      "weight": 0.5,
+      "direction": "forward",
+      "metadata": {
+        "reason": "Test module for serving API routers"
+      }
+    },
+    {
+      "source": "file:apps/serving/tests/test_routers.py",
+      "target": "file:apps/serving/src/serving/routers/metrics.py",
+      "type": "tested_by",
+      "weight": 0.5,
+      "direction": "forward",
+      "metadata": {
+        "reason": "Test module for serving API routers"
+      }
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/main.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports settings"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/main.py",
+      "target": "file:packages/infra-clients/src/urbanpulse_infra/kafka.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports KafkaProducer"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/main.py",
+      "target": "file:apps/streaming/src/streaming/consumers/kafka.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports KafkaConsumer"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/main.py",
+      "target": "file:apps/streaming/src/streaming/logger.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports Logger"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/main.py",
+      "target": "file:apps/streaming/src/streaming/processors/traffic.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports TrafficProcessor"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/main.py",
+      "target": "file:apps/streaming/src/streaming/sinks/minio.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports MinioClient"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/main.py",
+      "target": "function::apps/streaming/src/streaming/main.py::main",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/main.py",
+      "target": "function::apps/streaming/src/streaming/main.py::_publish_to_dlq",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "function::apps/streaming/src/streaming/main.py::main",
+      "target": "class::apps/streaming/src/streaming/processors/traffic.py::TrafficProcessor",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "instantiates TrafficProcessor and calls process(), check_time_flush(), flush()"
+    },
+    {
+      "source": "function::apps/streaming/src/streaming/main.py::main",
+      "target": "class::apps/streaming/src/streaming/sinks/minio.py::MinioClient",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "instantiates MinioClient and passes to processors"
+    },
+    {
+      "source": "function::apps/streaming/src/streaming/main.py::main",
+      "target": "function::apps/streaming/src/streaming/main.py::_publish_to_dlq",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "calls _publish_to_dlq on processing errors"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/processors/base.py",
+      "target": "class::apps/streaming/src/streaming/processors/base.py::BaseProcessor",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/processors/traffic.py",
+      "target": "class::apps/streaming/src/streaming/processors/traffic.py::TrafficProcessor",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/processors/traffic.py",
+      "target": "function::apps/streaming/src/streaming/processors/traffic.py::_to_parquet",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/processors/traffic.py",
+      "target": "file:packages/core/src/urbanpulse_core/models/traffic.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports TrafficRouteObservation"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/processors/traffic.py",
+      "target": "file:apps/streaming/src/streaming/logger.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports Logger"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/processors/traffic.py",
+      "target": "file:apps/streaming/src/streaming/processors/base.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports BaseProcessor"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/processors/traffic.py",
+      "target": "file:apps/streaming/src/streaming/sinks/minio.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports MinioClient"
+    },
+    {
+      "source": "class::apps/streaming/src/streaming/processors/traffic.py::TrafficProcessor",
+      "target": "class::apps/streaming/src/streaming/processors/base.py::BaseProcessor",
+      "type": "inherits",
+      "weight": 0.9,
+      "direction": "forward",
+      "detail": "TrafficProcessor extends BaseProcessor"
+    },
+    {
+      "source": "class::apps/streaming/src/streaming/processors/traffic.py::TrafficProcessor",
+      "target": "function::apps/streaming/src/streaming/processors/traffic.py::_to_parquet",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "detail": "flush() calls _to_parquet() to serialize buffer"
+    },
+    {
+      "source": "class::apps/streaming/src/streaming/processors/traffic.py::TrafficProcessor",
+      "target": "class::apps/streaming/src/streaming/sinks/minio.py::MinioClient",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "detail": "uses MinioClient to upload parquet files"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/sinks/minio.py",
+      "target": "class::apps/streaming/src/streaming/sinks/minio.py::MinioClient",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/sinks/minio.py",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports settings"
+    },
+    {
+      "source": "file:apps/streaming/src/streaming/sinks/minio.py",
+      "target": "file:apps/streaming/src/streaming/logger.py",
+      "type": "imports",
+      "weight": 0.7,
+      "direction": "forward",
+      "detail": "imports Logger"
+    },
+    {
+      "source": "file:infra/docker/dremio/setup.sh",
+      "target": "function::infra/docker/dremio/setup.sh::create_source",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "class::apps/streaming/src/streaming/sinks/minio.py::MinioClient",
+      "target": "file:packages/core/src/urbanpulse_core/config.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "detail": "reads MinIO connection settings from urbanpulse_core config"
+    },
+    {
+      "source": "file:packages/core/src/urbanpulse_core/config.py",
+      "target": "class::packages/core/src/urbanpulse_core/config.py::Settings",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:packages/core/src/urbanpulse_core/models/traffic.py",
+      "target": "class::packages/core/src/urbanpulse_core/models/traffic.py::CongestionMetrics",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:packages/core/src/urbanpulse_core/models/traffic.py",
+      "target": "class::packages/core/src/urbanpulse_core/models/traffic.py::TrafficRouteObservation",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:packages/core/src/urbanpulse_core/config.py",
+      "target": "file:packages/core/src/urbanpulse_core/__init__.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "metadata": {
+        "reason": "sibling module in urbanpulse_core package"
+      }
+    },
+    {
+      "source": "file:packages/core/src/urbanpulse_core/models/traffic.py",
+      "target": "file:packages/core/src/urbanpulse_core/models/__init__.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "metadata": {
+        "reason": "sibling module in models sub-package"
+      }
+    },
+    {
+      "source": "file:packages/core/src/urbanpulse_core/models/anomaly.py",
+      "target": "file:packages/core/src/urbanpulse_core/models/__init__.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "metadata": {
+        "reason": "sibling module in models sub-package"
+      }
+    },
+    {
+      "source": "file:packages/core/src/urbanpulse_core/models/weather.py",
+      "target": "file:packages/core/src/urbanpulse_core/models/__init__.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "metadata": {
+        "reason": "sibling module in models sub-package"
+      }
+    },
+    {
+      "source": "file:packages/core/src/urbanpulse_core/models/zones.py",
+      "target": "file:packages/core/src/urbanpulse_core/models/__init__.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "metadata": {
+        "reason": "sibling module in models sub-package"
+      }
+    },
+    {
+      "source": "file:packages/core/src/urbanpulse_core/exceptions.py",
+      "target": "file:packages/core/src/urbanpulse_core/__init__.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "metadata": {
+        "reason": "sibling module in urbanpulse_core package"
+      }
+    },
+    {
+      "source": "file:packages/infra-clients/src/urbanpulse_infra/duckdb.py",
+      "target": "function:packages/infra-clients/src/urbanpulse_infra/duckdb.py:get_duckdb_connection",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:packages/infra-clients/src/urbanpulse_infra/duckdb.py",
+      "target": "function:packages/infra-clients/src/urbanpulse_infra/duckdb.py:get_duckdb_connection",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "target": "function:packages/infra-clients/src/urbanpulse_infra/iceberg.py:get_iceberg_catalog",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+      "target": "function:packages/infra-clients/src/urbanpulse_infra/iceberg.py:get_iceberg_catalog",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:packages/infra-clients/src/urbanpulse_infra/kafka.py",
+      "target": "class:packages/infra-clients/src/urbanpulse_infra/kafka.py:KafkaProducer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:packages/infra-clients/src/urbanpulse_infra/kafka.py",
+      "target": "class:packages/infra-clients/src/urbanpulse_infra/kafka.py:KafkaProducer",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:packages/infra-clients/src/urbanpulse_infra/mlflow.py",
+      "target": "function:packages/infra-clients/src/urbanpulse_infra/mlflow.py:get_or_create_experiment",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:packages/infra-clients/src/urbanpulse_infra/mlflow.py",
+      "target": "function:packages/infra-clients/src/urbanpulse_infra/mlflow.py:get_or_create_experiment",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:routes_generator.py",
+      "target": "class::routes_generator.py::Route",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:routes_generator.py",
+      "target": "func::routes_generator.py::generate_routes",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:routes_generator.py",
+      "target": "func::routes_generator.py::generate_routes",
+      "type": "exports",
+      "weight": 0.8,
+      "direction": "forward"
+    },
+    {
+      "source": "file:routes_generator.py",
+      "target": "class::routes_generator.py::Route",
+      "type": "exports",
+      "weight": 0.8,
+      "direction": "forward"
+    },
+    {
+      "source": "file:test.py",
+      "target": "func::test.py::_get_a_route",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:test.py",
+      "target": "func::test.py::_calc_congestion_for_interval",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "file:test.py",
+      "target": "func::test.py::test_vietmap_api",
+      "type": "contains",
+      "weight": 1.0,
+      "direction": "forward"
+    },
+    {
+      "source": "func::test.py::_get_a_route",
+      "target": "func::test.py::_calc_congestion_for_interval",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "metadata": {
+        "reason": "_get_a_route calls _calc_congestion_for_interval to compute congestion ratios"
+      }
+    },
+    {
+      "source": "func::test.py::test_vietmap_api",
+      "target": "func::test.py::_get_a_route",
+      "type": "calls",
+      "weight": 0.8,
+      "direction": "forward",
+      "metadata": {
+        "reason": "test_vietmap_api iterates zone pairs and calls _get_a_route for each"
+      }
+    },
+    {
+      "source": "file:test.py",
+      "target": "file:apps/ingestion/src/ingestion/sources/vietmap.py",
+      "type": "depends_on",
+      "weight": 0.6,
+      "direction": "forward",
+      "metadata": {
+        "reason": "test.py is an ad-hoc test of the same VietMap API consumed by the ingestion vietmap source"
+      }
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:ingestion",
+      "name": "Ingestion Service",
+      "description": "Polls external APIs (VietMap traffic, Open-Meteo weather, WAQI air quality) and publishes raw events to Redpanda topics",
+      "nodeIds": [
+        "file:apps/ingestion/src/ingestion/__init__.py",
+        "file:apps/ingestion/src/ingestion/logger.py",
+        "file:apps/ingestion/src/ingestion/main.py",
+        "file:apps/ingestion/src/ingestion/orchestrator.py",
+        "file:apps/ingestion/src/ingestion/publishers/__init__.py",
+        "file:apps/ingestion/src/ingestion/publishers/kafka.py",
+        "file:apps/ingestion/src/ingestion/sources/__init__.py",
+        "file:apps/ingestion/src/ingestion/sources/openmeteo.py",
+        "file:apps/ingestion/src/ingestion/sources/vietmap.py",
+        "file:apps/ingestion/src/ingestion/sources/waqi.py",
+        "file:apps/ingestion/tests/test_orchestrator.py"
+      ]
+    },
+    {
+      "id": "layer:streaming",
+      "name": "Streaming Service",
+      "description": "Consumes Redpanda topics in real time, applies domain-specific processing, and writes raw bronze events to MinIO",
+      "nodeIds": [
+        "file:apps/streaming/src/streaming/__init__.py",
+        "file:apps/streaming/src/streaming/consumers/kafka.py",
+        "file:apps/streaming/src/streaming/logger.py",
+        "file:apps/streaming/src/streaming/main.py",
+        "file:apps/streaming/src/streaming/processors/__init__.py",
+        "file:apps/streaming/src/streaming/processors/air_quality.py",
+        "file:apps/streaming/src/streaming/processors/base.py",
+        "file:apps/streaming/src/streaming/processors/traffic.py",
+        "file:apps/streaming/src/streaming/processors/weather.py",
+        "file:apps/streaming/src/streaming/sinks/__init__.py",
+        "file:apps/streaming/src/streaming/sinks/minio.py"
+      ]
+    },
+    {
+      "id": "layer:batch",
+      "name": "Batch Processing Service",
+      "description": "Scheduled DuckDB jobs that promote data through the medallion layers: bronze to silver (cleaning/validation) and silver to gold (aggregation)",
+      "nodeIds": [
+        "file:apps/batch/src/batch/__init__.py",
+        "file:apps/batch/src/batch/bootstrap_cli.py",
+        "file:apps/batch/src/batch/jobs/__init__.py",
+        "file:apps/batch/src/batch/jobs/baseline_learning.py",
+        "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+        "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+        "file:apps/batch/src/batch/logger.py",
+        "file:apps/batch/src/batch/main.py",
+        "file:apps/batch/src/batch/pipeline.py"
+      ]
+    },
+    {
+      "id": "layer:ml",
+      "name": "ML Service",
+      "description": "Trains anomaly detection models (IsolationForest, Z-score) on gold-layer data, tracks experiments with MLflow, and exposes a prediction API",
+      "nodeIds": [
+        "file:apps/ml/src/ml/__init__.py",
+        "file:apps/ml/src/ml/api.py",
+        "file:apps/ml/src/ml/evaluation/__init__.py",
+        "file:apps/ml/src/ml/evaluation/metrics.py",
+        "file:apps/ml/src/ml/features/__init__.py",
+        "file:apps/ml/src/ml/features/traffic_features.py",
+        "file:apps/ml/src/ml/models/__init__.py",
+        "file:apps/ml/src/ml/models/isolation_forest.py",
+        "file:apps/ml/src/ml/models/zscore_detector.py",
+        "file:apps/ml/src/ml/train.py"
+      ]
+    },
+    {
+      "id": "layer:serving",
+      "name": "Serving API",
+      "description": "FastAPI REST service that exposes anomaly and traffic metrics endpoints to external consumers, reading from the DuckDB gold layer",
+      "nodeIds": [
+        "file:apps/serving/src/serving/__init__.py",
+        "file:apps/serving/src/serving/app.py",
+        "file:apps/serving/src/serving/dependencies.py",
+        "file:apps/serving/src/serving/main.py",
+        "file:apps/serving/src/serving/routers/__init__.py",
+        "file:apps/serving/src/serving/routers/anomalies.py",
+        "file:apps/serving/src/serving/routers/health.py",
+        "file:apps/serving/src/serving/routers/metrics.py",
+        "file:apps/serving/src/serving/schemas/__init__.py",
+        "file:apps/serving/src/serving/schemas/anomaly.py",
+        "file:apps/serving/src/serving/schemas/traffic.py",
+        "file:apps/serving/src/serving/services/__init__.py",
+        "file:apps/serving/src/serving/services/anomaly_service.py",
+        "file:apps/serving/src/serving/services/prediction_service.py",
+        "file:apps/serving/tests/conftest.py",
+        "file:apps/serving/tests/test_routers.py"
+      ]
+    },
+    {
+      "id": "layer:shared",
+      "name": "Shared Packages",
+      "description": "Internal shared libraries: Pydantic domain models and config (core), client factories for Kafka/DuckDB/MinIO/MLflow (infra-clients), and Prometheus metrics/logging/tracing stubs (observability)",
+      "nodeIds": [
+        "file:packages/core/src/urbanpulse_core/__init__.py",
+        "file:packages/core/src/urbanpulse_core/config.py",
+        "file:packages/core/src/urbanpulse_core/exceptions.py",
+        "file:packages/core/src/urbanpulse_core/models/__init__.py",
+        "file:packages/core/src/urbanpulse_core/models/anomaly.py",
+        "file:packages/core/src/urbanpulse_core/models/traffic.py",
+        "file:packages/core/src/urbanpulse_core/models/weather.py",
+        "file:packages/core/src/urbanpulse_core/models/zones.py",
+        "file:packages/infra-clients/src/urbanpulse_infra/__init__.py",
+        "file:packages/infra-clients/src/urbanpulse_infra/duckdb.py",
+        "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+        "file:packages/infra-clients/src/urbanpulse_infra/kafka.py",
+        "file:packages/infra-clients/src/urbanpulse_infra/minio.py",
+        "file:packages/infra-clients/src/urbanpulse_infra/mlflow.py",
+        "file:packages/observability/src/urbanpulse_obs/__init__.py",
+        "file:packages/observability/src/urbanpulse_obs/logging.py",
+        "file:packages/observability/src/urbanpulse_obs/metrics.py",
+        "file:packages/observability/src/urbanpulse_obs/tracing.py"
+      ]
+    },
+    {
+      "id": "layer:infrastructure",
+      "name": "Infrastructure & Scripts",
+      "description": "Docker/infrastructure shell scripts (MinIO bucket init, Redpanda topic init, Dremio setup, health checks) plus root-level utility scripts (routes_generator.py, api.py, test.py)",
+      "nodeIds": [
+        "file:infra/docker/dremio/setup.sh",
+        "file:infra/scripts/healthcheck.sh",
+        "file:infra/scripts/init-minio-buckets.sh",
+        "file:infra/scripts/init-redpanda-topics.sh",
+        "file:api.py",
+        "file:routes_generator.py",
+        "file:test.py"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "Platform Overview",
+      "description": "urban-pulse-platform is a Python monorepo (uv workspace) that ingests real-time traffic, weather, and air quality data for the Ho Chi Minh City metro region. Data flows through a medallion architecture: external APIs \u2192 Redpanda \u2192 MinIO bronze \u2192 silver \u2192 gold \u2192 ML \u2192 FastAPI. Start here to understand the monorepo layout (apps/, packages/, infra/) and the geographic domain model in zones.json and routes.json.",
+      "nodeIds": [
+        "file:routes_generator.py",
+        "file:api.py",
+        "file:apps/ingestion/src/ingestion/main.py",
+        "file:apps/streaming/src/streaming/main.py",
+        "file:apps/batch/src/batch/main.py"
+      ],
+      "languageLesson": "The project uses a uv workspace: each app under apps/ and each package under packages/ is an independent Python project with its own pyproject.toml, all managed by a single workspace root."
+    },
+    {
+      "order": 2,
+      "title": "Domain Models",
+      "description": "All apps share a vocabulary defined in packages/core. The Pydantic models here \u2014 TrafficReading, WeatherReading, AnomalyEvent, and the zone/route geometry \u2014 are the lingua franca passed between every layer. Understanding these models first makes every downstream file easier to read.",
+      "nodeIds": [
+        "file:packages/core/src/urbanpulse_core/models/traffic.py",
+        "file:packages/core/src/urbanpulse_core/models/weather.py",
+        "file:packages/core/src/urbanpulse_core/models/anomaly.py",
+        "file:packages/core/src/urbanpulse_core/models/zones.py",
+        "file:packages/core/src/urbanpulse_core/config.py"
+      ],
+      "languageLesson": "config.py (fan-in 14 \u2014 the most-imported file in the repo) uses Pydantic BaseSettings with environment-variable binding, giving every app a single, typed config object loaded once at startup."
+    },
+    {
+      "order": 3,
+      "title": "Ingestion: External APIs to Kafka",
+      "description": "The ingestion app polls three external APIs (VietMap traffic, Open-Meteo weather, WAQI air quality) and publishes raw events to Redpanda topics. The orchestrator manages concurrent polling across all configured routes and zones, while the Kafka publisher wraps the infra-clients KafkaProducer with retry logic and structured logging.",
+      "nodeIds": [
+        "file:apps/ingestion/src/ingestion/main.py",
+        "file:apps/ingestion/src/ingestion/orchestrator.py",
+        "file:apps/ingestion/src/ingestion/sources/vietmap.py",
+        "file:apps/ingestion/src/ingestion/publishers/kafka.py"
+      ],
+      "languageLesson": "The orchestrator uses asyncio.gather across route coroutines \u2014 a common Python pattern for I/O-bound fan-out without threads."
+    },
+    {
+      "order": 4,
+      "title": "Streaming: Kafka to Bronze",
+      "description": "The streaming app continuously consumes Redpanda topics, applies lightweight per-message processors (traffic, weather, air quality), and writes validated JSON events to MinIO as bronze-layer Parquet/JSON files. The base processor class establishes a common interface that all three domain processors implement.",
+      "nodeIds": [
+        "file:apps/streaming/src/streaming/main.py",
+        "file:apps/streaming/src/streaming/consumers/kafka.py",
+        "file:apps/streaming/src/streaming/processors/base.py",
+        "file:apps/streaming/src/streaming/processors/traffic.py",
+        "file:apps/streaming/src/streaming/sinks/minio.py"
+      ],
+      "languageLesson": "processors/base.py defines an abstract BaseProcessor \u2014 a strategy pattern that lets main.py dispatch to the correct handler purely by topic name, keeping the consumer loop generic."
+    },
+    {
+      "order": 5,
+      "title": "Batch Pipeline: Medallion Promotion",
+      "description": "Scheduled by Prefect, the batch app runs three DuckDB jobs that progressively refine data: bronze_to_silver cleans and validates raw events, silver_to_gold aggregates them into analytics-ready tables, and baseline_learning computes rolling statistical baselines used by the ML layer. pipeline.py orchestrates all three in order.",
+      "nodeIds": [
+        "file:apps/batch/src/batch/main.py",
+        "file:apps/batch/src/batch/pipeline.py",
+        "file:apps/batch/src/batch/jobs/bronze_to_silver.py",
+        "file:apps/batch/src/batch/jobs/silver_to_gold.py",
+        "file:apps/batch/src/batch/jobs/baseline_learning.py"
+      ],
+      "languageLesson": "Each job uses DuckDB's ability to query Parquet files directly from MinIO via the S3 filesystem extension \u2014 no separate ETL framework needed, just SQL over object storage."
+    },
+    {
+      "order": 6,
+      "title": "ML Training: Anomaly Detection",
+      "description": "The ml app trains two complementary anomaly detectors on gold-layer data: an IsolationForest for multivariate outliers and a Z-score detector for univariate signal spikes. train.py (fan-out 16 \u2014 the highest in the repo) orchestrates feature engineering, model fitting, evaluation, and MLflow experiment logging. The FastAPI endpoint in api.py lets the platform trigger retraining on demand.",
+      "nodeIds": [
+        "file:apps/ml/src/ml/train.py",
+        "file:apps/ml/src/ml/features/traffic_features.py",
+        "file:apps/ml/src/ml/models/isolation_forest.py",
+        "file:apps/ml/src/ml/models/zscore_detector.py",
+        "file:apps/ml/src/ml/api.py"
+      ],
+      "languageLesson": "traffic_features.py has fan-in 7 (second highest), meaning every model and evaluation path imports it \u2014 a deliberate single point of truth for feature definitions that prevents train/serve skew."
+    },
+    {
+      "order": 7,
+      "title": "Serving API: FastAPI for Consumers",
+      "description": "The serving app exposes the gold layer and ML results over a FastAPI REST API consumed by Grafana dashboards and external clients. Routers are split by domain (anomalies, metrics, health); services contain business logic that queries DuckDB gold tables; schemas define the API contract independently from the core domain models.",
+      "nodeIds": [
+        "file:apps/serving/src/serving/app.py",
+        "file:apps/serving/src/serving/routers/anomalies.py",
+        "file:apps/serving/src/serving/routers/metrics.py",
+        "file:apps/serving/src/serving/services/anomaly_service.py",
+        "file:apps/serving/src/serving/dependencies.py"
+      ],
+      "languageLesson": "dependencies.py uses FastAPI's Depends() system to inject shared resources (DuckDB connection, config) into route handlers \u2014 keeping handlers thin and fully testable in isolation."
+    },
+    {
+      "order": 8,
+      "title": "Infrastructure Clients",
+      "description": "packages/infra-clients provides thin, factory-pattern wrappers around Kafka/Redpanda, MinIO, DuckDB, Apache Iceberg (via Nessie), and MLflow. Every app imports from here rather than configuring clients directly, ensuring consistent connection settings, retry policies, and teardown across the monorepo.",
+      "nodeIds": [
+        "file:packages/infra-clients/src/urbanpulse_infra/kafka.py",
+        "file:packages/infra-clients/src/urbanpulse_infra/minio.py",
+        "file:packages/infra-clients/src/urbanpulse_infra/duckdb.py",
+        "file:packages/infra-clients/src/urbanpulse_infra/iceberg.py",
+        "file:packages/infra-clients/src/urbanpulse_infra/mlflow.py"
+      ],
+      "languageLesson": "iceberg.py (fan-in 8) is the second most-imported file \u2014 Iceberg catalog access is centralised here so all medallion jobs share the same catalog configuration and transaction semantics."
+    },
+    {
+      "order": 9,
+      "title": "Observability",
+      "description": "packages/observability provides three thin stubs used across all apps: structured JSON logging (logging.py), Prometheus metric registration (metrics.py), and OpenTelemetry trace initialisation (tracing.py). They are intentionally minimal \u2014 wire them up once in each service's startup path and the infra stack (Prometheus, Grafana, Loki) handles the rest.",
+      "nodeIds": [
+        "file:packages/observability/src/urbanpulse_obs/logging.py",
+        "file:packages/observability/src/urbanpulse_obs/metrics.py",
+        "file:packages/observability/src/urbanpulse_obs/tracing.py"
+      ],
+      "languageLesson": "Each app has its own logger.py (e.g. apps/batch/src/batch/logger.py) that calls the shared observability setup once at import time, following the 'configure once, use everywhere' logging pattern."
+    }
+  ]
+}

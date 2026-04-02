@@ -12,3 +12,7 @@ strict = true
 [tool.pytest.ini_options]
 testpaths = ["apps", "packages"]
 markers = ["unit", "integration"]
+
+[dependency-groups]
+dev = [
+]

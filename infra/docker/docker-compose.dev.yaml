@@ -1,4 +1,4 @@
-# Development overlay: enables hot-reload, debug ports, and local volume mounts
+# Shared infrastructure services — extend with dev/prod overlays
 name: urban-pulse-platform
 
 networks:
@@ -8,13 +8,21 @@ networks:
 volumes:
   redpanda:
   minio-data:
+  ollama-data:
+  loki-data:
+  grafana-data:
+  dremio-data:
+  nessie-data:
+  mlflow-data:
+  prefect-data:
+  postgres-data:
 
 services:
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v25.3.10
     command:
       - redpanda start
-      - kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
       - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
       - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
@@ -32,6 +40,12 @@ services:
       - urban-pulse-platform
     volumes:
       - redpanda:/var/lib/redpanda
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   console:
     image: docker.redpanda.com/redpandadata/console:v3.5.3
@@ -59,7 +73,8 @@ services:
     networks:
       - urban-pulse-platform
     depends_on:
-      - redpanda
+      redpanda:
+        condition: service_healthy
 
   connect:
     image: docker.redpanda.com/redpandadata/connectors:v1.0.23
@@ -69,7 +84,8 @@ services:
       - urban-pulse-platform
     #platform: 'linux/amd64'
     depends_on:
-      - redpanda
+      redpanda:
+        condition: service_healthy
     ports:
       - "8083:8083"
     environment:
@@ -91,20 +107,64 @@ services:
       CONNECT_HEAP_OPTS: -Xms512M -Xmx512M
       CONNECT_LOG_LEVEL: info
 
+  ingestion:
+    container_name: ingestion-service
+    build:
+      context: ../..
+      dockerfile: apps/ingestion/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      DRY_RUN: ${DRY_RUN:-false}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: on-failure
+
+  streaming:
+    container_name: streaming-service
+    build:
+      context: ../..
+      dockerfile: apps/streaming/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: on-failure
+
+
   # MinIO service for object storage
   minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+    image: quay.io/minio/aistor/minio:latest
+    command: server /data --console-address ":9001" --license /minio.license
+    env_file:
+      - ../../.env
     ports:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     networks:
       - urban-pulse-platform
     volumes:
       - minio-data:/data
+      - ${HOME}/Downloads/minio.license:/minio.license:ro
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -114,6 +174,8 @@ services:
 
   minio-setup:
     image: minio/mc:latest
+    env_file:
+      - ../../.env
     depends_on:
       minio:
         condition: service_healthy
@@ -121,10 +183,323 @@ services:
       - urban-pulse-platform
     entrypoint: >
       /bin/sh -c "
-        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-admin} ${MINIO_ROOT_PASSWORD:-password} &&
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
         mc mb local/urban-pulse --ignore-existing &&
         mc mb local/urban-pulse/bronze --ignore-existing &&
         mc mb local/urban-pulse/silver --ignore-existing &&
-        mc mb local/urban-pulse/gold --ignore-existing
+        mc mb local/urban-pulse/gold --ignore-existing &&
+        mc mb local/warehouse --ignore-existing &&
+        mc mb local/mlflow --ignore-existing
         exit 0;
       "
+
+  nessie:
+    image: ghcr.io/projectnessie/nessie:0.99.0
+    container_name: nessie
+    ports:
+      - "19120:19120"
+    networks:
+      - urban-pulse-platform
+    environment:
+      NESSIE_VERSION_STORE_TYPE: ROCKSDB
+      NESSIE_VERSION_STORE_PERSIST_ROCKS_DATABASE_PATH: /nessie/data
+      S3_CREDS_NAME: ${NESSIE_S3_ACCESS_KEY}
+      S3_CREDS_SECRET: ${NESSIE_S3_SECRET_KEY}
+    volumes:
+      - ./nessie/application.properties:/deployments/config/application.properties:ro
+      - nessie-data:/nessie/data
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:19120/iceberg/v1/config || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  dremio:
+    image: dremio/dremio-oss:latest
+    platform: linux/x86_64
+    container_name: dremio
+    ports:
+      - "9047:9047"
+      - "31010:31010"
+      - "32010:32010"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - dremio-data:/opt/dremio/data
+    depends_on:
+      - nessie
+      - minio
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9047/apiv2/server_status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  dremio-setup:
+    image: python:3.12-slim
+    container_name: dremio-setup
+    networks:
+      - urban-pulse-platform
+    env_file:
+      - ../../.env
+    volumes:
+      - ./dremio/setup.sh:/setup.sh:ro
+    entrypoint: >
+      /bin/sh -c "
+        apt-get update -qq && apt-get install -yqq curl > /dev/null 2>&1 &&
+        /setup.sh
+      "
+    depends_on:
+      dremio:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.21.3
+    container_name: mlflow
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root s3://mlflow/
+    ports:
+      - "5000:5000"
+    networks:
+      - urban-pulse-platform
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - mlflow-data:/mlflow
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  prefect-server:
+    image: prefecthq/prefect:3-latest
+    container_name: prefect-server
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    networks:
+      - urban-pulse-platform
+    environment:
+      PREFECT_HOME: /prefect
+    volumes:
+      - prefect-data:/prefect
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:4200/api/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  batch:
+    container_name: batch-service
+    build:
+      context: ../..
+      dockerfile: apps/batch/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      PREFECT_API_URL: http://prefect-server:4200/api
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      ICEBERG_CATALOG_URI: http://nessie:19120/iceberg/
+      PREFECT_LOGGING_TO_API_ENABLED: "false"
+      PREFECT_LOGGING_EXTRA_LOGGERS: "batch.jobs.bronze_to_silver,batch.jobs.silver_to_gold,batch.jobs.baseline_learning,batch.pipeline"
+      PREFECT_LOGGING_LEVEL: INFO
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+      ml:
+        condition: service_healthy
+    restart: always
+
+  ml:
+    container_name: ml-service
+    build:
+      context: ../..
+      dockerfile: apps/ml/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../../.env
+    environment:
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      ICEBERG_CATALOG_URI: http://nessie:19120/iceberg/
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      minio:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: always
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: urbanpulse
+      POSTGRES_PASSWORD: urbanpulse
+      POSTGRES_DB: urbanpulse
+    ports:
+      - "5432:5432"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urbanpulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  online:
+    container_name: online-service
+    build:
+      context: ../..
+      dockerfile: apps/online/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      ICEBERG_CATALOG_URI: http://nessie:19120/iceberg/
+      POSTGRES_DSN: postgresql://urbanpulse:urbanpulse@postgres:5432/urbanpulse
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+    restart: on-failure
+
+  serving:
+    container_name: serving-service
+    build:
+      context: ../..
+      dockerfile: apps/serving/Dockerfile
+    ports:
+      - "8001:8000"
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_DSN: postgresql://urbanpulse:urbanpulse@postgres:5432/urbanpulse
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: qwen2.5:3b
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: always
+
+  loki:
+    image: grafana/loki:3.4.2
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "3100:3100"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - ../../infra/monitoring/logging/loki-config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  promtail:
+    image: grafana/promtail:3.4.2
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - ../../infra/monitoring/logging/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    ports:
+      - "3001:3000"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../../infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    depends_on:
+      loki:
+        condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: on-failure

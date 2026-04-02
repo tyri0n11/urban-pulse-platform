@@ -1,0 +1,244 @@
+{
+  "uid": "urban-traffic-analytics",
+  "title": "Urban Traffic Analytics",
+  "tags": ["analytics", "traffic", "urban-pulse", "thesis"],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Bronze → Silver Rows (range)",
+      "description": "Total silver rows upserted from bronze in the selected time range",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(sum_over_time({service=\"batch-service\"} |= \"bronze_to_silver microbatch: upserted\" | pattern `<_>bronze_to_silver microbatch: upserted <rows> rows<_>` | unwrap rows | __error__=\"\" [$__range]))"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Silver → Gold Rows (range)",
+      "description": "Total gold rows upserted from silver in the selected time range",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(sum_over_time({service=\"batch-service\"} |= \"silver_to_gold: upserted\" | pattern `<_>silver_to_gold: upserted <rows> rows<_>` | unwrap rows | __error__=\"\" [$__range]))"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "green" }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Baseline Routes",
+      "description": "Number of (route, day, hour) slots in the latest baseline snapshot",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "last_over_time({service=\"batch-service\"} |= \"baseline_learning: wrote\" | pattern `<_>baseline_learning: wrote <rows> rows<_>` | unwrap rows | __error__=\"\" [$__range])"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "orange" }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "ML Retrains",
+      "description": "Number of successful ML retraining runs",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "count_over_time({service=\"batch-service\"} |= \"ML retrain result: status=completed\" [$__range])"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "purple" }
+        }
+      }
+    },
+
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Medallion Layer Throughput",
+      "description": "Rows processed per batch run across bronze→silver and silver→gold stages",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum_over_time({service=\"batch-service\"} |= \"bronze_to_silver microbatch: upserted\" | pattern `<_>bronze_to_silver microbatch: upserted <rows> rows<_>` | unwrap rows | __error__=\"\" [5m])",
+          "legendFormat": "Bronze → Silver"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum_over_time({service=\"batch-service\"} |= \"silver_to_gold: upserted\" | pattern `<_>silver_to_gold: upserted <rows> rows<_>` | unwrap rows | __error__=\"\" [5m])",
+          "legendFormat": "Silver → Gold"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Bronze → Silver" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Silver → Gold" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
+        ]
+      }
+    },
+
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Baseline Table Coverage Over Time",
+      "description": "Number of (route × day × hour) slots covered by the baseline — grows as more historical data accumulates",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "last_over_time({service=\"batch-service\"} |= \"baseline_learning: wrote\" | pattern `<_>baseline_learning: wrote <rows> rows<_>` | unwrap rows | __error__=\"\" [1h])",
+          "legendFormat": "Baseline slots"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 20 },
+          "color": { "mode": "fixed", "fixedColor": "orange" }
+        }
+      }
+    },
+
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Batch Job Run Rate",
+      "description": "Frequency of microbatch and hourly-gold job completions",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "count_over_time({service=\"batch-service\"} |= \"bronze_to_silver microbatch: upserted\" [15m])",
+          "legendFormat": "Microbatch runs"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "count_over_time({service=\"batch-service\"} |= \"silver_to_gold: upserted\" [15m])",
+          "legendFormat": "Gold aggregation runs"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "count_over_time({service=\"batch-service\"} |= \"ML retrain result\" [15m])",
+          "legendFormat": "ML retrain runs"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Microbatch runs" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Gold aggregation runs" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "ML retrain runs" }, "properties": [{ "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }] }
+        ]
+      }
+    },
+
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Batch Job Completion Log",
+      "description": "Chronological table of batch job completions with row counts",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service=\"batch-service\"} |~ \"(bronze_to_silver microbatch: upserted|silver_to_gold: upserted|baseline_learning: wrote|ML retrain result)\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": false,
+        "sortOrder": "Descending"
+      },
+      "type": "logs"
+    },
+
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Batch Job Errors",
+      "description": "Error events in batch service — spikes indicate pipeline health issues",
+      "gridPos": { "x": 0, "y": 30, "w": 24, "h": 6 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "count_over_time({service=\"batch-service\"} |= \"ERROR\" [5m])",
+          "legendFormat": "Errors"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "count_over_time({service=\"batch-service\"} |= \"Retry\" [5m])",
+          "legendFormat": "Retries"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Errors" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Retries" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+        ]
+      }
+    }
+  ]
+}

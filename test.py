@@ -44,6 +44,8 @@ ZONES: Dict[str, Dict[str, any]] = {
         "description": "Phú Mỹ - Long Hải (cảng nước sâu, năng lượng)",
     },
 }
+
+
 def _get_a_route(origin: tuple[float, float], destination: tuple[float, float]):
     traffic_url = f"https://maps.vietmap.vn/api/route/v3?apikey={api_key}&point={origin[0]},{origin[1]}&point={destination[0]},{destination[1]}&points_encoded=false&vehicle={vehicle}&annotations={annotations}"
     response = requests.get(traffic_url)
@@ -51,16 +53,22 @@ def _get_a_route(origin: tuple[float, float], destination: tuple[float, float]):
     for path in data.get("paths", []):
         path.pop("points", None)
         path.pop("instructions", None)
-        congestion_data = data.get("paths", [{}])[0].get("details", {}).get("congestion", [])
+        congestion_data = (
+            data.get("paths", [{}])[0].get("details", {}).get("congestion", [])
+        )
         if "details" in path and "congestion" in path.get("details", {}):
-            path["congestion_ratio"] = _calc_congestion_for_interval(congestion_data, 0, len(congestion_data))
+            path["congestion_ratio"] = _calc_congestion_for_interval(
+                congestion_data, 0, len(congestion_data)
+            )
     with open("routes.json", "a") as f:
         json.dump(data, f)
         f.write("\n")
     yield data
 
 
-def _calc_congestion_for_interval(congestion_data: list[dict], start_idx: int, end_idx: int):
+def _calc_congestion_for_interval(
+    congestion_data: list[dict], start_idx: int, end_idx: int
+):
     """
     Calculate congestion stats for a point interval
 
@@ -82,7 +90,7 @@ def _calc_congestion_for_interval(congestion_data: list[dict], start_idx: int, e
         return None
 
     total_segments = len(relevant_segments)
-    counts = {"heavy": 0, "moderate": 0, "low": 0, "severe": 0, "unknown": 0}
+    counts = {"heavy": 0, "moderate": 0, "low": 0, "severe": 0}
 
     for seg in relevant_segments:
         value = seg.get("value", "unknown")
@@ -92,12 +100,19 @@ def _calc_congestion_for_interval(congestion_data: list[dict], start_idx: int, e
             counts["unknown"] += 1
 
     return {
-        "heavy_ratio": round(counts["heavy"] / total_segments, 2) if total_segments > 0 else 0.0,
-        "moderate_ratio": round(counts["moderate"] / total_segments, 2) if total_segments > 0 else 0.0,
-        "low_ratio": round(counts["low"] / total_segments, 2) if total_segments > 0 else 0.0,
+        "heavy_ratio": (
+            round(counts["heavy"] / total_segments, 2) if total_segments > 0 else 0.0
+        ),
+        "moderate_ratio": (
+            round(counts["moderate"] / total_segments, 2) if total_segments > 0 else 0.0
+        ),
+        "low_ratio": (
+            round(counts["low"] / total_segments, 2) if total_segments > 0 else 0.0
+        ),
         "severe_segments": counts["severe"],
         "total_segments": total_segments,
     }
+
 
 def test_vietmap_api():
     for zone in ZONES.values():
@@ -105,15 +120,21 @@ def test_vietmap_api():
             if zone["name"] != zone_des["name"]:
                 anchor = zone["anchor"]
                 anchor_des = zone_des["anchor"]
-                print(f"Testing traffic API for {zone['name']} at anchor {anchor}... to {zone_des['name']} at anchor {anchor_des}")
+                print(
+                    f"Testing traffic API for {zone['name']} at anchor {anchor}... to {zone_des['name']} at anchor {anchor_des}"
+                )
                 for route_data in _get_a_route(anchor, anchor_des):
                     print(route_data)
-            
+
+
 def test_weather_api():
     pass
+
+
 def main():
     test_vietmap_api()
     print("All tests passed!")
-    
+
+
 if __name__ == "__main__":
     main()

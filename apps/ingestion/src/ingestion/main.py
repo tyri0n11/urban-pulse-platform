@@ -1,9 +1,10 @@
 """Entry point for the ingestion service."""
 
 import logging
+import time
 
 from urbanpulse_core.config import settings
-from ingestion.orchestrator import run_once
+from ingestion.orchestrator import run
 from ingestion.publishers import Publisher, StdoutPublisher, TRAFFIC_TOPIC
 from ingestion.publishers.kafka import KafkaPublisher
 
@@ -13,18 +14,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+_CYCLE_INTERVAL_S = 10
+
 
 def main() -> None:
     publisher: Publisher
     if settings.dry_run:
         publisher = StdoutPublisher()
-        logger.info("DRY_RUN=true — publishing to stdout (topic=%s), Kafka not required", TRAFFIC_TOPIC)
+        logger.info(
+            "DRY_RUN=true — publishing to stdout (topic=%s), Kafka not required",
+            TRAFFIC_TOPIC,
+        )
     else:
         publisher = KafkaPublisher()
         logger.info("Publishing to Kafka topic=%s", TRAFFIC_TOPIC)
 
     try:
-        run_once(publisher, api_key=settings.vietmap_api_key)
+        while True:
+            run(publisher, api_key=settings.vietmap_api_key)
+            logger.info("Waiting %ds before next crawl cycle...", _CYCLE_INTERVAL_S)
+            time.sleep(_CYCLE_INTERVAL_S)
     finally:
         publisher.close()
 

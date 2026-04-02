@@ -1,4 +1,8 @@
-"""VietMap traffic route API source connector."""
+"""VietMap traffic route API source connector.
+
+Response shape (relevant parts):
+  paths[n].annotations.congestion → [{value: "low"|"moderate"|"heavy"|"severe"|"unknown", first, last}]
+"""
 
 from datetime import datetime, timezone
 
@@ -7,7 +11,6 @@ import requests
 from urbanpulse_core.models.traffic import (
     CongestionMetrics,
     TrafficRouteObservation,
-    TrafficRoutePath,
 )
 
 _BASE_URL = "https://maps.vietmap.vn/api/route/v3"
@@ -49,29 +52,22 @@ def fetch_route(
         f"&point={destination_anchor[0]},{destination_anchor[1]}"
         f"&points_encoded=false&vehicle={_VEHICLE}&annotations={_ANNOTATIONS}"
     )
-    fetched_at = datetime.now(timezone.utc)
+    timestamp_utc = datetime.now(timezone.utc)
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     data = resp.json()
 
-    paths: list[TrafficRoutePath] = []
-    for p in data.get("paths", []):
-        congestion_segs: list[dict] = p.get("details", {}).get("congestion", [])
-        paths.append(
-            TrafficRoutePath(
-                duration_s=p.get("time", 0) / 1000.0,
-                distance_m=p.get("distance", 0.0),
-                congestion=_calc_congestion(congestion_segs) if congestion_segs else None,
-            )
-        )
+    first = (data.get("paths") or [{}])[0]
+    congestion_segs: list[dict] = first.get("annotations", {}).get("congestion", [])
+    duration_ms: float = first.get("time", 0.0)
 
     return TrafficRouteObservation(
         route_id=route_id,
         origin=origin,
         destination=destination,
-        origin_anchor=origin_anchor,
-        destination_anchor=destination_anchor,
-        fetched_at=fetched_at,
-        paths=paths,
-        api_status="ok",
+        distance_meters=first.get("distance", 0.0),
+        duration_ms=duration_ms,
+        duration_minutes=round(duration_ms / 60000, 1),
+        congestion=_calc_congestion(congestion_segs) if congestion_segs else None,
+        timestamp_utc=timestamp_utc,
     )

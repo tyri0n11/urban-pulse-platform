@@ -4,6 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "confluent-kafka>=2.3",
+    "duckdb>=1.1",
+    "mlflow>=2.15,<2.22",
+    "pyiceberg[s3fs,pyarrow]>=0.9",
 ]
 
 [build-system]

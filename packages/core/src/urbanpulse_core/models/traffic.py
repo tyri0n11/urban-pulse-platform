@@ -13,18 +13,13 @@ class CongestionMetrics(BaseModel):
     total_segments: int = 0
 
 
-class TrafficRoutePath(BaseModel):
-    duration_s: float
-    distance_m: float
-    congestion: CongestionMetrics | None = None
-
-
 class TrafficRouteObservation(BaseModel):
     route_id: str
     origin: str
     destination: str
-    origin_anchor: list[float]
-    destination_anchor: list[float]
-    fetched_at: datetime
-    paths: list[TrafficRoutePath]
-    api_status: str = "ok"
+    distance_meters: float
+    duration_ms: float
+    duration_minutes: float
+    congestion: CongestionMetrics | None = None
+    timestamp_utc: datetime
+    source: str = "ingestion.vietmap"
