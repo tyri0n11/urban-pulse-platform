@@ -6,6 +6,8 @@ NESSIE_ENDPOINT="http://nessie:19120/api/v2"
 MINIO_ENDPOINT="minio:9000"
 S3_ACCESS_KEY="${NESSIE_S3_ACCESS_KEY:-${MINIO_ROOT_USER:-minioadmin}}"
 S3_SECRET_KEY="${NESSIE_S3_SECRET_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}"
+DREMIO_ADMIN_USER="${DREMIO_ADMIN_USER:-admin}"
+DREMIO_ADMIN_PASSWORD="${DREMIO_ADMIN_PASSWORD:-urbanpulse123}"
 
 echo "Waiting for Dremio to be ready..."
 until curl -sf "$DREMIO_URL/apiv2/server_status" > /dev/null 2>&1; do
@@ -17,17 +19,21 @@ echo "Dremio is ready"
 echo "Bootstrapping first user..."
 BOOTSTRAP_RESP=$(curl -s -o /dev/stderr -w "%{http_code}" -X PUT "$DREMIO_URL/apiv2/bootstrap/firstuser" \
   -H "Content-Type: application/json" \
-  -d '{
-    "userName": "admin",
-    "firstName": "Admin",
-    "lastName": "User",
-    "email": "admin@urbanpulse.local",
-    "createdAt": 0,
-    "password": "urbanpulse123"
-  }' 2>&1) || true
+  -d "{
+    \"userName\": \"$DREMIO_ADMIN_USER\",
+    \"firstName\": \"Admin\",
+    \"lastName\": \"User\",
+    \"email\": \"admin@urbanpulse.local\",
+    \"createdAt\": 0,
+    \"password\": \"$DREMIO_ADMIN_PASSWORD\"
+  }" 2>&1) || true
 echo "Bootstrap response code: $BOOTSTRAP_RESP"
 
 # Login and get token — use -s (not -sf) so we can see error responses
+LOGIN_RESP=$(curl -s -X POST "$DREMIO_URL/apiv2/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"userName\": \"$DREMIO_ADMIN_USER\", \"password\": \"$DREMIO_ADMIN_PASSWORD\"}")
+echo "Login response: $LOGIN_RESP"
 
 if [ -z "$LOGIN_RESP" ]; then
   echo "ERROR: Empty login response"

@@ -60,8 +60,8 @@ train:
 	@curl -s -X POST http://localhost:8000/train | python -m json.tool
 
 make setup:
-	cat .env.example > infra/docker/.env
-	nano infra/docker/.env
+	cat .env.example > .env
+	nano .env
 
 # ---------------------------------------------------------------------------
 # Production targets (homelab)
