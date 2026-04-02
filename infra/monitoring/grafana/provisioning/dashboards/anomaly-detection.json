@@ -1,7 +1,7 @@
 {
   "uid": "anomaly-detection",
-  "title": "Anomaly Detection",
-  "tags": ["anomaly", "urban-pulse"],
+  "title": "Anomaly Detection — Traffic Signals",
+  "tags": ["anomaly", "urban-pulse", "traffic"],
   "timezone": "browser",
   "refresh": "30s",
   "time": { "from": "now-6h", "to": "now" },
@@ -10,26 +10,27 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Error Spikes (all services)",
-      "description": "Number of 5-minute windows with more than 5 errors",
-      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Anomalous Routes Now",
+      "description": "Routes with is_anomaly=true (z-score signal) in last 15 minutes",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=~\"ingestion-service|streaming-service|batch-service\"} |= \"ERROR\" [5m])"
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) AS value FROM (SELECT DISTINCT ON (route_id) route_id, is_anomaly, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE is_anomaly = true AND updated_at > NOW() - INTERVAL '15 minutes'"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["max"] }, "colorMode": "background" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 20 }
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
             ]
           },
           "color": { "mode": "thresholds" }
@@ -39,26 +40,28 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Task Retries",
-      "description": "Prefect task retries may indicate transient failures",
-      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "% Routes Anomalous",
+      "description": "Percentage of active routes currently flagged as anomalous",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=\"batch-service\"} |= \"Retry\" [$__range])"
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS value FROM (SELECT DISTINCT ON (route_id) route_id, is_anomaly, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '15 minutes'"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
       "fieldConfig": {
         "defaults": {
+          "unit": "percent",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "orange", "value": 1 },
-              { "color": "red", "value": 5 }
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
             ]
           },
           "color": { "mode": "thresholds" }
@@ -68,25 +71,29 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Connection Errors",
-      "description": "Network/connectivity failures across services",
-      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Max |Z-Score| Now",
+      "description": "Highest absolute z-score across all routes right now",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=~\"ingestion-service|streaming-service|batch-service\"} |~ \"(ConnectionError|ConnectError|ConnectionRefused|timeout)\" [$__range])"
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(MAX(ABS(duration_zscore))::numeric, 2) AS value FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '15 minutes' AND duration_zscore IS NOT NULL"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
       "fieldConfig": {
         "defaults": {
+          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              { "color": "yellow", "value": 2 },
+              { "color": "orange", "value": 3 },
+              { "color": "red", "value": 4 }
             ]
           },
           "color": { "mode": "thresholds" }
@@ -95,95 +102,290 @@
     },
     {
       "id": 4,
-      "type": "timeseries",
-      "title": "Error Rate Over Time",
-      "description": "Spikes may indicate anomalous behavior",
-      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "type": "stat",
+      "title": "Avg |Z-Score| Now",
+      "description": "Average absolute z-score — baseline drift indicator",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum by (service) (count_over_time({service=~\"ingestion-service|streaming-service|batch-service\"} |= \"ERROR\" [5m]))",
-          "legendFormat": "{{service}}"
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(AVG(ABS(duration_zscore))::numeric, 2) AS value FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '15 minutes' AND duration_zscore IS NOT NULL"
         }
       ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 20 }
+              { "color": "yellow", "value": 1 },
+              { "color": "orange", "value": 2 }
             ]
-          }
+          },
+          "color": { "mode": "thresholds" }
         }
       }
     },
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Warning Rate Over Time",
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Anomalous Route Count Over Time",
+      "description": "Number of routes with is_anomaly=true per 5-minute window",
+      "gridPos": { "x": 0, "y": 4, "w": 14, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum by (service) (count_over_time({service=~\"ingestion-service|streaming-service|batch-service\"} |= \"WARNING\" [5m]))",
-          "legendFormat": "{{service}}"
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM window_start) / 5.0) AS time, COUNT(DISTINCT route_id) FILTER (WHERE is_anomaly = true) AS \"Anomalous Routes\", COUNT(DISTINCT route_id) AS \"Total Active Routes\" FROM online_route_features WHERE $__timeFilter(window_start) GROUP BY 1 ORDER BY 1"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } }
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 15 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Anomalous Routes" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Total Active Routes" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } },
+              { "id": "custom.lineStyle", "value": { "dash": [4, 4], "fill": "dash" } }
+            ]
+          }
+        ]
       }
     },
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Batch Job Failures & Retries",
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Z-Score Intensity Over Time",
+      "description": "Max and avg absolute z-score across all routes — spike = widespread anomaly",
+      "gridPos": { "x": 14, "y": 4, "w": 10, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=\"batch-service\"} |= \"Failed\" [5m])",
-          "legendFormat": "Failures"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=\"batch-service\"} |= \"Retry\" [5m])",
-          "legendFormat": "Retries"
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM window_start) / 5.0) AS time, MAX(ABS(duration_zscore)) AS \"Max |z-score|\", AVG(ABS(duration_zscore)) AS \"Avg |z-score|\" FROM online_route_features WHERE $__timeFilter(window_start) AND duration_zscore IS NOT NULL GROUP BY 1 ORDER BY 1"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } },
+        "defaults": { "unit": "short", "decimals": 2, "custom": { "lineWidth": 2, "fillOpacity": 10 } },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "Failures" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "Retries" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+          {
+            "matcher": { "id": "byName", "options": "Max |z-score|" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Avg |z-score|" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+          }
         ]
       }
     },
     {
       "id": 7,
-      "type": "logs",
-      "title": "Anomalous Events",
-      "description": "Errors, retries, connection failures, and timeouts",
-      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 10 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "type": "table",
+      "title": "Currently Anomalous Routes",
+      "description": "Routes with is_anomaly=true right now, ranked by |z-score|",
+      "gridPos": { "x": 0, "y": 12, "w": 14, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{service=~\"ingestion-service|streaming-service|batch-service\"} |~ \"(ERROR|Retry|ConnectionError|ConnectError|timeout|Failed)\""
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT route_id AS \"Route\", ROUND(duration_zscore::numeric, 2) AS \"Z-Score\", ROUND(mean_duration_minutes::numeric, 1) AS \"Mean Duration (min)\", ROUND(last_duration_minutes::numeric, 1) AS \"Last Duration (min)\", TO_CHAR(updated_at, 'HH24:MI:SS') AS \"Updated At\" FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, mean_duration_minutes, last_duration_minutes, updated_at, is_anomaly FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE is_anomaly = true AND updated_at > NOW() - INTERVAL '15 minutes' ORDER BY ABS(duration_zscore) DESC NULLS LAST"
         }
       ],
-      "options": { "showTime": true, "showLabels": true, "wrapLogMessage": true, "sortOrder": "Descending" }
+      "options": { "sortBy": [{ "desc": true, "displayName": "Z-Score" }] },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Z-Score" },
+            "properties": [
+              { "id": "custom.displayMode", "value": "color-background" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "yellow", "value": null },
+                    { "color": "orange", "value": 3 },
+                    { "color": "red", "value": 4 }
+                  ]
+                }
+              },
+              { "id": "color", "value": { "mode": "thresholds" } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Per-Route Z-Score Over Time",
+      "description": "Individual route z-scores — hover to identify which route spiked",
+      "gridPos": { "x": 14, "y": 12, "w": 10, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM window_start) / 5.0) AS time, route_id AS metric, AVG(duration_zscore) AS value FROM online_route_features WHERE $__timeFilter(window_start) AND duration_zscore IS NOT NULL GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "custom": { "lineWidth": 1, "fillOpacity": 0 }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Ingest Lag Over Time (p50 / p95)",
+      "description": "End-to-end latency from VietMap API to Postgres — SLO: p95 < 30s",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM window_start) / 5.0) AS time, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY last_ingest_lag_ms) / 1000.0 AS \"p50 lag (s)\", PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY last_ingest_lag_ms) / 1000.0 AS \"p95 lag (s)\" FROM online_route_features WHERE $__timeFilter(window_start) AND last_ingest_lag_ms IS NOT NULL GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 15 },
+              { "color": "red", "value": 30 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "p95 lag (s)" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p50 lag (s)" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "SLO Met (p95 < 30s)",
+      "description": "Percentage of 5-min windows where p95 lag was under 30s",
+      "gridPos": { "x": 12, "y": 20, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN p95_ms < 30000 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS value FROM (SELECT date_trunc('hour', window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM window_start) / 5.0) AS bucket, PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p95_ms FROM online_route_features WHERE $__timeFilter(window_start) AND last_ingest_lag_ms IS NOT NULL GROUP BY 1) t"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 90 },
+              { "color": "green", "value": 99 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Routes With Z-Score Null",
+      "description": "Routes with no baseline yet (stddev=0 or baseline missing) — fallback mode",
+      "gridPos": { "x": 18, "y": 20, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) AS value FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE duration_zscore IS NULL AND updated_at > NOW() - INTERVAL '15 minutes'"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Baseline Coverage",
+      "description": "% of active routes with valid z-score (has baseline)",
+      "gridPos": { "x": 12, "y": 24, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN duration_zscore IS NOT NULL THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS value FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '15 minutes'"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "green", "value": 90 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      }
     }
   ]
 }
