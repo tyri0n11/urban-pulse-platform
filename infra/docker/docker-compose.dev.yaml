@@ -247,6 +247,13 @@ services:
       - urban-pulse-platform
     env_file:
       - ../../.env
+    environment:
+      DREMIO_ADMIN_USER: ${DREMIO_ADMIN_USER:-admin}
+      DREMIO_ADMIN_PASSWORD: ${DREMIO_ADMIN_PASSWORD:-urbanpulse123}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      NESSIE_S3_ACCESS_KEY: ${NESSIE_S3_ACCESS_KEY:-${MINIO_ROOT_USER:-minioadmin}}
+      NESSIE_S3_SECRET_KEY: ${NESSIE_S3_SECRET_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
     volumes:
       - ./dremio/setup.sh:/setup.sh:ro
     entrypoint: >
