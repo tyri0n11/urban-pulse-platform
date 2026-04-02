@@ -28,10 +28,6 @@ BOOTSTRAP_RESP=$(curl -s -o /dev/stderr -w "%{http_code}" -X PUT "$DREMIO_URL/ap
 echo "Bootstrap response code: $BOOTSTRAP_RESP"
 
 # Login and get token — use -s (not -sf) so we can see error responses
-echo "Logging in..."
-LOGIN_RESP=$(curl -s -X POST "$DREMIO_URL/apiv2/login" \
-  -H "Content-Type: application/json" \
-  -d '{"userName": "admin", "password": "urbanpulse123"}')
 
 if [ -z "$LOGIN_RESP" ]; then
   echo "ERROR: Empty login response"
