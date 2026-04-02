@@ -95,6 +95,11 @@ prod-down:
 prod-build:
 	$(COMPOSE_PROD) build
 
+prod-update-ui:
+	cd v0-urban-pulse-dashboard && git pull origin main
+	$(COMPOSE_PROD) build --no-cache ui
+	$(COMPOSE_PROD) up -d --force-recreate ui
+
 prod-logs:
 	$(COMPOSE_PROD) logs -f
 
@@ -106,5 +111,4 @@ prod-bootstrap:
 
 prod-train:
 	@echo "Triggering training via ML service API..."
-	@curl -sf http://localhost:8000/health > /dev/null 2>&1 || { echo "ML service not running — start with 'make prod'"; exit 1; }
-	@curl -s -X POST http://localhost:8000/train | python -m json.tool
+	$(COMPOSE_PROD) exec batch .venv/bin/python -c "import urllib.request, json; r = urllib.request.urlopen(urllib.request.Request('http://ml-service:8000/train', method='POST')); print(json.dumps(json.loads(r.read()), indent=2))"

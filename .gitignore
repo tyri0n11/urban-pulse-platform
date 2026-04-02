@@ -16,3 +16,4 @@ __pycache__/
 .ipynb_checkpoints/
 infra/traefik/dynamic.yml
 .DS_Store
+infra/traefik/dynamic.yml

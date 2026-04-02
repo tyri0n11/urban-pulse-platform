@@ -28,7 +28,7 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: you@yourdomain.com   # replace with your email
+      email: admin@tyr1on.io.vn   # replace with your email
       storage: /acme.json
       httpChallenge:
         entryPoint: web

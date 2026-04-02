@@ -1,5 +1,5 @@
 # Production compose — Urban Pulse Platform
-# Replace ALL occurrences of "yourdomain.com" with your actual domain before deploying.
+# Replace ALL occurrences of "tyr1on.io.vn" with your actual domain before deploying.
 #
 # First-time setup on the server:
 #   sudo mkdir -p /opt/urban-pulse/{redpanda,minio,nessie,dremio,mlflow,prefect,postgres,loki,grafana,traefik}
@@ -18,8 +18,10 @@ services:
   # Traefik — reverse proxy + automatic HTTPS via Let's Encrypt
   # ---------------------------------------------------------------------------
   traefik:
-    image: traefik:v3.3
+    image: traefik:v2.11
     container_name: traefik
+    environment:
+      DOCKER_API_VERSION: "1.52"
     restart: unless-stopped
     networks:
       - urban-pulse-platform
@@ -98,7 +100,7 @@ services:
         condition: service_healthy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.redpanda-console.rule=Host(`redpanda.yourdomain.com`)"
+      - "traefik.http.routers.redpanda-console.rule=Host(`redpanda.tyr1on.io.vn`)"
       - "traefik.http.routers.redpanda-console.entrypoints=websecure"
       - "traefik.http.routers.redpanda-console.tls.certresolver=letsencrypt"
       - "traefik.http.routers.redpanda-console.middlewares=basicauth@file"
@@ -165,7 +167,7 @@ services:
       start_period: 5s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.minio-console.rule=Host(`minio.yourdomain.com`)"
+      - "traefik.http.routers.minio-console.rule=Host(`minio.tyr1on.io.vn`)"
       - "traefik.http.routers.minio-console.entrypoints=websecure"
       - "traefik.http.routers.minio-console.tls.certresolver=letsencrypt"
       - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
@@ -252,7 +254,7 @@ services:
       start_period: 60s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.dremio.rule=Host(`dremio.yourdomain.com`)"
+      - "traefik.http.routers.dremio.rule=Host(`dremio.tyr1on.io.vn`)"
       - "traefik.http.routers.dremio.entrypoints=websecure"
       - "traefik.http.routers.dremio.tls.certresolver=letsencrypt"
       - "traefik.http.services.dremio.loadbalancer.server.port=9047"
@@ -297,6 +299,8 @@ services:
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
     volumes:
       - /opt/urban-pulse/mlflow:/mlflow
     depends_on:
@@ -310,7 +314,7 @@ services:
       start_period: 15s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.mlflow.rule=Host(`mlflow.yourdomain.com`)"
+      - "traefik.http.routers.mlflow.rule=Host(`mlflow.tyr1on.io.vn`)"
       - "traefik.http.routers.mlflow.entrypoints=websecure"
       - "traefik.http.routers.mlflow.tls.certresolver=letsencrypt"
       - "traefik.http.routers.mlflow.middlewares=basicauth@file"
@@ -332,6 +336,7 @@ services:
       - urban-pulse-platform
     environment:
       PREFECT_HOME: /prefect
+      PREFECT_UI_API_URL: https://prefect.tyr1on.io.vn/api
     volumes:
       - /opt/urban-pulse/prefect:/prefect
     healthcheck:
@@ -342,7 +347,7 @@ services:
       start_period: 20s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.prefect.rule=Host(`prefect.yourdomain.com`)"
+      - "traefik.http.routers.prefect.rule=Host(`prefect.tyr1on.io.vn`)"
       - "traefik.http.routers.prefect.entrypoints=websecure"
       - "traefik.http.routers.prefect.middlewares=basicauth@file"
       - "traefik.http.routers.prefect.entrypoints=websecure"
@@ -518,7 +523,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 2g
 
   serving:
     container_name: serving-service
@@ -545,7 +550,7 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.serving.rule=Host(`api.yourdomain.com`)"
+      - "traefik.http.routers.serving.rule=Host(`api.tyr1on.io.vn`)"
       - "traefik.http.routers.serving.entrypoints=websecure"
       - "traefik.http.routers.serving.tls.certresolver=letsencrypt"
       - "traefik.http.services.serving.loadbalancer.server.port=8000"
@@ -574,9 +579,10 @@ services:
         condition: service_healthy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.ui.rule=Host(`yourdomain.com`) || Host(`www.yourdomain.com`)"
+      - "traefik.http.routers.ui.rule=Host(`tyr1on.io.vn`)"
       - "traefik.http.routers.ui.entrypoints=websecure"
       - "traefik.http.routers.ui.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.ui.middlewares=secure-headers@file"
       - "traefik.http.services.ui.loadbalancer.server.port=3000"
     deploy:
       resources:
@@ -635,16 +641,17 @@ services:
       - /opt/urban-pulse/grafana:/var/lib/grafana
       - ../../infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
-      GF_AUTH_DISABLE_LOGIN_FORM: "true"
-      GF_SERVER_ROOT_URL: https://grafana.yourdomain.com
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: https://grafana.tyr1on.io.vn
     depends_on:
       loki:
         condition: service_healthy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.grafana.rule=Host(`grafana.yourdomain.com`)"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.tyr1on.io.vn`)"
       - "traefik.http.routers.grafana.entrypoints=websecure"
       - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
       - "traefik.http.services.grafana.loadbalancer.server.port=3000"
@@ -652,3 +659,32 @@ services:
       resources:
         limits:
           memory: 256m
+
+  # ---------------------------------------------------------------------------
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 4g
+
+volumes:
+  ollama-data:
