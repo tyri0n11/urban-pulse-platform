@@ -226,18 +226,17 @@ class OnlineFeatureProcessor:
         severe_segments = float(obs.congestion.severe_segments) if obs.congestion else 0.0
         window.update(obs.duration_minutes, heavy_ratio, moderate_ratio, low_ratio, severe_segments, lag_ms)
 
-        # Z-score vs batch baseline
+        # Heavy-ratio z-score vs batch baseline
         baseline = self._baseline.get(obs.route_id)
         zscore: float | None = None
         is_anomaly = False
-        heavy_ratio_deviation: float = window.mean_heavy_ratio  # fallback: raw ratio
-        if baseline and baseline.stddev > 0:
-            zscore = (window.mean_duration - baseline.mean) / baseline.stddev
-            is_anomaly = abs(zscore) > baseline.zscore_threshold
+        heavy_ratio_deviation: float = window.mean_heavy_ratio
+        if baseline and baseline.heavy_ratio_stddev > 0:
+            zscore = (window.mean_heavy_ratio - baseline.heavy_ratio_mean) / baseline.heavy_ratio_stddev
+            # one-sided: high heavy_ratio is anomalous; low is fine
+            is_anomaly = zscore > baseline.zscore_threshold
             heavy_ratio_deviation = window.mean_heavy_ratio - baseline.heavy_ratio_mean
 
-        # p95 approximation: mean + 2*stddev ≈ 97.7th pct under normality
-        # Matches training feature (gold.p95_duration / gold.avg_duration)
         p95_approx = window.mean_duration + 2.0 * window.stddev_duration
         p95_to_mean_ratio = (p95_approx / window.mean_duration) if window.mean_duration > 0 else 1.0
 

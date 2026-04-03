@@ -196,24 +196,31 @@ async def _stream_ollama(system: str, prompt: str) -> AsyncGenerator[str, None]:
         "stream": True,
         "options": {"temperature": 0.4, "num_predict": 300},
     }
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        async with client.stream("POST", f"{_OLLAMA_URL}/api/generate", json=payload) as resp:
-            if resp.status_code != 200:
-                yield f"data: {json.dumps({'error': f'Ollama {resp.status_code}'})}\n\n"
-                return
-            async for line in resp.aiter_lines():
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                chunk = data.get("response", "")
-                if chunk:
-                    yield f"data: {json.dumps({'chunk': chunk})}\n\n"
-                if data.get("done"):
-                    yield f"data: {json.dumps({'done': True})}\n\n"
+    timeout = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", f"{_OLLAMA_URL}/api/generate", json=payload) as resp:
+                if resp.status_code != 200:
+                    yield f"data: {json.dumps({'error': f'Ollama {resp.status_code}'})}\n\n"
                     return
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    chunk = data.get("response", "")
+                    if chunk:
+                        yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                    if data.get("done"):
+                        yield f"data: {json.dumps({'done': True})}\n\n"
+                        return
+    except httpx.TimeoutException:
+        yield f"data: {json.dumps({'error': 'LLM timeout — thử lại sau'})}\n\n"
+    except httpx.HTTPError as exc:
+        logger.error("chat: Ollama connection error: %s", exc)
+        yield f"data: {json.dumps({'error': 'Không thể kết nối tới Ollama'})}\n\n"
 
 
 @router.post("")

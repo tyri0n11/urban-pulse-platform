@@ -38,6 +38,7 @@ _BASELINE_SCHEMA = Schema(
     NestedField(7, "sample_count", IntegerType()),
     NestedField(8, "zscore_p95", DoubleType()),
     NestedField(9, "zscore_p99", DoubleType()),
+    NestedField(10, "baseline_heavy_ratio_stddev", DoubleType()),
 )
 
 _BASELINE_ARROW_SCHEMA = pa.schema([
@@ -50,6 +51,7 @@ _BASELINE_ARROW_SCHEMA = pa.schema([
     pa.field("sample_count", pa.int32()),
     pa.field("zscore_p95", pa.float64()),
     pa.field("zscore_p99", pa.float64()),
+    pa.field("baseline_heavy_ratio_stddev", pa.float64()),
 ])
 
 
@@ -128,18 +130,20 @@ def run() -> int:
                     1.0
                 )                                              AS baseline_duration_stddev,
                 AVG(avg_heavy_ratio)                           AS baseline_heavy_ratio_mean,
+                GREATEST(
+                    COALESCE(STDDEV(avg_heavy_ratio), AVG(avg_heavy_ratio) * 0.2),
+                    0.01
+                )                                              AS baseline_heavy_ratio_stddev,
                 CAST(COUNT(*) AS INTEGER)                      AS sample_count
             FROM gold
             GROUP BY route_id, day_of_week, hour_of_day
         ),
         row_zscores AS (
-            -- z-score for every individual gold row vs its slot baseline
+            -- heavy_ratio z-score for every individual gold row vs its slot baseline
             SELECT
                 g.route_id,
-                ABS(
-                    (g.avg_duration_minutes - s.baseline_duration_mean)
-                    / s.baseline_duration_stddev
-                ) AS abs_zscore
+                (g.avg_heavy_ratio - s.baseline_heavy_ratio_mean)
+                / s.baseline_heavy_ratio_stddev AS zscore
             FROM gold g
             JOIN slot_stats s
               ON  g.route_id = s.route_id
@@ -149,8 +153,8 @@ def run() -> int:
         route_pct AS (
             SELECT
                 route_id,
-                QUANTILE_CONT(abs_zscore, 0.95) AS zscore_p95,
-                QUANTILE_CONT(abs_zscore, 0.99) AS zscore_p99
+                QUANTILE_CONT(zscore, 0.95) AS zscore_p95,
+                QUANTILE_CONT(zscore, 0.99) AS zscore_p99
             FROM row_zscores
             GROUP BY route_id
         )
@@ -163,7 +167,8 @@ def run() -> int:
             s.baseline_heavy_ratio_mean,
             s.sample_count,
             COALESCE(p.zscore_p95, 1.5)  AS zscore_p95,
-            COALESCE(p.zscore_p99, 2.0)  AS zscore_p99
+            COALESCE(p.zscore_p99, 2.0)  AS zscore_p99,
+            s.baseline_heavy_ratio_stddev
         FROM slot_stats s
         LEFT JOIN route_pct p ON s.route_id = p.route_id
     """).arrow()
