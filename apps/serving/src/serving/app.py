@@ -36,9 +36,25 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(sse_router.router)
 
+    _CREATE_IFOREST_TABLE = """
+        CREATE TABLE IF NOT EXISTS route_iforest_scores (
+            route_id        TEXT             NOT NULL,
+            window_start    TIMESTAMPTZ      NOT NULL,
+            scored_at       TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+            iforest_anomaly BOOLEAN          NOT NULL,
+            iforest_score   DOUBLE PRECISION,
+            both_anomaly    BOOLEAN          NOT NULL,
+            PRIMARY KEY (route_id, window_start)
+        );
+        CREATE INDEX IF NOT EXISTS idx_iforest_window_start
+            ON route_iforest_scores (window_start DESC);
+    """
+
     @app.on_event("startup")
     async def _startup() -> None:
         app.state.pg_pool = await asyncpg.create_pool(postgres_dsn(), min_size=2, max_size=10)
+        async with app.state.pg_pool.acquire() as conn:
+            await conn.execute(_CREATE_IFOREST_TABLE)
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:

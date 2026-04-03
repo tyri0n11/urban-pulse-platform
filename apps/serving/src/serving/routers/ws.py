@@ -114,11 +114,20 @@ async def fetch_snapshot(pool: asyncpg.Pool) -> dict[str, Any]:
             pred_by_route = {}
 
         anomalies: list[dict[str, Any]] = []
+        iforest_upsert_rows: list[tuple[Any, ...]] = []
         for row in row_dicts:
             rid = row["route_id"]
             pred = pred_by_route.get(rid)
             is_zscore = bool(row.get("is_anomaly", False))
             is_iforest = bool(pred.iforest_anomaly) if pred else False
+            if pred:
+                iforest_upsert_rows.append((
+                    rid,
+                    row["window_start"],
+                    pred.iforest_anomaly,
+                    pred.iforest_score,
+                    pred.both_anomaly,
+                ))
             if not (is_zscore or is_iforest):
                 continue
             entry = dict(row)
@@ -127,6 +136,21 @@ async def fetch_snapshot(pool: asyncpg.Pool) -> dict[str, Any]:
                 entry["iforest_score"] = pred.iforest_score
                 entry["both_anomaly"] = pred.both_anomaly
             anomalies.append(entry)
+
+        if iforest_upsert_rows:
+            await conn.executemany(
+                """
+                INSERT INTO route_iforest_scores
+                    (route_id, window_start, scored_at, iforest_anomaly, iforest_score, both_anomaly)
+                VALUES ($1, $2, NOW(), $3, $4, $5)
+                ON CONFLICT (route_id, window_start) DO UPDATE SET
+                    scored_at       = NOW(),
+                    iforest_anomaly = EXCLUDED.iforest_anomaly,
+                    iforest_score   = EXCLUDED.iforest_score,
+                    both_anomaly    = EXCLUDED.both_anomaly
+                """,
+                iforest_upsert_rows,
+            )
 
         lag_row = await conn.fetchrow(
             """

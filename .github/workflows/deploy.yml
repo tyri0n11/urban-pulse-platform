@@ -24,4 +24,4 @@ jobs:
       - name: Deploy
         run: |
           cd ~/deployment/urban-pulse-platform
-          make prod
+          make prod && make prod-update-ui
