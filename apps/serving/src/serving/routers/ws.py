@@ -22,6 +22,8 @@ import asyncpg
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from serving.services import prediction_service
+
 router = APIRouter(tags=["events"])
 logger = logging.getLogger(__name__)
 
@@ -102,7 +104,29 @@ async def fetch_snapshot(pool: asyncpg.Pool) -> dict[str, Any]:
             ORDER BY route_id, updated_at DESC
             """
         )
-        anomalies = [dict(r) for r in anomaly_rows if r["is_anomaly"]]
+        row_dicts = [dict(r) for r in anomaly_rows]
+
+        # Run IsolationForest scoring (cached in-process, cheap after first load)
+        try:
+            predictions = prediction_service.score_rows(row_dicts)
+            pred_by_route = {p.route_id: p for p in predictions}
+        except Exception:
+            pred_by_route = {}
+
+        anomalies: list[dict[str, Any]] = []
+        for row in row_dicts:
+            rid = row["route_id"]
+            pred = pred_by_route.get(rid)
+            is_zscore = bool(row.get("is_anomaly", False))
+            is_iforest = bool(pred.iforest_anomaly) if pred else False
+            if not (is_zscore or is_iforest):
+                continue
+            entry = dict(row)
+            if pred:
+                entry["iforest_anomaly"] = pred.iforest_anomaly
+                entry["iforest_score"] = pred.iforest_score
+                entry["both_anomaly"] = pred.both_anomaly
+            anomalies.append(entry)
 
         lag_row = await conn.fetchrow(
             """
