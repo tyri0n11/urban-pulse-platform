@@ -48,9 +48,11 @@ CREATE TABLE IF NOT EXISTS online_route_features (
 CREATE INDEX IF NOT EXISTS idx_online_updated_at
     ON online_route_features (updated_at DESC);
 -- Migrate existing tables: add columns if they don't exist yet
-ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS heavy_ratio_deviation DOUBLE PRECISION;
-ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS p95_to_mean_ratio     DOUBLE PRECISION;
-ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS max_severe_segments   DOUBLE PRECISION;
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS heavy_ratio_deviation  DOUBLE PRECISION;
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS p95_to_mean_ratio      DOUBLE PRECISION;
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS max_severe_segments    DOUBLE PRECISION;
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS mean_moderate_ratio    DOUBLE PRECISION;
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS mean_low_ratio         DOUBLE PRECISION;
 """
 
 _UPSERT_SQL = """
@@ -61,7 +63,8 @@ INSERT INTO online_route_features (
     mean_heavy_ratio, last_heavy_ratio,
     duration_zscore, is_anomaly,
     last_ingest_lag_ms,
-    heavy_ratio_deviation, p95_to_mean_ratio, max_severe_segments
+    heavy_ratio_deviation, p95_to_mean_ratio, max_severe_segments,
+    mean_moderate_ratio, mean_low_ratio
 ) VALUES (
     %(route_id)s, %(window_start)s, NOW(),
     %(observation_count)s,
@@ -69,7 +72,8 @@ INSERT INTO online_route_features (
     %(mean_heavy_ratio)s, %(last_heavy_ratio)s,
     %(duration_zscore)s, %(is_anomaly)s,
     %(last_ingest_lag_ms)s,
-    %(heavy_ratio_deviation)s, %(p95_to_mean_ratio)s, %(max_severe_segments)s
+    %(heavy_ratio_deviation)s, %(p95_to_mean_ratio)s, %(max_severe_segments)s,
+    %(mean_moderate_ratio)s, %(mean_low_ratio)s
 )
 ON CONFLICT (route_id, window_start) DO UPDATE SET
     updated_at              = NOW(),
@@ -84,7 +88,9 @@ ON CONFLICT (route_id, window_start) DO UPDATE SET
     last_ingest_lag_ms      = EXCLUDED.last_ingest_lag_ms,
     heavy_ratio_deviation   = EXCLUDED.heavy_ratio_deviation,
     p95_to_mean_ratio       = EXCLUDED.p95_to_mean_ratio,
-    max_severe_segments     = EXCLUDED.max_severe_segments
+    max_severe_segments     = EXCLUDED.max_severe_segments,
+    mean_moderate_ratio     = EXCLUDED.mean_moderate_ratio,
+    mean_low_ratio          = EXCLUDED.mean_low_ratio
 """
 
 
@@ -215,8 +221,10 @@ class OnlineFeatureProcessor:
             self._windows[obs.route_id] = window
 
         heavy_ratio = obs.congestion.heavy_ratio if obs.congestion else 0.0
+        moderate_ratio = obs.congestion.moderate_ratio if obs.congestion else 0.0
+        low_ratio = obs.congestion.low_ratio if obs.congestion else 0.0
         severe_segments = float(obs.congestion.severe_segments) if obs.congestion else 0.0
-        window.update(obs.duration_minutes, heavy_ratio, severe_segments, lag_ms)
+        window.update(obs.duration_minutes, heavy_ratio, moderate_ratio, low_ratio, severe_segments, lag_ms)
 
         # Z-score vs batch baseline
         baseline = self._baseline.get(obs.route_id)
@@ -251,6 +259,8 @@ class OnlineFeatureProcessor:
                     "heavy_ratio_deviation": heavy_ratio_deviation,
                     "p95_to_mean_ratio": p95_to_mean_ratio,
                     "max_severe_segments": window.max_severe_segments,
+                    "mean_moderate_ratio": window.mean_moderate_ratio,
+                    "mean_low_ratio": window.mean_low_ratio,
                 })
         except psycopg2.OperationalError:
             logger.warning("online-features: Postgres connection lost, reconnecting")
@@ -271,6 +281,8 @@ class OnlineFeatureProcessor:
                     "heavy_ratio_deviation": heavy_ratio_deviation,
                     "p95_to_mean_ratio": p95_to_mean_ratio,
                     "max_severe_segments": window.max_severe_segments,
+                    "mean_moderate_ratio": window.mean_moderate_ratio,
+                    "mean_low_ratio": window.mean_low_ratio,
                 })
 
         logger.info(

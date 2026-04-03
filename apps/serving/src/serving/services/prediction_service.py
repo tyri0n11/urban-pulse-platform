@@ -5,11 +5,12 @@ Each route has its own registered model: "iforest-{route_id}".
 Models are cached in-process per route and refreshed every MODEL_TTL seconds.
 
 Feature mapping from online_route_features → IsolationForest input:
-    duration_zscore       → duration_zscore         (direct)
-    heavy_ratio_deviation → heavy_ratio_deviation   (computed by online service vs baseline)
-    p95_to_mean_ratio     → p95_to_mean_ratio       (computed by online service: mean+2σ/mean)
-    observation_count     → observation_count        (direct)
-    max_severe_segments   → max_severe_segments     (tracked per window by online service)
+    mean_heavy_ratio    → avg_heavy_ratio    (raw congestion signal)
+    mean_moderate_ratio → avg_moderate_ratio (raw congestion signal)
+    mean_low_ratio      → avg_low_ratio      (raw congestion signal)
+    max_severe_segments → max_severe_segments
+    hour_of_day         → derived from window_start
+    day_of_week         → derived from window_start
 """
 
 import logging
@@ -30,11 +31,12 @@ _MODEL_ALIAS = "champion"
 
 # Feature order MUST match ml/features/traffic_features.py FEATURE_COLUMNS
 _FEATURE_ORDER = [
-    "duration_zscore",
-    "heavy_ratio_deviation",
-    "p95_to_mean_ratio",
-    "observation_count",
+    "avg_heavy_ratio",
+    "avg_moderate_ratio",
+    "avg_low_ratio",
     "max_severe_segments",
+    "hour_of_day",
+    "day_of_week",
 ]
 
 
@@ -130,16 +132,27 @@ def _get_route_model(route_id: str) -> Any:
 def _build_feature_vector(row: dict[str, Any]) -> np.ndarray:
     """Convert one Postgres row → 1D feature vector.
 
-    Columns heavy_ratio_deviation, p95_to_mean_ratio, max_severe_segments
-    are computed by the online service and stored in Postgres, so training
-    and serving use identical feature definitions.
+    Congestion ratios are tracked by the online service and stored in Postgres.
+    hour_of_day and day_of_week are derived from window_start (UTC).
+    Feature order MUST match FEATURE_COLUMNS in ml/features/traffic_features.py.
     """
+    from datetime import timezone
+    window_start = row.get("window_start")
+    if window_start is not None and hasattr(window_start, "astimezone"):
+        window_start = window_start.astimezone(timezone.utc)
+        hour_of_day = float(window_start.hour)
+        day_of_week = float(window_start.weekday() + 1) % 7  # match SQL EXTRACT(DOW)
+    else:
+        hour_of_day = 0.0
+        day_of_week = 0.0
+
     return np.array([
-        float(row.get("duration_zscore") or 0.0),
-        float(row.get("heavy_ratio_deviation") or 0.0),
-        float(row.get("p95_to_mean_ratio") or 1.0),
-        float(row.get("observation_count") or 0),
+        float(row.get("mean_heavy_ratio") or 0.0),
+        float(row.get("mean_moderate_ratio") or 0.0),
+        float(row.get("mean_low_ratio") or 0.0),
         float(row.get("max_severe_segments") or 0.0),
+        hour_of_day,
+        day_of_week,
     ], dtype=np.float64)
 
 

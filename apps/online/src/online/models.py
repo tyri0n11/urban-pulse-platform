@@ -24,9 +24,11 @@ class RouteWindow:
     # Last observed value (useful for "current state" queries)
     last_duration: float = 0.0
 
-    # Heavy vehicle ratio (simple running sum — cheap to track)
+    # Congestion ratios (simple running sums — cheap to track)
     sum_heavy_ratio: float = 0.0
     last_heavy_ratio: float = 0.0
+    sum_moderate_ratio: float = 0.0
+    sum_low_ratio: float = 0.0
 
     # End-to-end ingestion lag for the most recent message
     last_ingest_lag_ms: int = 0
@@ -34,7 +36,7 @@ class RouteWindow:
     # Max severe segments seen in this window (for IForest feature)
     max_severe_segments: float = 0.0
 
-    def update(self, duration: float, heavy_ratio: float, severe_segments: float, ingest_lag_ms: int) -> None:
+    def update(self, duration: float, heavy_ratio: float, moderate_ratio: float, low_ratio: float, severe_segments: float, ingest_lag_ms: int) -> None:
         """Apply one observation, updating all accumulators in-place."""
         self.count += 1
 
@@ -47,6 +49,8 @@ class RouteWindow:
         self.last_duration = duration
         self.sum_heavy_ratio += heavy_ratio
         self.last_heavy_ratio = heavy_ratio
+        self.sum_moderate_ratio += moderate_ratio
+        self.sum_low_ratio += low_ratio
         self.last_ingest_lag_ms = ingest_lag_ms
         self.max_severe_segments = max(self.max_severe_segments, severe_segments)
 
@@ -61,6 +65,18 @@ class RouteWindow:
         if self.count == 0:
             return 0.0
         return self.sum_heavy_ratio / self.count
+
+    @property
+    def mean_moderate_ratio(self) -> float:
+        if self.count == 0:
+            return 0.0
+        return self.sum_moderate_ratio / self.count
+
+    @property
+    def mean_low_ratio(self) -> float:
+        if self.count == 0:
+            return 0.0
+        return self.sum_low_ratio / self.count
 
     def to_dict(self) -> dict[str, object]:
         return {

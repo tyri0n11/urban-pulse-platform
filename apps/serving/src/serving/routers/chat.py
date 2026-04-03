@@ -35,7 +35,9 @@ _MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 _SYSTEM = build_system_prompt(
     "You are Urban Pulse AI, a traffic assistant embedded in the Urban Pulse "
     "real-time monitoring dashboard for Ho Chi Minh City metro region. "
-    "You receive a live system snapshot below with current anomaly alerts and metrics. "
+    "You receive a live system snapshot with current congestion metrics and anomaly alerts. "
+    "Congestion is measured by heavy_ratio (% road segments heavily congested), "
+    "moderate_ratio (% moderately slow), and severe_segments (worst spots). "
     "Answer questions concisely. Reference real road names (Xa lộ Hà Nội, QL13, etc.) "
     "and HCMC district names when relevant. "
     "Do not add greetings or sign-offs. "
@@ -56,12 +58,10 @@ async def _fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
         """
         SELECT DISTINCT ON (route_id)
             route_id,
-            mean_duration_minutes,
-            duration_zscore,
             is_anomaly,
             mean_heavy_ratio,
-            heavy_ratio_deviation,
-            p95_to_mean_ratio,
+            COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+            COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
             max_severe_segments,
             observation_count,
             last_ingest_lag_ms,
@@ -115,18 +115,17 @@ async def _fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
             anomalies.append({
                 "route": _short_name(row["route_id"]),
                 "signal": sig,
-                "zscore": round(row["duration_zscore"] or 0, 2),
-                "mean_min": round(row["mean_duration_minutes"] or 0, 1),
-                "heavy_dev": round((row["heavy_ratio_deviation"] or 0) * 100, 1),
-                "severe_seg": row["max_severe_segments"] or 0,
+                "heavy_pct": round((row["mean_heavy_ratio"] or 0) * 100, 1),
+                "moderate_pct": round((row["mean_moderate_ratio"] or 0) * 100, 1),
+                "severe_seg": int(row["max_severe_segments"] or 0),
             })
 
-    # Sort by |zscore| desc
-    anomalies.sort(key=lambda x: abs(x["zscore"]), reverse=True)
+    # Sort by heavy_ratio desc (most congested first)
+    anomalies.sort(key=lambda x: x["heavy_pct"], reverse=True)
 
     top_congested = sorted(
         row_list,
-        key=lambda r: abs(r["duration_zscore"] or 0),
+        key=lambda r: r["mean_heavy_ratio"] or 0,
         reverse=True,
     )[:5]
 
@@ -141,8 +140,8 @@ async def _fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
         "top_congested": [
             {
                 "route": _short_name(r["route_id"]),
-                "zscore": round(r["duration_zscore"] or 0, 2),
-                "mean_min": round(r["mean_duration_minutes"] or 0, 1),
+                "heavy_pct": round((r["mean_heavy_ratio"] or 0) * 100, 1),
+                "moderate_pct": round((r["mean_moderate_ratio"] or 0) * 100, 1),
             }
             for r in top_congested
         ],
@@ -157,28 +156,30 @@ def _build_user_prompt(snapshot: dict[str, Any], message: str, lang: str) -> str
     avg_lag = snapshot["avg_lag_ms"]
 
     lines = [
-        "=== LIVE SNAPSHOT (real-time) ===",
+        "=== LIVE SNAPSHOT (real-time congestion) ===",
         f"Đang giám sát {total} tuyến · Độ trễ cảm biến TB: {avg_lag} ms",
         f"Bất thường hiện tại: {anomaly_count}/{total} tuyến",
         "",
     ]
 
     if snapshot["anomalies"]:
-        lines.append("Tuyến bất thường (sắp xếp theo |z-score|):")
+        lines.append("Tuyến bất thường (sắp xếp theo heavy_ratio cao nhất):")
         for a in snapshot["anomalies"]:
             lines.append(
-                f"  [{a['signal']}] {a['route']}: z={a['zscore']:+.2f}, "
-                f"avg {a['mean_min']} phút, xe nặng lệch {a['heavy_dev']:+.1f}%, "
-                f"đoạn nặng={a['severe_seg']}"
+                f"  [{a['signal']}] {a['route']}: "
+                f"heavy={a['heavy_pct']:.1f}%, moderate={a['moderate_pct']:.1f}%, "
+                f"severe_segments={a['severe_seg']}"
             )
     else:
         lines.append("Không có bất thường tại thời điểm này.")
 
     if snapshot["top_congested"]:
         lines.append("")
-        lines.append("Top tắc nghẽn:")
+        lines.append("Top tắc nghẽn (heavy_ratio cao nhất):")
         for r in snapshot["top_congested"]:
-            lines.append(f"  {r['route']}: z={r['zscore']:+.2f}, avg {r['mean_min']} phút")
+            lines.append(
+                f"  {r['route']}: heavy={r['heavy_pct']:.1f}%, moderate={r['moderate_pct']:.1f}%"
+            )
 
     lang_note = "Trả lời bằng tiếng Việt." if lang == "vi" else "Respond in English."
     lines += ["", "=== END SNAPSHOT ===", "", lang_note, "", f"Câu hỏi: {message}"]

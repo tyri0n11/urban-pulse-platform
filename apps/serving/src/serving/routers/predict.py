@@ -30,6 +30,8 @@ _FETCH_LATEST_SQL = """
         mean_duration_minutes,
         last_duration_minutes,
         mean_heavy_ratio,
+        COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+        COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
         duration_zscore,
         is_anomaly
     FROM online_route_features
@@ -43,6 +45,8 @@ _FETCH_ROUTE_SQL = """
         mean_duration_minutes,
         last_duration_minutes,
         mean_heavy_ratio,
+        COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+        COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
         duration_zscore,
         is_anomaly
     FROM online_route_features

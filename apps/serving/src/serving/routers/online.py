@@ -60,6 +60,8 @@ async def list_features(
             last_duration_minutes,
             mean_heavy_ratio,
             last_heavy_ratio,
+            COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+            COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
             duration_zscore,
             is_anomaly,
             last_ingest_lag_ms
@@ -88,6 +90,8 @@ async def get_feature(
             last_duration_minutes,
             mean_heavy_ratio,
             last_heavy_ratio,
+            COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+            COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
             duration_zscore,
             is_anomaly,
             last_ingest_lag_ms
@@ -128,6 +132,8 @@ async def get_feature_history(
             stddev_duration_minutes,
             last_duration_minutes,
             mean_heavy_ratio,
+            COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+            COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
             duration_zscore,
             is_anomaly,
             last_ingest_lag_ms

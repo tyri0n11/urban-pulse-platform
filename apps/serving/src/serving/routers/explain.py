@@ -40,44 +40,43 @@ _cache: dict[str, tuple[float, str]] = {}
 # Build once at import time — geo knowledge is static
 _SYSTEM = build_system_prompt(
     "You are a traffic analyst for Ho Chi Minh City metro region. "
-    "Given real-time sensor data for an anomalous route, write a concise 2–3 sentence explanation "
+    "Given real-time congestion sensor data for an anomalous route, write a concise 2–3 sentence explanation "
     "of WHY the route is anomalous — reference the specific road names, the type of traffic "
-    "(container trucks, commuters, industrial freight), and what the numbers imply. "
+    "(container trucks, commuters, industrial freight), and what the congestion ratios imply. "
+    "Focus on heavy_ratio and moderate_ratio values — interpret them as percentage of road segments congested. "
     "Be specific about the numbers. Do not use bullet points. Do not add greetings or sign-offs."
 )
 
 
 def _build_user_prompt(row: dict[str, Any], lang: str) -> str:
     """Build the user-turn prompt (data only — geo context is in system prompt)."""
-    zscore = row.get("duration_zscore")
-    heavy_dev = row.get("heavy_ratio_deviation") or 0.0
-    p95 = row.get("p95_to_mean_ratio") or 1.0
-    mean_dur = row.get("mean_duration_minutes") or 0.0
+    heavy = row.get("mean_heavy_ratio") or 0.0
+    moderate = row.get("mean_moderate_ratio") or 0.0
+    low = row.get("mean_low_ratio") or 0.0
+    severe = row.get("max_severe_segments") or 0
     obs = row.get("observation_count") or 0
     is_z = row.get("is_anomaly", False)
     is_if = row.get("iforest_anomaly", False)
     origin = row.get("origin") or row.get("route_id", "unknown")
     dest = row.get("destination") or ""
-    severe = row.get("max_severe_segments") or 0
 
     signal = []
     if is_z and is_if:
-        signal.append("BOTH z-score and IsolationForest (highest confidence)")
+        signal.append("BOTH Z-Score lẫn IsolationForest (độ tin cậy cao nhất)")
     elif is_z:
-        signal.append("Z-score only (duration spike vs historical baseline)")
+        signal.append("Z-Score (heavy_ratio > 30% — tắc nặng bất thường)")
     elif is_if:
-        signal.append("IsolationForest only (multi-dimensional, duration OK)")
+        signal.append("IsolationForest (cấu trúc congestion bất thường đa chiều)")
 
     lang_instruction = "Trả lời bằng tiếng Việt." if lang == "vi" else "Respond in English."
 
     return (
-        f"=== DỮ LIỆU BẤT THƯỜNG ===\n"
+        f"=== DỮ LIỆU TẮC NGHẼN BẤT THƯỜNG ===\n"
         f"Tuyến: {origin} → {dest}\n"
-        f"Thời gian di chuyển trung bình hiện tại: {mean_dur:.1f} phút\n"
-        f"Z-Score so với baseline lịch sử: {f'{zscore:+.2f}' if zscore is not None else 'N/A'}\n"
-        f"Độ lệch tỉ lệ xe nặng so với baseline: {heavy_dev:+.1%}\n"
-        f"P95/Mean ratio (độ spike): {p95:.2f}x\n"
-        f"Đoạn đường nặng nhất trong cửa sổ: {severe}\n"
+        f"Tỉ lệ đoạn TẮC NẶNG (heavy_ratio): {heavy:.1%}\n"
+        f"Tỉ lệ đoạn CHẬM VỪA (moderate_ratio): {moderate:.1%}\n"
+        f"Tỉ lệ đoạn ÍT TẮC (low_ratio): {low:.1%}\n"
+        f"Đoạn NGHIÊM TRỌNG NHẤT (severe_segments): {severe}\n"
         f"Số quan sát trong cửa sổ: {obs}\n"
         f"Tín hiệu bất thường: {', '.join(signal) if signal else 'none'}\n\n"
         f"{lang_instruction}\n"
@@ -122,8 +121,11 @@ async def _fetch_route_row(
     row = await conn.fetchrow(
         """
         SELECT DISTINCT ON (route_id)
-            route_id, mean_duration_minutes, duration_zscore, is_anomaly,
-            heavy_ratio_deviation, p95_to_mean_ratio, max_severe_segments,
+            route_id, is_anomaly,
+            mean_heavy_ratio,
+            COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+            COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
+            max_severe_segments,
             observation_count, updated_at
         FROM online_route_features
         WHERE route_id = $1
