@@ -15,9 +15,9 @@ datasources:
     uid: postgres
     url: postgres:5432
     access: proxy
-    user: urbanpulse
+    user: ${POSTGRES_USER}
     secureJsonData:
-      password: urbanpulse
+      password: ${POSTGRES_PASSWORD}
     jsonData:
       database: urbanpulse
       sslmode: disable

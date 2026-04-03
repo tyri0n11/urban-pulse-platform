@@ -490,6 +490,8 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      POSTGRES_USER: ${POSTGRES_USER:-urbanpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-urbanpulse}
     depends_on:
       loki:
         condition: service_healthy
