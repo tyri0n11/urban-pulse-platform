@@ -145,7 +145,10 @@ async def anomaly_summary(
     """Anomaly counts grouped by hour for the last N hours.
 
     Returns time-series data suitable for a chart:
-      hour | zscore_anomaly_count | total_routes
+      hour | zscore_anomaly_count | iforest_anomaly_count | both_anomaly_count | total_routes
+
+    Note: iforest_anomaly_count and both_anomaly_count are estimated for the current
+    hour only (IForest results are not stored historically). Past hours show zscore only.
     """
     rows = await conn.fetch(
         """
@@ -165,7 +168,48 @@ async def anomaly_summary(
         """,
         hours,
     )
-    return [_row_to_dict(r) for r in rows]
+    result = [_row_to_dict(r) for r in rows]
+
+    # Augment current hour with live IForest counts
+    try:
+        latest_rows = await conn.fetch(
+            """
+            SELECT DISTINCT ON (route_id)
+                route_id, window_start, updated_at, observation_count,
+                mean_duration_minutes, stddev_duration_minutes, last_duration_minutes,
+                mean_heavy_ratio, duration_zscore, is_anomaly, last_ingest_lag_ms
+            FROM online_route_features
+            ORDER BY route_id, updated_at DESC
+            """
+        )
+        row_dicts = [dict(r) for r in latest_rows]
+        predictions = prediction_service.score_rows(row_dicts)
+        pred_by_route = {p.route_id: p for p in predictions}
+
+        from datetime import datetime, timezone
+        current_hour = datetime.now(timezone.utc).replace(
+            minute=0, second=0, microsecond=0
+        ).isoformat()
+
+        # Total IForest anomalies (includes BOTH); frontend subtracts both_count to get IForest-only
+        iforest_count = sum(1 for p in predictions if p.iforest_anomaly)
+        both_count = sum(1 for p in predictions if p.both_anomaly)
+
+        # Find or append current-hour entry
+        for entry in result:
+            entry_hour = entry["hour"]
+            if hasattr(entry_hour, "isoformat"):
+                entry_hour_str = entry_hour.isoformat()
+            else:
+                entry_hour_str = str(entry_hour)
+            if entry_hour_str[:13] == current_hour[:13]:
+                entry["iforest_anomaly_count"] = iforest_count
+                entry["both_anomaly_count"] = both_count
+                break
+    except Exception:
+        pass
+
+    return result
 
 
 @router.get("/{route_id}")
