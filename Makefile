@@ -57,7 +57,7 @@ pull-model:
 train:
 	@echo "Triggering training via ML service API..."
 	@curl -sf http://localhost:8000/health > /dev/null 2>&1 || { echo "ML service not running — start with 'make dev'"; exit 1; }
-	@curl -s -X POST http://localhost:8000/train | python -m json.tool
+	@curl -s -X POST http://localhost:8000/train | python3 -m json.tool
 
 make setup:
 	cat .env.example > .env

@@ -59,6 +59,8 @@ async def current_anomalies(
             stddev_duration_minutes,
             last_duration_minutes,
             mean_heavy_ratio,
+            COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+            COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
             duration_zscore,
             is_anomaly,
             last_ingest_lag_ms

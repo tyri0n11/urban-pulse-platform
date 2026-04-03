@@ -104,19 +104,28 @@ Southern Coastal → Western Peri-urban  : QL50 / qua Long An. Hàng nông sản
 # Typical travel times
 # ---------------------------------------------------------------------------
 
-DURATION_CONTEXT = """\
-=== THỜI GIAN DI CHUYỂN BÌNH THƯỜNG (không kẹt xe) ===
-Urban Core ↔ Eastern Innovation   : 25–40 phút
-Urban Core ↔ Southern Port        : 20–35 phút
-Urban Core ↔ Northern Industrial  : 45–70 phút
-Urban Core ↔ Southern Coastal     : 55–80 phút
-Urban Core ↔ Western Peri-urban   : 30–50 phút
-Eastern Innovation ↔ Southern Port: 20–35 phút
-Eastern Innovation ↔ Northern Industrial: 25–40 phút
-Southern Port ↔ Northern Industrial: 40–60 phút
-Southern Coastal ↔ Urban Core     : 55–80 phút
-Western Peri-urban ↔ Urban Core   : 30–50 phút
-Ngưỡng bất thường: z-score vượt p99 lịch sử per-route (khoảng 2σ).
+CONGESTION_CONTEXT = """\
+=== PHÂN TÍCH MỨC ĐỘ TẮC NGHẼN (CONGESTION RATIOS) ===
+
+Hệ thống Urban Pulse đo TỈ LỆ PHÂN KHÚC ĐƯỜNG theo 4 mức tắc nghẽn thời gian thực:
+  • heavy_ratio   : % đoạn đường đang TẮC NẶNG (tốc độ rất thấp, xe nặng/container bị kẹt)
+  • moderate_ratio: % đoạn đường CHẬM VỪA (giao thông dày đặc nhưng còn di chuyển)
+  • low_ratio     : % đoạn đường ít tắc (gần bình thường)
+  • severe_segments: số đoạn NGHIÊM TRỌNG NHẤT trong cửa sổ thời gian
+
+Ngưỡng cảnh báo:
+  • heavy_ratio > 30% → Z-Score signal (xe nặng chiếm quá nhiều đoạn đường)
+  • IsolationForest (đa chiều): kết hợp heavy + moderate + low + severe + giờ trong ngày + ngày trong tuần
+
+Bình thường điển hình theo hành lang:
+  • Cảng (Zone 4, Zone 6): heavy_ratio 15–25% sáng sớm 5–8h (xe container), moderate 20–30%
+  • KCN Bình Dương (Zone 3): heavy_ratio 10–20% cả ngày (xe tải công nghiệp)
+  • CBD (Zone 1): heavy_ratio 5–15% peak 7–9h sáng, 17–19h chiều; moderate cao
+  • Vùng ven (Zone 5): heavy_ratio thấp <10%; moderate 10–20%
+
+Khi BOTH anomaly (cả Z-Score lẫn IsolationForest): heavy_ratio cao bất thường VÀ cấu trúc tắc nghẽn lạ.
+Khi chỉ IFOREST: pattern congestion bất thường (vd: moderate/low ratio lệch, giờ bất thường).
+Khi chỉ ZSCORE: heavy_ratio vượt 30% nhưng các chỉ số khác bình thường.
 """
 
 
@@ -131,6 +140,6 @@ def build_system_prompt(role_instruction: str) -> str:
         GROUNDING.strip(),
         ZONE_KNOWLEDGE.strip(),
         ROUTE_KNOWLEDGE.strip(),
-        DURATION_CONTEXT.strip(),
+        CONGESTION_CONTEXT.strip(),
         role_instruction.strip(),
     ])

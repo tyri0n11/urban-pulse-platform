@@ -43,6 +43,7 @@ _GOLD_SCHEMA = Schema(
     NestedField(8, "avg_heavy_ratio", DoubleType()),
     NestedField(9, "avg_moderate_ratio", DoubleType()),
     NestedField(10, "max_severe_segments", IntegerType()),
+    NestedField(11, "avg_low_ratio", DoubleType()),
 )
 
 _GOLD_ARROW_SCHEMA = pa.schema([
@@ -56,6 +57,7 @@ _GOLD_ARROW_SCHEMA = pa.schema([
     pa.field("avg_heavy_ratio", pa.float64()),
     pa.field("avg_moderate_ratio", pa.float64()),
     pa.field("max_severe_segments", pa.int32()),
+    pa.field("avg_low_ratio", pa.float64()),
 ])
 
 _AGG_SQL = """
@@ -69,7 +71,8 @@ _AGG_SQL = """
         PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_minutes) AS p95_duration_minutes,
         AVG(congestion_heavy_ratio)                                     AS avg_heavy_ratio,
         AVG(congestion_moderate_ratio)                                  AS avg_moderate_ratio,
-        CAST(MAX(congestion_severe_segments) AS INTEGER)               AS max_severe_segments
+        CAST(MAX(congestion_severe_segments) AS INTEGER)               AS max_severe_segments,
+        AVG(congestion_low_ratio)                                       AS avg_low_ratio
     FROM silver
     WHERE timestamp_utc IS NOT NULL
     GROUP BY route_id, origin, destination, DATE_TRUNC('hour', timestamp_utc)
@@ -86,7 +89,10 @@ def _get_catalog() -> Catalog:
 
 
 def _ensure_gold_table(catalog: Catalog) -> Table:
-    """Create the gold namespace and table if they don't exist."""
+    """Create the gold namespace and table if they don't exist.
+
+    If the table exists but is missing columns (schema evolution), adds them.
+    """
     try:
         catalog.load_namespace_properties(_GOLD_NS)
     except NoSuchNamespaceError:
