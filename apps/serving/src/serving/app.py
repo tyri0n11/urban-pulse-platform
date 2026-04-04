@@ -44,10 +44,16 @@ def create_app() -> FastAPI:
             iforest_anomaly BOOLEAN          NOT NULL,
             iforest_score   DOUBLE PRECISION,
             both_anomaly    BOOLEAN          NOT NULL,
+            score_count     INT              NOT NULL DEFAULT 0,
+            anomaly_count   INT              NOT NULL DEFAULT 0,
+            both_count      INT              NOT NULL DEFAULT 0,
             PRIMARY KEY (route_id, window_start)
         );
         CREATE INDEX IF NOT EXISTS idx_iforest_window_start
             ON route_iforest_scores (window_start DESC);
+        ALTER TABLE route_iforest_scores ADD COLUMN IF NOT EXISTS score_count   INT NOT NULL DEFAULT 0;
+        ALTER TABLE route_iforest_scores ADD COLUMN IF NOT EXISTS anomaly_count INT NOT NULL DEFAULT 0;
+        ALTER TABLE route_iforest_scores ADD COLUMN IF NOT EXISTS both_count    INT NOT NULL DEFAULT 0;
     """
 
     @app.on_event("startup")

@@ -59,8 +59,9 @@ async def current_anomalies(
             stddev_duration_minutes,
             last_duration_minutes,
             mean_heavy_ratio,
-            COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
-            COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
+            COALESCE(mean_moderate_ratio, 0.0)   AS mean_moderate_ratio,
+            COALESCE(mean_low_ratio, 0.0)        AS mean_low_ratio,
+            COALESCE(max_severe_segments, 0.0)   AS max_severe_segments,
             duration_zscore,
             is_anomaly,
             last_ingest_lag_ms
@@ -142,13 +143,22 @@ async def anomaly_history(
             ORDER BY route_id, window_start, updated_at DESC
         ) o
         LEFT JOIN (
-            SELECT DISTINCT ON (route_id, window_start)
-                route_id, window_start, iforest_anomaly, iforest_score, both_anomaly
+            SELECT
+                route_id,
+                window_start,
+                iforest_anomaly,
+                iforest_score,
+                both_anomaly,
+                CASE WHEN score_count > 0
+                     THEN anomaly_count::float / score_count >= 0.5
+                     ELSE iforest_anomaly END AS iforest_majority,
+                CASE WHEN score_count > 0
+                     THEN both_count::float / score_count >= 0.5
+                     ELSE both_anomaly END    AS both_majority
             FROM route_iforest_scores
             WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-            ORDER BY route_id, window_start, scored_at DESC
         ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
-        WHERE o.is_anomaly = true OR i.iforest_anomaly = true
+        WHERE o.is_anomaly = true OR i.iforest_majority = true
         ORDER BY o.window_start DESC, o.route_id
         """,
         hours,
@@ -194,15 +204,16 @@ async def anomaly_summary(
         LEFT JOIN (
             SELECT
                 DATE_TRUNC('hour', window_start) AS hour,
-                COUNT(*) FILTER (WHERE iforest_anomaly = true) AS iforest_anomaly_count,
-                COUNT(*) FILTER (WHERE both_anomaly = true)    AS both_anomaly_count
-            FROM (
-                SELECT DISTINCT ON (route_id, window_start)
-                    route_id, window_start, iforest_anomaly, both_anomaly
-                FROM route_iforest_scores
-                WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-                ORDER BY route_id, window_start, scored_at DESC
-            ) s
+                COUNT(*) FILTER (
+                    WHERE score_count > 0
+                      AND anomaly_count::float / score_count >= 0.5
+                ) AS iforest_anomaly_count,
+                COUNT(*) FILTER (
+                    WHERE score_count > 0
+                      AND both_count::float / score_count >= 0.5
+                ) AS both_anomaly_count
+            FROM route_iforest_scores
+            WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
             GROUP BY 1
         ) i ON z.hour = i.hour
         ORDER BY 1

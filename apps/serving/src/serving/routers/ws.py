@@ -99,7 +99,10 @@ async def fetch_snapshot(pool: asyncpg.Pool) -> dict[str, Any]:
             SELECT DISTINCT ON (route_id)
                 route_id, window_start, updated_at, observation_count,
                 mean_duration_minutes, stddev_duration_minutes, last_duration_minutes,
-                mean_heavy_ratio, duration_zscore, is_anomaly, last_ingest_lag_ms
+                mean_heavy_ratio,
+                COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+                COALESCE(max_severe_segments, 0.0) AS max_severe_segments,
+                duration_zscore, is_anomaly, last_ingest_lag_ms
             FROM online_route_features
             ORDER BY route_id, updated_at DESC
             """
@@ -141,13 +144,22 @@ async def fetch_snapshot(pool: asyncpg.Pool) -> dict[str, Any]:
             await conn.executemany(
                 """
                 INSERT INTO route_iforest_scores
-                    (route_id, window_start, scored_at, iforest_anomaly, iforest_score, both_anomaly)
-                VALUES ($1, $2, NOW(), $3, $4, $5)
+                    (route_id, window_start, scored_at, iforest_anomaly, iforest_score, both_anomaly,
+                     score_count, anomaly_count, both_count)
+                VALUES ($1, $2, NOW(), $3, $4, $5,
+                        1,
+                        CASE WHEN $3 THEN 1 ELSE 0 END,
+                        CASE WHEN $5 THEN 1 ELSE 0 END)
                 ON CONFLICT (route_id, window_start) DO UPDATE SET
                     scored_at       = NOW(),
                     iforest_anomaly = EXCLUDED.iforest_anomaly,
                     iforest_score   = EXCLUDED.iforest_score,
-                    both_anomaly    = EXCLUDED.both_anomaly
+                    both_anomaly    = EXCLUDED.both_anomaly,
+                    score_count     = route_iforest_scores.score_count + 1,
+                    anomaly_count   = route_iforest_scores.anomaly_count
+                                      + CASE WHEN EXCLUDED.iforest_anomaly THEN 1 ELSE 0 END,
+                    both_count      = route_iforest_scores.both_count
+                                      + CASE WHEN EXCLUDED.both_anomaly THEN 1 ELSE 0 END
                 """,
                 iforest_upsert_rows,
             )
