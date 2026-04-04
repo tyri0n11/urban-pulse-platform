@@ -1,12 +1,13 @@
 """Entry point for model training and MLflow experiment tracking.
 
-Reads gold + baseline Iceberg tables, engineers deviation-based features,
+Reads gold Iceberg table, engineers cyclical time-encoded features,
 trains one IsolationForest per route, and logs everything to MLflow.
 
-Each route run saves two artifacts under isolation_forest/:
+Each route run saves one artifact under isolation_forest/:
   model.pkl      — serialised IsolationForestDetector (plain, no sklearn Pipeline)
-  baseline.json  — per-(dow, hour) baseline stats for use by the serving layer
-                   when reconstructing the same deviation features at scoring time.
+
+No baseline.json is saved — the serving layer reconstructs the same cyclical
+features (hour_sin/cos, dow_sin/cos) directly from window_start timestamps.
 """
 
 import json
@@ -26,7 +27,7 @@ from urbanpulse_infra.iceberg import get_iceberg_catalog
 from urbanpulse_infra.mlflow import configure_mlflow, get_or_create_experiment
 
 from ml.evaluation.metrics import compute_metrics
-from ml.features.traffic_features import FEATURE_COLUMNS, build_features, list_route_ids, load_baseline_for_route
+from ml.features.traffic_features import FEATURE_COLUMNS, build_features, list_route_ids
 from ml.models.isolation_forest import IsolationForestDetector
 
 logging.basicConfig(
@@ -145,20 +146,17 @@ def _train_single_route(
     catalog: object,
     parent_run_id: str,
 ) -> dict[str, object]:
-    """Train one IsolationForest per route on deviation-based features.
+    """Train one IsolationForest per route on cyclical time-encoded features.
 
-    Features (FEATURE_COLUMNS) are already computed as deviations from the
-    per-(dow, hour) baseline by build_features(). The baseline dict is saved
-    as baseline.json alongside model.pkl so the serving layer can reconstruct
-    the same features at scoring time without touching Iceberg.
+    Features (FEATURE_COLUMNS): avg_heavy_ratio, avg_moderate_ratio,
+    max_severe_segments, hour_sin, hour_cos, dow_sin, dow_cos.
+    No baseline table required — the cyclical encoding embeds time context
+    directly so IsolationForest learns joint (ratio × time-of-day) distribution.
     """
     features = build_features(catalog, route_id=route_id)  # type: ignore[arg-type]
     if features is None or features.num_rows < 10:
         logger.warning("route=%s: not enough data (%d rows) — skipping", route_id, features.num_rows if features else 0)
         return {"route_id": route_id, "status": "skipped", "sample_count": 0}
-
-    # Load per-route baseline — saved as artifact alongside model for serving
-    baseline = load_baseline_for_route(catalog, route_id)  # type: ignore[arg-type]
 
     registered_name = f"iforest-{route_id}"
 
@@ -172,14 +170,13 @@ def _train_single_route(
             "route_id": route_id,
             "sample_count": features.num_rows,
             "feature_columns": FEATURE_COLUMNS,
-            "baseline_slots": len(baseline),
         })
 
-        # Deviation features are already computed — extract matrix directly
+        # Extract cyclical feature matrix
         arrays = [features.column(col).to_numpy().astype(np.float64) for col in FEATURE_COLUMNS]
         X = np.nan_to_num(np.column_stack(arrays), nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Fit plain IsolationForest on deviation features
+        # Fit IsolationForest on cyclical time-encoded features
         iforest_params = {"contamination": 0.05, "n_estimators": 100, "random_state": 42}
         detector = IsolationForestDetector(**iforest_params)
         mlflow.log_params({f"if_{k}": v for k, v in iforest_params.items()})
@@ -196,23 +193,20 @@ def _train_single_route(
             "iforest_score_p95": float(np.percentile(scores, 95)),
         })
 
-        # Z-score labels for cross-model comparison (|heavy_ratio_zscore| > 3σ)
-        heavy_zscores = features.column("heavy_ratio_zscore").to_numpy().astype(np.float64)
-        zscore_labels = (np.abs(np.nan_to_num(heavy_zscores)) > 3.0).astype(np.int32)
+        # Z-score labels for cross-model comparison: simple route-level z-score
+        # on avg_heavy_ratio (route mean ± 2σ threshold)
+        heavy_vals = features.column("avg_heavy_ratio").to_numpy().astype(np.float64)
+        heavy_mean = float(np.nanmean(heavy_vals))
+        heavy_std = float(np.nanstd(heavy_vals)) or 1.0
+        heavy_zscores = (heavy_vals - heavy_mean) / heavy_std
+        zscore_labels = (np.abs(np.nan_to_num(heavy_zscores)) > 2.0).astype(np.int32)
         metrics = compute_metrics(zscore_labels, iforest_labels)
         mlflow.log_metrics(metrics)
 
         # Log anomaly details artifact
         _log_anomaly_details(features, zscore_labels, iforest_labels)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Save baseline dict as JSON artifact — serving layer loads this
-            # to reconstruct deviation features without touching Iceberg
-            baseline_path = Path(tmpdir) / "baseline.json"
-            baseline_path.write_text(json.dumps(baseline, indent=2))
-            mlflow.log_artifact(str(baseline_path), artifact_path="isolation_forest")
-
-        # Register plain IsolationForest model
+        # Register plain IsolationForest model (no baseline.json — not needed)
         signature = infer_signature(X, iforest_labels)
         mlflow.sklearn.log_model(
             detector.model,
@@ -223,8 +217,9 @@ def _train_single_route(
         )
 
         logger.info(
-            "route=%s: trained %d samples, baseline_slots=%d, iforest=%d anomalies, agreement=%.3f",
-            route_id, features.num_rows, len(baseline), int(iforest_labels.sum()), metrics["model_agreement"],
+            "route=%s: trained %d samples, iforest=%d anomalies (%.1f%%), agreement=%.3f",
+            route_id, features.num_rows, int(iforest_labels.sum()),
+            100.0 * iforest_labels.sum() / len(iforest_labels), metrics["model_agreement"],
         )
         return {
             "route_id": route_id,
@@ -263,7 +258,7 @@ def run_training() -> TrainResult:
         log_system_metrics=True,
         tags={
             "pipeline": "per-route-iforest",
-            "data.source": "gold.traffic_hourly + gold.traffic_baseline",
+            "data.source": "gold.traffic_hourly",
             "data.routes": str(len(route_ids)),
         },
     ) as parent_run:

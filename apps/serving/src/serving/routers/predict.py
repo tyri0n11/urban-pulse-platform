@@ -26,12 +26,14 @@ router = APIRouter(prefix="/predict", tags=["predictions"])
 _FETCH_LATEST_SQL = """
     SELECT DISTINCT ON (route_id)
         route_id,
+        window_start,
         observation_count,
         mean_duration_minutes,
         last_duration_minutes,
         mean_heavy_ratio,
-        COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
-        COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
+        COALESCE(mean_moderate_ratio, 0.0)   AS mean_moderate_ratio,
+        COALESCE(mean_low_ratio, 0.0)        AS mean_low_ratio,
+        COALESCE(max_severe_segments, 0.0)   AS max_severe_segments,
         duration_zscore,
         is_anomaly
     FROM online_route_features
@@ -41,12 +43,14 @@ _FETCH_LATEST_SQL = """
 _FETCH_ROUTE_SQL = """
     SELECT
         route_id,
+        window_start,
         observation_count,
         mean_duration_minutes,
         last_duration_minutes,
         mean_heavy_ratio,
-        COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
-        COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
+        COALESCE(mean_moderate_ratio, 0.0)   AS mean_moderate_ratio,
+        COALESCE(mean_low_ratio, 0.0)        AS mean_low_ratio,
+        COALESCE(max_severe_segments, 0.0)   AS max_severe_segments,
         duration_zscore,
         is_anomaly
     FROM online_route_features

@@ -1,22 +1,24 @@
 """Feature engineering pipeline for traffic anomaly models.
 
-Joins gold hourly data with per-(route, day_of_week, hour_of_day) baselines
-to produce deviation-based features. IsolationForest learns the distribution
-of *how much* traffic deviates from the expected pattern for that time slot.
+Reads gold hourly data and produces cyclical time-encoded features so that
+IsolationForest learns the joint distribution of (traffic ratios, time-of-day,
+day-of-week) directly — no external baseline lookup required.
 
 Feature columns (FEATURE_COLUMNS):
-    heavy_ratio_deviation    = avg_heavy_ratio   - baseline_mean   (raw delta)
-    moderate_ratio_deviation = avg_moderate_ratio - baseline_mean
-    heavy_ratio_zscore       = deviation / baseline_stddev          (normalised)
-    moderate_ratio_zscore    = deviation / baseline_stddev
-    max_severe_segments      (absolute, no baseline)
+    avg_heavy_ratio      — fraction of heavy vehicles (0–1)
+    avg_moderate_ratio   — fraction of moderate vehicles (0–1)
+    max_severe_segments  — absolute count of severe congestion segments
+    hour_sin / hour_cos  — cyclical encoding of hour-of-day (period 24h)
+    dow_sin  / dow_cos   — cyclical encoding of day-of-week (period 7d)
 
-The per-route baseline dict is also returned by load_baseline_for_route()
-and saved as baseline.json alongside the model artifact in MLflow, so
-the serving layer can reconstruct the same features at scoring time.
+The sin/cos encoding makes 23:00 and 00:00 neighbours in feature space, and
+Monday/Sunday neighbours across the week boundary.  IsolationForest therefore
+learns that "heavy traffic at 08:00 Mon" is normal while "heavy traffic at
+03:00 Sun" is unusual — without any separate baseline table.
 """
 
 import logging
+import math
 
 import duckdb
 import pyarrow as pa
@@ -25,39 +27,33 @@ from pyiceberg.exceptions import NoSuchTableError
 
 logger = logging.getLogger(__name__)
 
-_GOLD_TABLE     = "gold.traffic_hourly"
-_BASELINE_TABLE = "gold.traffic_baseline"
+_GOLD_TABLE = "gold.traffic_hourly"
 
-# Deviation-based features fed to IsolationForest
 # ORDER must match prediction_service._FEATURE_ORDER
 FEATURE_COLUMNS = [
-    "heavy_ratio_deviation",
-    "moderate_ratio_deviation",
-    "heavy_ratio_zscore",
-    "moderate_ratio_zscore",
+    "avg_heavy_ratio",
+    "avg_moderate_ratio",
     "max_severe_segments",
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos",
 ]
 
 _FEATURE_SQL = """
     SELECT
-        g.route_id,
-        g.hour_utc,
-        (g.avg_heavy_ratio    - b.baseline_heavy_ratio_mean)           AS heavy_ratio_deviation,
-        (COALESCE(g.avg_moderate_ratio, 0.0)
-                              - b.baseline_moderate_ratio_mean)         AS moderate_ratio_deviation,
-        (g.avg_heavy_ratio    - b.baseline_heavy_ratio_mean)
-            / b.baseline_heavy_ratio_stddev                             AS heavy_ratio_zscore,
-        (COALESCE(g.avg_moderate_ratio, 0.0)
-                              - b.baseline_moderate_ratio_mean)
-            / b.baseline_moderate_ratio_stddev                          AS moderate_ratio_zscore,
-        CAST(COALESCE(g.max_severe_segments, 0) AS DOUBLE)              AS max_severe_segments
-    FROM gold g
-    JOIN baseline b
-      ON  g.route_id = b.route_id
-      AND CAST(EXTRACT(DOW  FROM g.hour_utc) AS INTEGER) = b.day_of_week
-      AND CAST(EXTRACT(HOUR FROM g.hour_utc) AS INTEGER) = b.hour_of_day
-    WHERE g.avg_heavy_ratio    IS NOT NULL
-      AND g.avg_moderate_ratio IS NOT NULL
+        route_id,
+        hour_utc,
+        avg_heavy_ratio,
+        COALESCE(avg_moderate_ratio, 0.0)                               AS avg_moderate_ratio,
+        CAST(COALESCE(max_severe_segments, 0) AS DOUBLE)                AS max_severe_segments,
+        SIN(2 * PI() * CAST(EXTRACT(HOUR FROM hour_utc) AS DOUBLE) / 24.0) AS hour_sin,
+        COS(2 * PI() * CAST(EXTRACT(HOUR FROM hour_utc) AS DOUBLE) / 24.0) AS hour_cos,
+        SIN(2 * PI() * CAST(EXTRACT(DOW  FROM hour_utc) AS DOUBLE) / 7.0)  AS dow_sin,
+        COS(2 * PI() * CAST(EXTRACT(DOW  FROM hour_utc) AS DOUBLE) / 7.0)  AS dow_cos
+    FROM gold
+    WHERE avg_heavy_ratio    IS NOT NULL
+      AND avg_moderate_ratio IS NOT NULL
 """
 
 
@@ -71,28 +67,24 @@ def build_features(
     catalog: Catalog,
     route_id: str | None = None,
 ) -> pa.Table | None:
-    """Build deviation-based feature table from gold + baseline data.
+    """Build cyclical time-encoded feature table from gold hourly data.
 
     Returns Arrow table with columns: route_id, hour_utc, + FEATURE_COLUMNS.
-    Returns None if gold or baseline tables are empty/missing.
+    Returns None if the gold table is missing or empty.
     """
     try:
-        gold_table     = catalog.load_table(_GOLD_TABLE)
-        baseline_table = catalog.load_table(_BASELINE_TABLE)
+        gold_table = catalog.load_table(_GOLD_TABLE)
     except NoSuchTableError as exc:
         logger.warning("build_features: table not found — %s", exc)
         return None
 
-    gold_arrow     = _scan_to_table(gold_table.scan().to_arrow())
-    baseline_arrow = _scan_to_table(baseline_table.scan().to_arrow())
-
-    if gold_arrow.num_rows == 0 or baseline_arrow.num_rows == 0:
-        logger.info("build_features: insufficient data — skipping")
+    gold_arrow = _scan_to_table(gold_table.scan().to_arrow())
+    if gold_arrow.num_rows == 0:
+        logger.info("build_features: no gold data yet — skipping")
         return None
 
     con = duckdb.connect()
-    con.register("gold",     gold_arrow)
-    con.register("baseline", baseline_arrow)
+    con.register("gold", gold_arrow)
     result = con.execute(_FEATURE_SQL).arrow()
     if not isinstance(result, pa.Table):
         result = result.read_all()
@@ -109,45 +101,6 @@ def build_features(
     return result
 
 
-def load_baseline_for_route(
-    catalog: Catalog,
-    route_id: str,
-) -> dict[str, dict[str, float]]:
-    """Return per-(dow, hour) baseline stats for one route from Iceberg.
-
-    Keys are "{day_of_week}_{hour_of_day}" strings (JSON-serialisable).
-    Values: heavy_mean, heavy_stddev, mod_mean, mod_stddev.
-
-    Returned dict is saved as baseline.json in the MLflow artifact so the
-    serving layer can load it without touching Iceberg.
-    """
-    try:
-        baseline_table = catalog.load_table(_BASELINE_TABLE)
-    except NoSuchTableError:
-        logger.warning("load_baseline_for_route: gold.traffic_baseline not found")
-        return {}
-
-    arrow = _scan_to_table(baseline_table.scan().to_arrow())
-    if arrow.num_rows == 0:
-        return {}
-
-    import pyarrow.compute as pc
-    route_rows = arrow.filter(pc.equal(arrow.column("route_id"), route_id))
-
-    result: dict[str, dict[str, float]] = {}
-    for row in route_rows.to_pylist():
-        key = f"{int(row['day_of_week'])}_{int(row['hour_of_day'])}"
-        result[key] = {
-            "heavy_mean":   float(row.get("baseline_heavy_ratio_mean") or 0.0),
-            "heavy_stddev": max(float(row.get("baseline_heavy_ratio_stddev") or 0.02), 0.001),
-            "mod_mean":     float(row.get("baseline_moderate_ratio_mean") or 0.0),
-            "mod_stddev":   max(float(row.get("baseline_moderate_ratio_stddev") or 0.02), 0.001),
-        }
-
-    logger.info("load_baseline_for_route: route=%s, %d slots", route_id, len(result))
-    return result
-
-
 def list_route_ids(catalog: Catalog) -> list[str]:
     """Return all distinct route_ids from gold.traffic_hourly."""
     try:
@@ -159,3 +112,16 @@ def list_route_ids(catalog: Catalog) -> list[str]:
         return []
     import pyarrow.compute as pc
     return pc.unique(gold_arrow.column("route_id")).to_pylist()
+
+
+def cyclical_time_features(hour: int, dow: int) -> tuple[float, float, float, float]:
+    """Compute (hour_sin, hour_cos, dow_sin, dow_cos) for a given hour and day-of-week.
+
+    dow follows SQL convention: Sunday=0 … Saturday=6.
+    Used by the serving layer to build the same feature vector as at training time.
+    """
+    hour_sin = math.sin(2 * math.pi * hour / 24)
+    hour_cos = math.cos(2 * math.pi * hour / 24)
+    dow_sin  = math.sin(2 * math.pi * dow  / 7)
+    dow_cos  = math.cos(2 * math.pi * dow  / 7)
+    return hour_sin, hour_cos, dow_sin, dow_cos
