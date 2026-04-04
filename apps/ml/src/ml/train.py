@@ -41,14 +41,9 @@ _EXPERIMENT_NAME = "traffic-anomaly-detection"
 # Enable sklearn autologging — automatically captures model params, metrics,
 # and serialized model. We disable model logging here because we do it manually
 # with a custom signature and registered model name.
-mlflow.sklearn.autolog(log_models=False, silent=True)
-
-
-def _log_dataset(features: pa.Table) -> None:
-    """Log the feature table as an MLflow dataset input."""
-    df = features.select(FEATURE_COLUMNS).to_pandas()
-    dataset = mlflow.data.from_pandas(df, name="traffic_features", targets=None)
-    mlflow.log_input(dataset, context="training")
+# log_datasets=False avoids the SQLAlchemy ambiguous-FROM bug in MLflow <2.22
+# that breaks the MLflow UI when datasets are logged across multiple runs.
+mlflow.sklearn.autolog(log_models=False, log_datasets=False, silent=True)
 
 
 def _log_feature_stats(features: pa.Table) -> None:
