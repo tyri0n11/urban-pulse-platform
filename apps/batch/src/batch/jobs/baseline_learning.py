@@ -29,16 +29,18 @@ _GOLD_NS = "gold"
 _BASELINE_TABLE = "gold.traffic_baseline"
 
 _BASELINE_SCHEMA = Schema(
-    NestedField(1, "route_id", StringType(), required=True),
-    NestedField(2, "day_of_week", IntegerType(), required=True),
-    NestedField(3, "hour_of_day", IntegerType(), required=True),
-    NestedField(4, "baseline_duration_mean", DoubleType()),
-    NestedField(5, "baseline_duration_stddev", DoubleType()),
-    NestedField(6, "baseline_heavy_ratio_mean", DoubleType()),
-    NestedField(7, "sample_count", IntegerType()),
-    NestedField(8, "zscore_p95", DoubleType()),
-    NestedField(9, "zscore_p99", DoubleType()),
+    NestedField(1,  "route_id", StringType(), required=True),
+    NestedField(2,  "day_of_week", IntegerType(), required=True),
+    NestedField(3,  "hour_of_day", IntegerType(), required=True),
+    NestedField(4,  "baseline_duration_mean", DoubleType()),
+    NestedField(5,  "baseline_duration_stddev", DoubleType()),
+    NestedField(6,  "baseline_heavy_ratio_mean", DoubleType()),
+    NestedField(7,  "sample_count", IntegerType()),
+    NestedField(8,  "zscore_p95", DoubleType()),
+    NestedField(9,  "zscore_p99", DoubleType()),
     NestedField(10, "baseline_heavy_ratio_stddev", DoubleType()),
+    NestedField(11, "baseline_moderate_ratio_mean", DoubleType()),
+    NestedField(12, "baseline_moderate_ratio_stddev", DoubleType()),
 )
 
 _BASELINE_ARROW_SCHEMA = pa.schema([
@@ -52,6 +54,8 @@ _BASELINE_ARROW_SCHEMA = pa.schema([
     pa.field("zscore_p95", pa.float64()),
     pa.field("zscore_p99", pa.float64()),
     pa.field("baseline_heavy_ratio_stddev", pa.float64()),
+    pa.field("baseline_moderate_ratio_mean", pa.float64()),
+    pa.field("baseline_moderate_ratio_stddev", pa.float64()),
 ])
 
 
@@ -65,19 +69,24 @@ def _get_catalog() -> Catalog:
 
 
 def _ensure_baseline_table(catalog: Catalog) -> Table:
-    """Create the baseline table if it doesn't exist."""
+    """Create the baseline Iceberg table, dropping and recreating if schema is outdated."""
     try:
         catalog.load_namespace_properties(_GOLD_NS)
     except NoSuchNamespaceError:
         catalog.create_namespace(_GOLD_NS)
 
     try:
-        return catalog.load_table(_BASELINE_TABLE)
+        table = catalog.load_table(_BASELINE_TABLE)
+        existing_names = {field.name for field in table.schema().fields}
+        required_names = {"baseline_moderate_ratio_mean", "baseline_moderate_ratio_stddev"}
+        if not required_names.issubset(existing_names):
+            # Schema is outdated — drop and recreate (data is always recomputed from gold)
+            catalog.drop_table(_BASELINE_TABLE)
+            logger.info("baseline: dropped outdated %s for schema migration", _BASELINE_TABLE)
+            raise NoSuchTableError(_BASELINE_TABLE)
+        return table
     except NoSuchTableError:
-        table = catalog.create_table(
-            _BASELINE_TABLE,
-            schema=_BASELINE_SCHEMA,
-        )
+        table = catalog.create_table(_BASELINE_TABLE, schema=_BASELINE_SCHEMA)
         logger.info("Created Iceberg table: %s", _BASELINE_TABLE)
         return table
 
@@ -121,25 +130,27 @@ def run() -> int:
                 route_id,
                 CAST(EXTRACT(DOW  FROM hour_utc) AS INTEGER) AS day_of_week,
                 CAST(EXTRACT(HOUR FROM hour_utc) AS INTEGER) AS hour_of_day,
-                AVG(avg_duration_minutes)                      AS baseline_duration_mean,
+                AVG(avg_duration_minutes)  AS baseline_duration_mean,
                 GREATEST(
-                    COALESCE(
-                        STDDEV(avg_duration_minutes),
-                        AVG(avg_duration_minutes) * 0.1
-                    ),
+                    COALESCE(STDDEV(avg_duration_minutes), AVG(avg_duration_minutes) * 0.1),
                     1.0
-                )                                              AS baseline_duration_stddev,
-                AVG(avg_heavy_ratio)                           AS baseline_heavy_ratio_mean,
+                )                          AS baseline_duration_stddev,
+                AVG(avg_heavy_ratio)       AS baseline_heavy_ratio_mean,
                 GREATEST(
                     COALESCE(STDDEV(avg_heavy_ratio), AVG(avg_heavy_ratio) * 0.2),
                     0.01
-                )                                              AS baseline_heavy_ratio_stddev,
-                CAST(COUNT(*) AS INTEGER)                      AS sample_count
+                )                          AS baseline_heavy_ratio_stddev,
+                AVG(COALESCE(avg_moderate_ratio, 0.0))  AS baseline_moderate_ratio_mean,
+                GREATEST(
+                    COALESCE(STDDEV(avg_moderate_ratio), AVG(COALESCE(avg_moderate_ratio, 0.0)) * 0.2),
+                    0.01
+                )                          AS baseline_moderate_ratio_stddev,
+                CAST(COUNT(*) AS INTEGER)  AS sample_count
             FROM gold
             GROUP BY route_id, day_of_week, hour_of_day
         ),
         row_zscores AS (
-            -- heavy_ratio z-score for every individual gold row vs its slot baseline
+            -- heavy_ratio z-score per row vs its (route, dow, hour) baseline
             SELECT
                 g.route_id,
                 (g.avg_heavy_ratio - s.baseline_heavy_ratio_mean)
@@ -166,9 +177,11 @@ def run() -> int:
             s.baseline_duration_stddev,
             s.baseline_heavy_ratio_mean,
             s.sample_count,
-            COALESCE(p.zscore_p95, 1.5)  AS zscore_p95,
-            COALESCE(p.zscore_p99, 2.0)  AS zscore_p99,
-            s.baseline_heavy_ratio_stddev
+            COALESCE(p.zscore_p95, 1.5)         AS zscore_p95,
+            COALESCE(p.zscore_p99, 2.0)         AS zscore_p99,
+            s.baseline_heavy_ratio_stddev,
+            s.baseline_moderate_ratio_mean,
+            s.baseline_moderate_ratio_stddev
         FROM slot_stats s
         LEFT JOIN route_pct p ON s.route_id = p.route_id
     """).arrow()
@@ -184,4 +197,7 @@ def run() -> int:
 
     print(f"baseline_learning: wrote {row_count} rows to {_BASELINE_TABLE}")
     logger.info("baseline_learning: wrote %d rows to %s", row_count, _BASELINE_TABLE)
+
     return row_count
+
+

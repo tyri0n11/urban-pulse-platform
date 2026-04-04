@@ -187,15 +187,33 @@ async def zscore_heatmap(
     """
     rows = await conn.fetch(
         """
-        SELECT DISTINCT ON (route_id, window_start)
-            route_id,
-            window_start,
-            duration_zscore,
-            is_anomaly,
-            observation_count
-        FROM online_route_features
-        WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-        ORDER BY route_id, window_start DESC, updated_at DESC
+        SELECT
+            o.route_id,
+            o.window_start,
+            o.duration_zscore,
+            o.is_anomaly,
+            o.observation_count,
+            i.iforest_anomaly,
+            i.both_anomaly
+        FROM (
+            SELECT DISTINCT ON (route_id, window_start)
+                route_id,
+                window_start,
+                duration_zscore,
+                is_anomaly,
+                observation_count
+            FROM online_route_features
+            WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
+            ORDER BY route_id, window_start DESC, updated_at DESC
+        ) o
+        LEFT JOIN (
+            SELECT DISTINCT ON (route_id, window_start)
+                route_id, window_start, iforest_anomaly, both_anomaly
+            FROM route_iforest_scores
+            WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
+            ORDER BY route_id, window_start, scored_at DESC
+        ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
+        ORDER BY o.route_id, o.window_start DESC
         """,
         hours,
     )

@@ -2,15 +2,19 @@
 and scores current online features fetched from Postgres.
 
 Each route has its own registered model: "iforest-{route_id}".
-Models are cached in-process per route and refreshed every MODEL_TTL seconds.
+Two artifacts are loaded from the isolation_forest/ path in MLflow:
+  model.pkl      — plain sklearn IsolationForest
+  baseline.json  — per-(dow, hour) baseline stats (produced by ml/train.py)
 
-Feature mapping from online_route_features → IsolationForest input:
-    mean_heavy_ratio    → avg_heavy_ratio    (raw congestion signal)
-    mean_moderate_ratio → avg_moderate_ratio (raw congestion signal)
-    mean_low_ratio      → avg_low_ratio      (raw congestion signal)
-    max_severe_segments → max_severe_segments
-    hour_of_day         → derived from window_start
-    day_of_week         → derived from window_start
+At scoring time the serving layer reconstructs the same deviation-based
+features that the model was trained on:
+  heavy_ratio_deviation    = mean_heavy_ratio - baseline_heavy_mean
+  moderate_ratio_deviation = mean_moderate_ratio - baseline_mod_mean
+  heavy_ratio_zscore       = deviation / baseline_heavy_stddev
+  moderate_ratio_zscore    = deviation / baseline_mod_stddev
+  max_severe_segments      (absolute)
+
+Baseline key format: "{day_of_week}_{hour_of_day}" (SQL DOW: Sun=0…Sat=6).
 """
 
 import logging
@@ -31,12 +35,11 @@ _MODEL_ALIAS = "champion"
 
 # Feature order MUST match ml/features/traffic_features.py FEATURE_COLUMNS
 _FEATURE_ORDER = [
-    "avg_heavy_ratio",
-    "avg_moderate_ratio",
-    "avg_low_ratio",
+    "heavy_ratio_deviation",
+    "moderate_ratio_deviation",
+    "heavy_ratio_zscore",
+    "moderate_ratio_zscore",
     "max_severe_segments",
-    "hour_of_day",
-    "day_of_week",
 ]
 
 
@@ -52,6 +55,7 @@ class PredictionResult:
 @dataclass
 class _RouteModelCache:
     model: Any = None
+    baseline: dict[str, Any] = field(default_factory=dict)
     loaded_at: float = 0.0
     model_uri: str = ""
     last_error: str | None = None
@@ -68,8 +72,13 @@ def _mlflow_tracking_uri() -> str:
     return os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 
 
-def _load_route_model(route_id: str) -> tuple[Any, str]:
-    """Load the latest IsolationForest for a specific route from MLflow."""
+def _load_route_model(route_id: str) -> tuple[Any, dict[str, Any], str]:
+    """Load the IsolationForest model and baseline.json for a specific route from MLflow.
+
+    Returns (model, baseline_dict, artifact_uri).
+    baseline_dict keys are "{day_of_week}_{hour_of_day}" strings.
+    """
+    import json
     import tempfile
 
     import joblib
@@ -99,11 +108,20 @@ def _load_route_model(route_id: str) -> tuple[Any, str]:
         pkl_path = os.path.join(local_path, "model.pkl")
         model = joblib.load(pkl_path)
 
-    return model, artifact_uri
+        # Load baseline.json saved alongside the model
+        baseline_json_path = os.path.join(local_path, "baseline.json")
+        if os.path.exists(baseline_json_path):
+            with open(baseline_json_path) as f:
+                baseline: dict[str, Any] = json.load(f)
+        else:
+            logger.warning("prediction_service: baseline.json not found for route=%s — deviation features will default to 0", route_id)
+            baseline = {}
+
+    return model, baseline, artifact_uri
 
 
-def _get_route_model(route_id: str) -> Any:
-    """Return cached model for route, refreshing if TTL elapsed or not loaded."""
+def _get_route_cache(route_id: str) -> _RouteModelCache:
+    """Return populated cache entry for route, refreshing if TTL elapsed or not loaded."""
     global _last_load_at, _last_uri
 
     now = time.monotonic()
@@ -114,8 +132,9 @@ def _get_route_model(route_id: str) -> Any:
             entry = _RouteModelCache()
             _cache[route_id] = entry
         try:
-            model, uri = _load_route_model(route_id)
+            model, baseline, uri = _load_route_model(route_id)
             entry.model = model
+            entry.baseline = baseline
             entry.loaded_at = now
             entry.model_uri = uri
             entry.last_error = None
@@ -126,33 +145,53 @@ def _get_route_model(route_id: str) -> Any:
             logger.warning("prediction_service: no model for route=%s — %s", route_id, exc)
             raise
 
-    return entry.model
+    return entry
 
 
-def _build_feature_vector(row: dict[str, Any]) -> np.ndarray:
-    """Convert one Postgres row → 1D feature vector.
+def _build_feature_vector(row: dict[str, Any], baseline: dict[str, Any]) -> np.ndarray:
+    """Convert one Postgres row → deviation-based feature vector.
 
-    Congestion ratios are tracked by the online service and stored in Postgres.
-    hour_of_day and day_of_week are derived from window_start (UTC).
-    Feature order MUST match FEATURE_COLUMNS in ml/features/traffic_features.py.
+    Computes the same features as ml/features/traffic_features.py FEATURE_COLUMNS:
+      heavy_ratio_deviation, moderate_ratio_deviation,
+      heavy_ratio_zscore, moderate_ratio_zscore, max_severe_segments
+
+    baseline key format: "{day_of_week}_{hour_of_day}" (SQL DOW: Sun=0…Sat=6).
+    Falls back to zero-deviation if no baseline slot is found.
     """
     from datetime import timezone
+
     window_start = row.get("window_start")
     if window_start is not None and hasattr(window_start, "astimezone"):
         window_start = window_start.astimezone(timezone.utc)
-        hour_of_day = float(window_start.hour)
-        day_of_week = float(window_start.weekday() + 1) % 7  # match SQL EXTRACT(DOW)
+        hour_of_day = window_start.hour
+        day_of_week = (window_start.weekday() + 1) % 7  # SQL DOW: Sun=0…Sat=6
     else:
-        hour_of_day = 0.0
-        day_of_week = 0.0
+        hour_of_day = 0
+        day_of_week = 0
+
+    slot_key = f"{day_of_week}_{hour_of_day}"
+    slot = baseline.get(slot_key, {})
+
+    heavy = float(row.get("mean_heavy_ratio") or 0.0)
+    moderate = float(row.get("mean_moderate_ratio") or 0.0)
+    max_severe = float(row.get("max_severe_segments") or 0.0)
+
+    heavy_mean   = float(slot.get("heavy_mean", heavy))
+    heavy_stddev = float(slot.get("heavy_stddev", 1.0)) or 1.0
+    mod_mean     = float(slot.get("mod_mean", moderate))
+    mod_stddev   = float(slot.get("mod_stddev", 1.0)) or 1.0
+
+    heavy_dev    = heavy - heavy_mean
+    mod_dev      = moderate - mod_mean
+    heavy_zscore = heavy_dev / heavy_stddev
+    mod_zscore   = mod_dev / mod_stddev
 
     return np.array([
-        float(row.get("mean_heavy_ratio") or 0.0),
-        float(row.get("mean_moderate_ratio") or 0.0),
-        float(row.get("mean_low_ratio") or 0.0),
-        float(row.get("max_severe_segments") or 0.0),
-        hour_of_day,
-        day_of_week,
+        heavy_dev,
+        mod_dev,
+        heavy_zscore,
+        mod_zscore,
+        max_severe,
     ], dtype=np.float64)
 
 
@@ -170,13 +209,13 @@ def score_rows(rows: list[dict[str, Any]]) -> list[PredictionResult]:
         zscore_anomaly = bool(row.get("is_anomaly", False))
 
         try:
-            model = _get_route_model(route_id)
+            cache_entry = _get_route_cache(route_id)
             X = np.nan_to_num(
-                _build_feature_vector(row).reshape(1, -1),
+                _build_feature_vector(row, cache_entry.baseline).reshape(1, -1),
                 nan=0.0, posinf=0.0, neginf=0.0,
             )
-            iforest_anomaly = bool(model.predict(X)[0] == -1)
-            iforest_score = float(model.decision_function(X)[0])
+            iforest_anomaly = bool(cache_entry.model.predict(X)[0] == -1)
+            iforest_score = float(cache_entry.model.decision_function(X)[0])
         except Exception:
             # No model for this route yet — fall back to zscore only
             iforest_anomaly = False
