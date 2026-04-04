@@ -1,7 +1,12 @@
 """Entry point for model training and MLflow experiment tracking.
 
-Reads gold + baseline Iceberg tables, engineers features, trains
-Z-score and IsolationForest detectors, logs everything to MLflow.
+Reads gold + baseline Iceberg tables, engineers deviation-based features,
+trains one IsolationForest per route, and logs everything to MLflow.
+
+Each route run saves two artifacts under isolation_forest/:
+  model.pkl      — serialised IsolationForestDetector (plain, no sklearn Pipeline)
+  baseline.json  — per-(dow, hour) baseline stats for use by the serving layer
+                   when reconstructing the same deviation features at scoring time.
 """
 
 import json
@@ -21,9 +26,8 @@ from urbanpulse_infra.iceberg import get_iceberg_catalog
 from urbanpulse_infra.mlflow import configure_mlflow, get_or_create_experiment
 
 from ml.evaluation.metrics import compute_metrics
-from ml.features.traffic_features import FEATURE_COLUMNS, build_features, list_route_ids
+from ml.features.traffic_features import FEATURE_COLUMNS, build_features, list_route_ids, load_baseline_for_route
 from ml.models.isolation_forest import IsolationForestDetector
-from ml.models.zscore_detector import ZScoreDetector
 
 logging.basicConfig(
     level=logging.INFO,
@@ -141,11 +145,20 @@ def _train_single_route(
     catalog: object,
     parent_run_id: str,
 ) -> dict[str, object]:
-    """Train one IsolationForest for a single route as a child MLflow run."""
+    """Train one IsolationForest per route on deviation-based features.
+
+    Features (FEATURE_COLUMNS) are already computed as deviations from the
+    per-(dow, hour) baseline by build_features(). The baseline dict is saved
+    as baseline.json alongside model.pkl so the serving layer can reconstruct
+    the same features at scoring time without touching Iceberg.
+    """
     features = build_features(catalog, route_id=route_id)  # type: ignore[arg-type]
     if features is None or features.num_rows < 10:
         logger.warning("route=%s: not enough data (%d rows) — skipping", route_id, features.num_rows if features else 0)
         return {"route_id": route_id, "status": "skipped", "sample_count": 0}
+
+    # Load per-route baseline — saved as artifact alongside model for serving
+    baseline = load_baseline_for_route(catalog, route_id)  # type: ignore[arg-type]
 
     registered_name = f"iforest-{route_id}"
 
@@ -159,18 +172,22 @@ def _train_single_route(
             "route_id": route_id,
             "sample_count": features.num_rows,
             "feature_columns": FEATURE_COLUMNS,
+            "baseline_slots": len(baseline),
         })
 
-        # Z-score labels for comparison
-        zscore = ZScoreDetector(threshold=3.0)
-        zscore_labels = zscore.predict(features)
+        # Deviation features are already computed — extract matrix directly
+        arrays = [features.column(col).to_numpy().astype(np.float64) for col in FEATURE_COLUMNS]
+        X = np.nan_to_num(np.column_stack(arrays), nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Train IsolationForest
-        iforest = IsolationForestDetector(contamination=0.05, n_estimators=100)
-        mlflow.log_params(iforest.get_params())
-        iforest.fit(features)
-        iforest_labels = iforest.predict(features)
-        scores = iforest.decision_scores(features)
+        # Fit plain IsolationForest on deviation features
+        iforest_params = {"contamination": 0.05, "n_estimators": 100, "random_state": 42}
+        detector = IsolationForestDetector(**iforest_params)
+        mlflow.log_params({f"if_{k}": v for k, v in iforest_params.items()})
+        detector.model.fit(X)
+
+        raw_labels = detector.model.predict(X)
+        iforest_labels = (raw_labels == -1).astype(np.int32)
+        scores = detector.model.decision_function(X)
 
         mlflow.log_metrics({
             "iforest_anomaly_count": int(iforest_labels.sum()),
@@ -179,15 +196,26 @@ def _train_single_route(
             "iforest_score_p95": float(np.percentile(scores, 95)),
         })
 
-        # Log cross-model metrics
+        # Z-score labels for cross-model comparison (|heavy_ratio_zscore| > 3σ)
+        heavy_zscores = features.column("heavy_ratio_zscore").to_numpy().astype(np.float64)
+        zscore_labels = (np.abs(np.nan_to_num(heavy_zscores)) > 3.0).astype(np.int32)
         metrics = compute_metrics(zscore_labels, iforest_labels)
         mlflow.log_metrics(metrics)
 
-        # Register model under per-route name
-        X = iforest._to_numpy(features)
+        # Log anomaly details artifact
+        _log_anomaly_details(features, zscore_labels, iforest_labels)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Save baseline dict as JSON artifact — serving layer loads this
+            # to reconstruct deviation features without touching Iceberg
+            baseline_path = Path(tmpdir) / "baseline.json"
+            baseline_path.write_text(json.dumps(baseline, indent=2))
+            mlflow.log_artifact(str(baseline_path), artifact_path="isolation_forest")
+
+        # Register plain IsolationForest model
         signature = infer_signature(X, iforest_labels)
         mlflow.sklearn.log_model(
-            iforest.model,
+            detector.model,
             artifact_path="isolation_forest",
             signature=signature,
             input_example=X[:5],
@@ -195,8 +223,8 @@ def _train_single_route(
         )
 
         logger.info(
-            "route=%s: trained %d samples, iforest=%d anomalies, agreement=%.3f",
-            route_id, features.num_rows, int(iforest_labels.sum()), metrics["model_agreement"],
+            "route=%s: trained %d samples, baseline_slots=%d, iforest=%d anomalies, agreement=%.3f",
+            route_id, features.num_rows, len(baseline), int(iforest_labels.sum()), metrics["model_agreement"],
         )
         return {
             "route_id": route_id,
