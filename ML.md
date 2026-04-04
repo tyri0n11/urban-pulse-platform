@@ -84,68 +84,66 @@ GROUP BY route_id, day_of_week, hour_of_day
 
 ## IsolationForest (Batch, Per-route)
 
-### Feature Vector — 5 features theo đúng thứ tự
+### Triết lý thiết kế: Cyclical Time Encoding
+
+Thay vì JOIN với baseline table để tính deviation features, model được train trực tiếp trên joint distribution `(traffic ratios, time-of-day, day-of-week)` thông qua cyclical encoding sin/cos.
+
+**Lý do:**
+- Sin/cos encoding khiến 23:00 và 00:00 là hàng xóm trong feature space, Monday và Sunday không bị ngắt quãng qua ranh giới tuần
+- IsolationForest học được "heavy traffic lúc 08:00 thứ Hai là bình thường, nhưng lúc 03:00 Chủ nhật là bất thường" — **không cần baseline lookup**
+- Loại bỏ dependency vào `gold.traffic_baseline` ở serving time → đơn giản hóa pipeline
+
+### Feature Vector — 7 features theo đúng thứ tự
 
 ```python
+# ml/features/traffic_features.py
 FEATURE_COLUMNS = [
-    "duration_zscore",       # 1
-    "heavy_ratio_deviation", # 2
-    "p95_to_mean_ratio",     # 3
-    "observation_count",     # 4
-    "max_severe_segments",   # 5
+    "avg_heavy_ratio",      # 1 — tỷ lệ xe nặng (0–1)
+    "avg_moderate_ratio",   # 2 — tỷ lệ xe trung bình (0–1)
+    "max_severe_segments",  # 3 — số đoạn tắc nghẽn nặng (absolute count)
+    "hour_sin",             # 4 — sin(2π × hour / 24)
+    "hour_cos",             # 5 — cos(2π × hour / 24)
+    "dow_sin",              # 6 — sin(2π × dow / 7)   SQL DOW: Sun=0…Sat=6
+    "dow_cos",              # 7 — cos(2π × dow / 7)
 ]
 ```
 
 ### Cách tính từng feature
 
-#### 1. `duration_zscore`
+#### 1–3. Traffic ratios & congestion
+```sql
+-- Đọc trực tiếp từ gold.traffic_hourly
+avg_heavy_ratio                                     -- từ VietMap congestion_heavy_ratio
+COALESCE(avg_moderate_ratio, 0.0)
+CAST(COALESCE(max_severe_segments, 0) AS DOUBLE)
 ```
-(avg_duration - baseline_mean) / baseline_stddev
-```
-- **Training:** tính trong `_FEATURE_SQL` (DuckDB JOIN gold × baseline)
-- **Serving:** đọc trực tiếp từ `online_route_features.duration_zscore`
 
-#### 2. `heavy_ratio_deviation`
+#### 4–7. Cyclical time encoding
+```sql
+-- DuckDB, tính từ hour_utc của gold row
+SIN(2 * PI() * CAST(EXTRACT(HOUR FROM hour_utc) AS DOUBLE) / 24.0) AS hour_sin
+COS(2 * PI() * CAST(EXTRACT(HOUR FROM hour_utc) AS DOUBLE) / 24.0) AS hour_cos
+SIN(2 * PI() * CAST(EXTRACT(DOW  FROM hour_utc) AS DOUBLE) / 7.0)  AS dow_sin
+COS(2 * PI() * CAST(EXTRACT(DOW  FROM hour_utc) AS DOUBLE) / 7.0)  AS dow_cos
 ```
-avg_heavy_ratio - baseline_heavy_ratio_mean
-```
-- Đo lường xe nặng bất thường so với baseline cùng giờ/ngày
-- **Training:** `g.avg_heavy_ratio - b.baseline_heavy_ratio_mean` (từ gold JOIN baseline)
-- **Serving:** `window.mean_heavy_ratio - baseline.heavy_ratio_mean` (online service tính, lưu vào Postgres)
-- Fallback nếu không có baseline: dùng raw `mean_heavy_ratio`
 
-#### 3. `p95_to_mean_ratio`
+```python
+# Serving layer tái tạo từ window_start (prediction_service.py)
+hour = window_start.astimezone(utc).hour
+dow  = (window_start.weekday() + 1) % 7   # Python weekday → SQL DOW (Sun=0)
+hour_sin = math.sin(2 * math.pi * hour / 24)
+hour_cos = math.cos(2 * math.pi * hour / 24)
+dow_sin  = math.sin(2 * math.pi * dow  / 7)
+dow_cos  = math.cos(2 * math.pi * dow  / 7)
 ```
-p95_duration / avg_duration
-```
-- Đo độ "spike" — ratio cao = có outlier outliers trong giờ đó
-- **Training:** `g.p95_duration_minutes / g.avg_duration_minutes` (true p95 từ gold hourly aggregate)
-- **Serving:** `(mean + 2σ) / mean` ≈ 97.7th percentile dưới normal distribution
-- Giá trị = 1.0 nếu mean = 0 hoặc stddev = 0
-
-#### 4. `observation_count`
-```
-COUNT(*) của window
-```
-- Raw count, cast to DOUBLE
-- **Training:** `gold.traffic_hourly.observation_count`
-- **Serving:** `online_route_features.observation_count`
-
-#### 5. `max_severe_segments`
-```
-MAX(congestion.severe_segments) trong window
-```
-- Đoạn đường nặng nhất trong giờ đó
-- **Training:** `gold.traffic_hourly.max_severe_segments` (DuckDB `MAX()` của silver)
-- **Serving:** `RouteWindow.max_severe_segments` (tracked per-message, stored in Postgres)
 
 ### Training pipeline
 
 ```
-gold.traffic_hourly  ──┐
-                        ├─► DuckDB JOIN → feature table → IsolationForest.fit()
-gold.traffic_baseline ──┘                                       ↓
-                                                     MLflow: iforest-{route_id}@champion
+gold.traffic_hourly
+    └─► build_features() → 7-feature Arrow table
+            └─► IsolationForest.fit()   X shape: (n_samples, 7)
+                    └─► MLflow: iforest-{route_id} (model.pkl only)
 ```
 
 ```python
@@ -154,27 +152,31 @@ if features.num_rows < 10:
     return {"status": "skipped"}
 
 iforest = IsolationForest(contamination=0.05, n_estimators=100, random_state=42)
-iforest.fit(features)   # X shape: (n_samples, 5)
+iforest.fit(X)   # X shape: (n_samples, 7)
 ```
 
 **contamination=0.05** → model kỳ vọng 5% data là anomaly khi train.
 
+**Không có baseline.json** — serving layer tự tính cyclical features từ `window_start` timestamp.
+
 ### Scoring (Serving, On-demand)
 
 ```python
-# prediction_service.py
+# prediction_service.py — _build_feature_vector(row)
 X = np.array([
-    duration_zscore,        # từ Postgres
-    heavy_ratio_deviation,  # từ Postgres
-    p95_to_mean_ratio,      # từ Postgres
-    observation_count,      # từ Postgres
-    max_severe_segments,    # từ Postgres
+    mean_heavy_ratio,       # từ online_route_features
+    mean_moderate_ratio,    # từ online_route_features (COALESCE 0.0)
+    max_severe_segments,    # từ online_route_features (COALESCE 0.0)
+    hour_sin,               # tính từ window_start
+    hour_cos,
+    dow_sin,
+    dow_cos,
 ])
 iforest_anomaly = model.predict(X)[0] == -1   # sklearn: -1 = anomaly
 iforest_score   = model.decision_function(X)[0]  # âm hơn = bất thường hơn
 ```
 
-**Model được load lazy per route, TTL = 1h.** Lần đầu gọi `_get_route_model(route_id)` sẽ fetch từ MLflow.
+**Model được load lazy per route, TTL = 1h.** Lần đầu gọi `_get_route_cache(route_id)` sẽ fetch từ MLflow (chỉ `model.pkl`).
 
 ---
 
@@ -183,13 +185,25 @@ iforest_score   = model.decision_function(X)[0]  # âm hơn = bất thường h�
 | Signal | Tính khi nào | Threshold | Field |
 |--------|-------------|-----------|-------|
 | Z-Score | Mỗi Kafka message (online) | `\|z\| > 3.0` | `is_anomaly` |
-| IsolationForest | On-demand khi serving query | `predict == -1` | `iforest_anomaly` |
+| IsolationForest | On-demand khi serving query (SSE mỗi 15s) | `predict == -1` | `iforest_anomaly` |
 
 ```python
 both_anomaly    = is_anomaly AND iforest_anomaly   # most reliable
 zscore_only     = is_anomaly AND NOT iforest_anomaly
 iforest_only    = NOT is_anomaly AND iforest_anomaly
 ```
+
+### Majority Vote (route_iforest_scores)
+
+IForest được score mỗi 15s qua SSE. Kết quả được aggregate theo giờ với majority vote:
+
+```sql
+-- Anomaly chỉ tính khi >= 50% scoring cycles trong giờ đó đồng ý
+anomaly_count::float / score_count >= 0.5   -- iforest_anomaly majority
+both_count::float    / score_count >= 0.5   -- both_anomaly majority
+```
+
+Bảng `route_iforest_scores` lưu: `(route_id, window_start, score_count, anomaly_count, both_count)`.
 
 ---
 
@@ -216,6 +230,8 @@ gold.traffic_baseline    — historical stats per (route_id, day_of_week, hour_o
     sample_count          INT
 ```
 
+*Lưu ý: `gold.traffic_baseline` chỉ dùng cho Z-score online. IsolationForest không cần bảng này.*
+
 ---
 
 ## Known Limitations
@@ -227,8 +243,9 @@ gold.traffic_baseline    — historical stats per (route_id, day_of_week, hour_o
 **IForest không tin cậy khi:**
 - Model được train trên < 10 samples per route (bị skip)
 - `champion` alias chưa được set — serving fall back sang `latest` version
-- Features bị NULL → `nan_to_num(nan=0.0)` làm nhiễu
+- `window_start` NULL trong Postgres row → cyclical features default về `hour=0, dow=0` (Sunday midnight)
 
 **Training/serving consistency:**
-- `p95_to_mean_ratio` ở serving là xấp xỉ (`mean + 2σ`) thay vì true p95 — đủ gần dưới normal distribution
+- Cyclical features được tính hoàn toàn giống nhau ở cả training (DuckDB SQL) và serving (Python `math.sin/cos`) — không có xấp xỉ
 - `max_severe_segments` ở serving là max trong window hiện tại, training là max trong hourly aggregate — tương đương khi window = 1 giờ
+- `mean_moderate_ratio` ở serving đọc từ `online_route_features`; nếu NULL thì COALESCE về 0.0 giống training
