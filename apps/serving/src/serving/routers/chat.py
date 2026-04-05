@@ -133,6 +133,9 @@ async def _fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
         sum(r["last_ingest_lag_ms"] or 0 for r in row_list) / max(len(row_list), 1)
     )
 
+    # Latest snapshot timestamp (most recent updated_at across all routes)
+    latest_ts = max((r["updated_at"] for r in row_list if r["updated_at"]), default=None)
+
     return {
         "total_routes": len(row_list),
         "anomaly_count": len(anomalies),
@@ -146,6 +149,7 @@ async def _fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
             for r in top_congested
         ],
         "avg_lag_ms": avg_lag,
+        "snapshot_time": latest_ts.strftime("%Y-%m-%d %H:%M:%S UTC") if latest_ts else "unknown",
     }
 
 
@@ -155,10 +159,13 @@ def _build_user_prompt(snapshot: dict[str, Any], message: str, lang: str) -> str
     total = snapshot["total_routes"]
     avg_lag = snapshot["avg_lag_ms"]
 
+    snapshot_time = snapshot.get("snapshot_time", "unknown")
     lines = [
         "=== LIVE SNAPSHOT (real-time congestion) ===",
+        f"Thời điểm snapshot: {snapshot_time}",
         f"Đang giám sát {total} tuyến · Độ trễ cảm biến TB: {avg_lag} ms",
         f"Bất thường hiện tại: {anomaly_count}/{total} tuyến",
+        f"Ngưỡng tham chiếu: heavy_ratio > ~15% = tắc nghẽn nặng, < 5% = thông thoáng bình thường",
         "",
     ]
 

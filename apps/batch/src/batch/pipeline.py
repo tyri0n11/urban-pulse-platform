@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import httpx
 from prefect import flow, task
 
-from batch.jobs import baseline_learning, bronze_to_silver, silver_to_gold
+from batch.jobs import alerter, baseline_learning, bronze_to_silver, rag_indexer, silver_to_gold
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,18 @@ def task_silver_to_gold() -> int:
 @task(name="baseline-learning", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_baseline_learning() -> int:
     return baseline_learning.run()
+
+
+@task(name="index-rag", retries=2, retry_delay_seconds=30)  # type: ignore[untyped-decorator]
+def task_index_rag(catalog: object, index_patterns: bool = False) -> dict[str, int]:
+    """Index recent anomaly events (and optionally traffic patterns) into ChromaDB."""
+    return rag_indexer.run(catalog, index_patterns=index_patterns)  # type: ignore[return-value]
+
+
+@task(name="check-and-alert", retries=2, retry_delay_seconds=30)  # type: ignore[untyped-decorator]
+def task_check_and_alert() -> int:
+    """Check for active anomalies and send Telegram alerts."""
+    return alerter.run()
 
 
 @task(name="trigger-ml-retrain", retries=2, retry_delay_seconds=30)  # type: ignore[untyped-decorator]
@@ -59,23 +71,71 @@ def microbatch() -> None:
 
 @flow(name="hourly-gold", log_prints=True)  # type: ignore[untyped-decorator]
 def hourly_gold() -> None:
-    """Hourly aggregation: silver → gold.
+    """Hourly aggregation: silver → gold + RAG index update.
 
-    Lightweight incremental job — only aggregates the current hour's
-    silver data into gold summaries. No full scans.
+    After gold is updated, index recent anomaly events into ChromaDB
+    so the LLM explanation layer always has fresh historical context.
     """
-    task_silver_to_gold()
+    from urbanpulse_infra.iceberg import get_iceberg_catalog
+    from urbanpulse_core.config import settings
+    gold_rows = task_silver_to_gold()
+    catalog = get_iceberg_catalog(
+        catalog_uri=settings.iceberg_catalog_uri,
+        minio_endpoint=settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+    )
+    task_index_rag(catalog, index_patterns=False, wait_for=[gold_rows])
 
 
 @flow(name="retrain", log_prints=True)  # type: ignore[untyped-decorator]
 def retrain() -> None:
-    """Periodic baseline recompute + model retrain.
+    """Periodic baseline recompute + model retrain + RAG pattern re-index.
 
-    Runs every 6 hours. Baseline does a full gold scan (expensive),
-    then triggers ML service to retrain on fresh baselines.
+    Runs every 6 hours. Also re-indexes traffic patterns into ChromaDB
+    (full gold scan) since retrain already does this scan anyway.
     """
+    from urbanpulse_infra.iceberg import get_iceberg_catalog
+    from urbanpulse_core.config import settings
+    catalog = get_iceberg_catalog(
+        catalog_uri=settings.iceberg_catalog_uri,
+        minio_endpoint=settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+    )
     baseline_rows = task_baseline_learning()
     task_trigger_ml_retrain(wait_for=[baseline_rows])
+    # Re-index traffic patterns with full gold scan (runs alongside retrain)
+    task_index_rag(catalog, index_patterns=True)
+
+
+@flow(name="alert", log_prints=True)  # type: ignore[untyped-decorator]
+def alert() -> None:
+    """Check for anomalies and send Telegram alerts every 5 minutes.
+
+    Only fires for IForest-confirmed signals (BOTH or IFOREST).
+    Deduplicates via anomaly_alert_log table — 30-minute cooldown per route.
+    """
+    task_check_and_alert()
+
+
+@flow(name="rag-index", log_prints=True)  # type: ignore[untyped-decorator]
+def rag_index(index_patterns: bool = True) -> None:
+    """Manual RAG index trigger — indexes anomaly events + traffic patterns.
+
+    Run once after bootstrap, or whenever you want to force a full re-index.
+    During normal operation, indexing happens automatically via hourly-gold
+    (anomaly events) and retrain (traffic patterns).
+    """
+    from urbanpulse_infra.iceberg import get_iceberg_catalog
+    from urbanpulse_core.config import settings
+    catalog = get_iceberg_catalog(
+        catalog_uri=settings.iceberg_catalog_uri,
+        minio_endpoint=settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+    )
+    task_index_rag(catalog, index_patterns=index_patterns)
 
 
 # ---------------------------------------------------------------------------

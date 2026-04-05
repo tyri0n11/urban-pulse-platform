@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "urbanpulse-core",
+    "urbanpulse-rag",
     "fastapi>=0.115",
     "uvicorn>=0.34",
     "asyncpg>=0.29.0",
@@ -16,6 +17,7 @@ dependencies = [
 
 [tool.uv.sources]
 urbanpulse-core = { workspace = true }
+urbanpulse-rag = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
