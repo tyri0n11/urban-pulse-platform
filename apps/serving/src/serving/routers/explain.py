@@ -25,6 +25,8 @@ from fastapi.responses import StreamingResponse
 
 from serving.dependencies import get_db
 from serving.geo_knowledge import build_system_prompt
+from rag.client import get_chroma_client
+from rag.retriever import retrieve_for_route, format_chunks_for_prompt
 
 router = APIRouter(prefix="/anomalies", tags=["explain"])
 logger = logging.getLogger(__name__)
@@ -48,7 +50,7 @@ _SYSTEM = build_system_prompt(
 )
 
 
-def _build_user_prompt(row: dict[str, Any], lang: str) -> str:
+def _build_user_prompt(row: dict[str, Any], lang: str, rag_context: str = "") -> str:
     """Build the user-turn prompt (data only — geo context is in system prompt)."""
     heavy = row.get("mean_heavy_ratio") or 0.0
     moderate = row.get("mean_moderate_ratio") or 0.0
@@ -70,7 +72,7 @@ def _build_user_prompt(row: dict[str, Any], lang: str) -> str:
 
     lang_instruction = "Trả lời bằng tiếng Việt." if lang == "vi" else "Respond in English."
 
-    return (
+    parts = [
         f"=== DỮ LIỆU TẮC NGHẼN BẤT THƯỜNG ===\n"
         f"Tuyến: {origin} → {dest}\n"
         f"Tỉ lệ đoạn TẮC NẶNG (heavy_ratio): {heavy:.1%}\n"
@@ -78,11 +80,19 @@ def _build_user_prompt(row: dict[str, Any], lang: str) -> str:
         f"Tỉ lệ đoạn ÍT TẮC (low_ratio): {low:.1%}\n"
         f"Đoạn NGHIÊM TRỌNG NHẤT (severe_segments): {severe}\n"
         f"Số quan sát trong cửa sổ: {obs}\n"
-        f"Tín hiệu bất thường: {', '.join(signal) if signal else 'none'}\n\n"
-        f"{lang_instruction}\n"
-        f"Dựa vào kiến thức về hành lang này và mẫu giao thông điển hình, "
+        f"Tín hiệu bất thường: {', '.join(signal) if signal else 'none'}"
+    ]
+
+    if rag_context:
+        parts.append(f"\n{rag_context}")
+
+    parts.append(
+        f"\n{lang_instruction}\n"
+        f"Dựa vào kiến thức về hành lang này, mẫu giao thông điển hình, "
+        f"và context lịch sử ở trên (nếu có), "
         f"hãy giải thích trong 2–3 câu tại sao tuyến đường này đang bất thường:"
     )
+    return "\n".join(parts)
 
 
 async def _stream_ollama(system: str, prompt: str) -> AsyncGenerator[str, None]:
@@ -186,8 +196,30 @@ async def explain_anomaly(
                                   headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     row = await _fetch_route_row(route_id, conn)
-    user_prompt = _build_user_prompt(row, lang)
-    logger.info("explain: route=%s lang=%s model=%s", route_id, lang, _MODEL)
+
+    # RAG retrieval — best-effort, never blocks the response
+    rag_context = ""
+    try:
+        from datetime import timezone
+        window_start = row.get("updated_at")
+        if window_start and hasattr(window_start, "astimezone"):
+            window_start = window_start.astimezone(timezone.utc)
+            hour = window_start.hour
+            dow = (window_start.weekday() + 1) % 7
+        else:
+            from datetime import datetime
+            now = datetime.now(timezone.utc)
+            hour, dow = now.hour, (now.weekday() + 1) % 7
+
+        chroma = get_chroma_client()
+        chunks = retrieve_for_route(chroma, route_id, hour=hour, dow=dow)
+        rag_context = format_chunks_for_prompt(chunks)
+    except Exception as exc:
+        logger.debug("explain: RAG retrieval failed (non-fatal) — %s", exc)
+
+    user_prompt = _build_user_prompt(row, lang, rag_context=rag_context)
+    logger.info("explain: route=%s lang=%s model=%s rag_chunks=%d",
+                route_id, lang, _MODEL, len(rag_context.splitlines()) if rag_context else 0)
 
     full_text: list[str] = []
 

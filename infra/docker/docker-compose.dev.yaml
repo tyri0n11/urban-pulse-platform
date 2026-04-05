@@ -16,6 +16,7 @@ volumes:
   mlflow-data:
   prefect-data:
   postgres-data:
+  chroma-data:
 
 services:
   redpanda:
@@ -324,8 +325,15 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       ICEBERG_CATALOG_URI: http://nessie:19120/iceberg/
       PREFECT_LOGGING_TO_API_ENABLED: "false"
-      PREFECT_LOGGING_EXTRA_LOGGERS: "batch.jobs.bronze_to_silver,batch.jobs.silver_to_gold,batch.jobs.baseline_learning,batch.pipeline"
+      PREFECT_LOGGING_EXTRA_LOGGERS: "batch.jobs.bronze_to_silver,batch.jobs.silver_to_gold,batch.jobs.baseline_learning,batch.jobs.rag_indexer,batch.pipeline"
       PREFECT_LOGGING_LEVEL: INFO
+      DATABASE_URL: postgresql://urbanpulse:urbanpulse@postgres:5432/urbanpulse
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: "8000"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
     networks:
       - urban-pulse-platform
     depends_on:
@@ -336,6 +344,10 @@ services:
       nessie:
         condition: service_healthy
       ml:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: always
 
@@ -433,12 +445,19 @@ services:
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      OLLAMA_URL: http://ollama:11434
+      OLLAMA_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: qwen2.5:3b
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: "8000"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
     networks:
       - urban-pulse-platform
     depends_on:
       postgres:
+        condition: service_healthy
+      chromadb:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')\""]
@@ -495,6 +514,26 @@ services:
     depends_on:
       loki:
         condition: service_healthy
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    ports:
+      - "8010:8000"
+    networks:
+      - urban-pulse-platform
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8000' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: on-failure
 
   ollama:
     image: ollama/ollama:latest

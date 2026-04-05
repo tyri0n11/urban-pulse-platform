@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from serving.dependencies import postgres_dsn
-from serving.routers import anomalies, chat, explain, health, metrics, online, predict, ws as sse_router
+from serving.routers import anomalies, chat, explain, health, metrics, online, predict, rca, telegram, ws as sse_router
 
 
 def create_app() -> FastAPI:
@@ -34,6 +34,8 @@ def create_app() -> FastAPI:
     app.include_router(predict.router)
     app.include_router(explain.router)
     app.include_router(chat.router)
+    app.include_router(rca.router)
+    app.include_router(telegram.router)
     app.include_router(sse_router.router)
 
     _CREATE_IFOREST_TABLE = """
@@ -54,6 +56,20 @@ def create_app() -> FastAPI:
         ALTER TABLE route_iforest_scores ADD COLUMN IF NOT EXISTS score_count   INT NOT NULL DEFAULT 0;
         ALTER TABLE route_iforest_scores ADD COLUMN IF NOT EXISTS anomaly_count INT NOT NULL DEFAULT 0;
         ALTER TABLE route_iforest_scores ADD COLUMN IF NOT EXISTS both_count    INT NOT NULL DEFAULT 0;
+
+        CREATE TABLE IF NOT EXISTS rag_interaction_log (
+            id               SERIAL PRIMARY KEY,
+            ts               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            query_type       TEXT        NOT NULL,  -- 'explain' | 'chat' | 'rca'
+            route_id         TEXT,
+            query            TEXT        NOT NULL,
+            retrieved_chunks JSONB,
+            response         TEXT,
+            feedback         SMALLINT,              -- NULL | 1 (good) | -1 (bad)
+            lang             TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_rag_log_ts
+            ON rag_interaction_log (ts DESC);
     """
 
     @app.on_event("startup")
