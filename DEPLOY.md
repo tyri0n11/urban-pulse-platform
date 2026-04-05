@@ -44,6 +44,8 @@ sudo chown -R 999:999 /opt/urban-pulse/dremio
 sudo chown -R 10001:10001 /opt/urban-pulse/loki
 ```
 
+> **ChromaDB** uses a named Docker volume (`chroma-data`) — no manual directory needed.
+
 ### 3. Create `.env.prod`
 
 ```bash
@@ -124,6 +126,21 @@ Runs: MinIO bucket creation → Nessie namespace → Iceberg schema → backfill
 ```bash
 make prod-train
 ```
+
+### Pull Ollama models (first time only)
+
+```bash
+docker exec ollama ollama pull qwen2.5:3b
+docker exec ollama ollama pull nomic-embed-text
+```
+
+### Initialize RAG index (first time only)
+
+```bash
+docker exec batch-service .venv/bin/prefect deployment run rag-index/rag-index-deployment
+```
+
+Wait ~2 minutes for the index to complete. Subsequent runs happen automatically via `hourly-gold` and `retrain` flows.
 
 ---
 
@@ -214,6 +231,24 @@ The old UI (`v0-urban-pulse-dashboard`) requires SSE payload to have `type: "tra
 ### No anomalies (z-score = null)
 
 `stddev_duration_minutes = 0` when all observations have identical duration. Needs natural variation over time (VietMap API returning different values). `iforest_anomaly` may still trigger independently.
+
+### Telegram webhook (optional)
+
+The Telegram bot (`@tyr1on_system_alert_bot`) receives anomaly alerts automatically via the `alert` Prefect flow. To also enable chat:
+
+```bash
+# Register webhook pointing to the serving API
+curl "https://api.tyr1on.io.vn/telegram/set-webhook?url=https://api.tyr1on.io.vn"
+```
+
+Verify:
+```bash
+curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
+```
+
+Bot credentials are in `.env.prod` as `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (gitignored).
+
+---
 
 ### Git — never commit these files
 

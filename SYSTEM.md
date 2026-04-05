@@ -2,12 +2,12 @@
 
 ## What it is
 
-Real-time traffic anomaly detection platform for Ho Chi Minh City. Polls VietMap API every 5 min, processes data through a medallion lakehouse, detects anomalies via dual-signal (z-score + IsolationForest), and streams results to a Next.js dashboard via SSE.
+Real-time traffic anomaly detection platform for Ho Chi Minh City. Polls VietMap API every 5 min, processes data through a medallion lakehouse, detects anomalies via dual-signal (z-score + IsolationForest), explains anomalies via RAG-enhanced LLM, and streams results to a Next.js dashboard via SSE.
 
 ## Hardware
 
 - **Homelab**: 1 machine, Intel i5-8th gen, 24 GB RAM
-- **Domain**: `tyr1on.io.vn` — Cloudflare DNS (A records `@` and `*` → 171.248.102.63, DNS-only, no proxy)
+- **Domain**: `tyr1on.io.vn` — Cloudflare DNS (A records `@` and `*` → 171.248.102.63, DNS-only)
 - **Router**: Viettel ZTE F670Y — port forwarding 80 + 443 → 192.168.1.9
 - **OS path**: `/opt/urban-pulse/` for all persistent volumes
 
@@ -18,8 +18,7 @@ Real-time traffic anomaly detection platform for Ho Chi Minh City. Polls VietMap
 | Repo | Location | Purpose |
 |------|----------|---------|
 | `urban-pulse-platform` | `~/urban-pulse-platform` | Backend monorepo (all services) |
-| `v0-urban-pulse-dashboard` | `~/v0-urban-pulse-dashboard` | **Active UI** (cloned inside platform repo as `v0-urban-pulse-dashboard/`) |
-| `v0-urban-pulse-production-UI` | `~/v0-urban-pulse-production-UI` | Old new UI — not in use |
+| `v0-urban-pulse-dashboard` | inside platform repo | Active UI (cloned as `v0-urban-pulse-dashboard/`) |
 
 > The dashboard repo must live inside `urban-pulse-platform/` so docker-compose context path `../../v0-urban-pulse-dashboard` resolves correctly.
 
@@ -29,25 +28,29 @@ Real-time traffic anomaly detection platform for Ho Chi Minh City. Polls VietMap
 
 | Service | Image | Exposed (prod) | Purpose |
 |---------|-------|---------------|---------|
-| **traefik** | traefik:v3.3 | :80, :443 | Reverse proxy + Let's Encrypt TLS |
+| **traefik** | traefik:v2.11 | :80, :443 | Reverse proxy + Let's Encrypt TLS |
 | **redpanda** | redpanda:v25.3.10 | internal | Kafka-compatible broker |
 | **redpanda-console** | redpanda/console:v3.5.3 | `redpanda.tyr1on.io.vn` | Broker UI (basicauth) |
-| **minio** | minio:latest | `minio.tyr1on.io.vn` | S3-compatible object store (AGPL) |
+| **minio** | minio:latest | `minio.tyr1on.io.vn` | S3-compatible object store |
 | **nessie** | projectnessie/nessie:0.99.0 | internal | Iceberg catalog |
 | **dremio** | dremio/dremio-oss:latest | `dremio.tyr1on.io.vn` | SQL query engine |
 | **postgres** | postgres:16-alpine | internal | Online feature store |
-| **mlflow** | custom v2.21.3 | `mlflow.tyr1on.io.vn` | Experiment tracking + model registry (basicauth) |
-| **prefect-server** | prefect:3-latest | `prefect.tyr1on.io.vn` | Workflow orchestration UI (basicauth) |
+| **mlflow** | ghcr.io/mlflow/mlflow:v2.21.3 | `mlflow.tyr1on.io.vn` | Experiment tracking + model registry (basicauth) |
+| **prefect-server** | prefecthq/prefect:3-latest | `prefect.tyr1on.io.vn` | Workflow orchestration UI (basicauth) |
+| **chromadb** | chromadb/chroma:latest | internal | Vector DB for RAG pipeline |
+| **ollama** | ollama/ollama:latest | internal | LLM + embedding inference |
 | **ingestion** | custom | internal | Polls VietMap API → Kafka |
 | **streaming** | custom | internal | Kafka → MinIO bronze Parquet |
 | **online** | custom | internal | Kafka → Postgres real-time features |
-| **batch** | custom | internal | Prefect: bronze→silver→gold + retrain trigger |
+| **batch** | custom | internal | Prefect: medallion + retrain + RAG indexer + alerter |
 | **ml** | custom | internal | FastAPI: IsolationForest train endpoint |
-| **serving** | custom | `api.tyr1on.io.vn` | FastAPI REST + SSE endpoint |
-| **ui** | custom (Next.js) | `tyr1on.io.vn` | Dashboard (v0-urban-pulse-dashboard) |
+| **serving** | custom | `api.tyr1on.io.vn` | FastAPI REST + SSE + LLM + Telegram webhook |
+| **ui** | custom (Next.js) | `tyr1on.io.vn` | Dashboard |
 | **grafana** | grafana:11.6.0 | `grafana.tyr1on.io.vn` | Metrics + logs dashboards |
 | **loki** | grafana/loki:3.4.2 | internal | Log aggregation |
 | **promtail** | grafana/promtail:3.4.2 | internal | Log shipper |
+
+> **Dev only**: Ollama runs natively on macOS (Metal GPU). Services point to `host.docker.internal:11434`. On prod, Ollama runs in Docker with NVIDIA GPU reservation.
 
 ---
 
@@ -57,17 +60,26 @@ Real-time traffic anomaly detection platform for Ho Chi Minh City. Polls VietMap
 VietMap API (every 5 min)
   └─► ingestion ──► Kafka: traffic-route-bronze
                       ├─► streaming ──► MinIO bronze/year=Y/month=M/day=D/hour=H/*.parquet
-                      └─► online    ──► Postgres: online_route_features
+                      └─► online    ──► Postgres: online_route_features (Welford + z-score)
 
 MinIO bronze
   └─► batch (5 min)  ──► Iceberg silver.traffic_route
-  └─► batch (1 hr)   ──► Iceberg gold.traffic_summary
+  └─► batch (1 hr)   ──► Iceberg gold.traffic_hourly
+                           └─► RAG index: anomaly_events (ChromaDB)
   └─► batch (6 hrs)  ──► POST ml-service:8000/train
                            └─► MLflow: traffic-anomaly-iforest@champion
                                  └─► serving loads on /predict (TTL 1h)
+                           └─► RAG index: traffic_patterns (ChromaDB)
+  └─► batch (5 min)  ──► alert flow: check anomalies → Telegram (30-min cooldown)
+
+Postgres + ChromaDB
+  └─► serving /explain & /rca ──► RAG retrieval + Ollama ──► Stream SSE
+  └─► serving /chat ──► live snapshot + Ollama ──► Stream SSE
+  └─► serving /telegram/webhook ──► @tyr1on_system_alert_bot ──► Stream SSE
 
 Postgres online_route_features
   └─► serving /events/traffic ──► SSE ──► UI dashboard (every 15s)
+                                  └─► IForest scoring ──► route_iforest_scores
 ```
 
 ### Route IDs
@@ -75,40 +87,7 @@ Postgres online_route_features
 Format: `zone{N}_{zone_name}_to_zone{M}_{zone_name}`
 Example: `zone1_urban_core_to_zone4_southern_port`
 
-6 zones: `urban_core`, `eastern_innovation`, `northern_industrial`, `southern_port`, `western_periurban`, `southern_coastal`
-20 routes total (not all pairs — see `routes.json`).
-
----
-
-## SSE Format (old UI expects this exactly)
-
-```json
-{
-  "type": "traffic_update",
-  "routes": [{ "route_id", "origin", "destination", "origin_anchor", "destination_anchor",
-               "mean_duration_minutes", "duration_zscore", "is_anomaly", "updated_at", ... }],
-  "anomalies": [...],
-  "lag": { "active_routes", "p50_ms", "p95_ms", "max_ms", "mean_ms", "slo_met" },
-  "ts": "ISO string"
-}
-```
-
-`origin_anchor` / `destination_anchor` come from `routes.json` as `[lat, lng]` arrays.
-
----
-
-## Anomaly Detection
-
-Two independent signals merged in serving:
-
-| Signal | Source | Threshold | Field |
-|--------|--------|-----------|-------|
-| Z-Score | online service, per-message | `\|z\| > 3.0` | `is_anomaly` |
-| IsolationForest | serving, on-demand | model.predict == -1 | `iforest_anomaly` |
-
-`both_anomaly = is_anomaly AND iforest_anomaly` — most reliable alert.
-
-**Known data quality issue**: When `stddev_duration_minutes = 0` (too few observations or identical data from VietMap), `duration_zscore = NULL` → `is_anomaly = false`. Needs ≥2 windows with different durations for z-score to activate.
+6 zones: `urban_core`, `eastern_innovation`, `northern_industrial`, `southern_port`, `western_periurban`, `southern_coastal`. 20 routes total (see `routes.json`).
 
 ---
 
@@ -117,13 +96,17 @@ Two independent signals merged in serving:
 | Service | Port |
 |---------|------|
 | Redpanda | 19092 |
+| Redpanda Console | 8080 |
 | MinIO API | 9000, Console 9001 |
 | MLflow | 5000 |
 | Prefect | 4200 |
 | Postgres | 5432 |
 | ML service | 8000 |
 | Serving API | 8001 |
+| ChromaDB | 8010 |
+| Ollama | 11434 |
 | Grafana | 3001 |
+| Loki | 3100 |
 | UI | 3000 |
 
 ---
@@ -134,15 +117,26 @@ Serving allows: `localhost:3000`, `127.0.0.1:3000`, `https://tyr1on.io.vn`, `htt
 
 ---
 
+## Ollama Models
+
+| Model | Purpose | Size |
+|-------|---------|------|
+| `qwen2.5:3b` | LLM inference (chat, explain, rca, alert) | 1.9 GB |
+| `nomic-embed-text` | Embedding for RAG (768-dim) | 274 MB |
+
+---
+
 ## MLflow constraint
 
 `mlflow < 2.22` everywhere — server runs v2.21.3, newer clients hit 404s on changed endpoints.
 
 ---
 
-## Online Feature Store Schema
+## Postgres Schema
 
-`online_route_features` table (Postgres) — columns written by the `online` service:
+### online_route_features
+
+Real-time Welford window + z-score, written by `online` service:
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -151,29 +145,95 @@ Serving allows: `localhost:3000`, `127.0.0.1:3000`, `https://tyr1on.io.vn`, `htt
 | `observation_count` | INTEGER | Messages received in window |
 | `mean_duration_minutes` | DOUBLE | Welford running mean |
 | `stddev_duration_minutes` | DOUBLE | Welford running stddev |
-| `last_duration_minutes` | DOUBLE | Most recent observation |
 | `mean_heavy_ratio` | DOUBLE | Running mean heavy vehicle ratio |
-| `duration_zscore` | DOUBLE | `(mean - baseline.mean) / baseline.stddev`; NULL if no baseline |
-| `is_anomaly` | BOOLEAN | `abs(zscore) > 3.0` |
+| `mean_moderate_ratio` | DOUBLE | Running mean moderate ratio |
+| `max_severe_segments` | DOUBLE | Max severe segments in window |
+| `duration_zscore` | DOUBLE | `(mean - baseline.mean) / baseline.stddev` |
+| `is_anomaly` | BOOLEAN | `zscore > 3.0` |
 | `last_ingest_lag_ms` | BIGINT | E2E Kafka→Postgres latency |
-| `heavy_ratio_deviation` | DOUBLE | `mean_heavy_ratio - baseline.heavy_ratio_mean` |
-| `p95_to_mean_ratio` | DOUBLE | `(mean + 2σ) / mean` — normal distribution p95 approx |
-| `max_severe_segments` | DOUBLE | Max severe segments seen in window |
 
-Last 3 columns were added to eliminate training/serving feature skew. Serving reads them directly — no proxy computation.
+### route_iforest_scores
+
+IForest scoring results (written by SSE loop every 15s, majority vote aggregation):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `route_id` | TEXT | PK |
+| `window_start` | TIMESTAMPTZ | PK |
+| `iforest_score` | DOUBLE | `model.decision_function()` — negative = anomaly |
+| `iforest_anomaly` | BOOLEAN | Latest single-shot result |
+| `both_anomaly` | BOOLEAN | Latest zscore AND iforest |
+| `score_count` | INTEGER | Times scored in this window |
+| `anomaly_count` | INTEGER | Times scored as anomaly |
+| `both_count` | INTEGER | Times scored as both |
+
+### anomaly_alert_log
+
+Telegram alert history for deduplication:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | SERIAL | PK |
+| `alerted_at` | TIMESTAMPTZ | When alert was sent |
+| `route_id` | TEXT | Route that triggered alert |
+| `signal` | TEXT | `BOTH` or `IFOREST` |
+| `message` | TEXT | Full Telegram message sent |
+
+### rag_interaction_log
+
+RCA query log for fine-tuning data collection:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | SERIAL | PK |
+| `ts` | TIMESTAMPTZ | Query timestamp |
+| `query_type` | TEXT | `route_rca` or `free_text` |
+| `route_id` | TEXT | Route queried (nullable) |
+| `query` | TEXT | User question |
+| `retrieved_chunks` | JSONB | RAG chunks injected into prompt |
+| `response` | TEXT | LLM response |
+| `feedback` | SMALLINT | `1` (good) or `-1` (bad), nullable |
+| `lang` | TEXT | `vi` or `en` |
 
 ---
 
 ## IsolationForest Feature Vector
 
-Feature order is fixed — must match `ml/features/traffic_features.py:FEATURE_COLUMNS`:
+7 features (cyclical time encoding), fixed order:
 
 ```python
-["duration_zscore", "heavy_ratio_deviation", "p95_to_mean_ratio", "observation_count", "max_severe_segments"]
+["sin_hour", "cos_hour", "sin_dow", "cos_dow",
+ "mean_heavy_ratio", "mean_moderate_ratio", "max_severe_segments"]
 ```
 
-Training source: `gold.traffic_hourly` JOIN `gold.traffic_baseline` (DuckDB SQL).
-Serving source: `online_route_features` columns (computed identically by online service).
+Training source: `gold.traffic_hourly` with cyclical transformations.
+Serving source: current `online_route_features` + `datetime.utcnow()` for time encoding.
+
+---
+
+## ChromaDB Collections (RAG)
+
+| Collection | Dimension | Metadata filters | Content |
+|-----------|-----------|-----------------|---------|
+| `anomaly_events` | 768 | `route_id`, `hour`, `dow` | Lịch sử bất thường 7 ngày |
+| `traffic_patterns` | 768 | `route_id`, `hour`, `dow` | Baseline patterns từ gold layer |
+| `external_context` | 768 | `hour` | Thời tiết / sự kiện (reserved) |
+
+Embedding model: `nomic-embed-text` via Ollama `/api/embed`. Space: cosine.
+
+---
+
+## Prefect Flows
+
+| Flow | Schedule | What it does |
+|------|----------|-------------|
+| `microbatch` | Every 5 min | Bronze → Silver (incremental) |
+| `hourly-gold` | Every 1 hr | Silver → Gold + RAG anomaly index |
+| `retrain` | Every 6 hrs | Gold → baseline + POST /train + RAG pattern index |
+| `alert` | Every 5 min | Check active anomalies → Telegram (IForest-confirmed only) |
+| `rag-index` | Manual | Full RAG re-index (anomaly events + traffic patterns) |
+| `bootstrap` | Manual | Full medallion rebuild from scratch |
+| `backfill` | Manual | Time-range backfill for silver |
 
 ---
 
@@ -184,35 +244,33 @@ Serving source: `online_route_features` columns (computed identically by online 
 | `streaming` | `earliest` | `False` (manual, after MinIO flush) |
 | `online` | `earliest` | `False` (manual, after Postgres upsert) |
 
-`online` was previously `latest` — changed to `earliest` so events are not lost on restart.
-
 ---
 
 ## Failure Handling
 
 | Layer | Behavior |
 |-------|----------|
-| streaming → MinIO | Buffer only cleared after successful upload; Kafka offset committed after flush |
-| online → Postgres | Kafka offset committed after upsert; `OperationalError` triggers reconnect + 1 retry |
-| online parse error | Bad messages logged and skipped (Kafka offset still committed — no DLQ) |
-| batch tasks | Prefect `retries=3, retry_delay_seconds=60` on all tasks |
+| streaming → MinIO | Buffer cleared only after successful upload; offset committed after flush |
+| online → Postgres | Offset committed after upsert; `OperationalError` triggers reconnect + retry |
+| batch tasks | Prefect `retries=2, retry_delay_seconds=30` |
+| RAG indexer | Upsert-based — safe to re-run; timeout protected per batch of 20 docs |
+| Telegram alert | Best-effort; failure logged but doesn't break flow |
 | serving model load | Falls back to zscore-only if no MLflow model for route |
+| RAG retrieval in /explain | Best-effort; proceeds without context if ChromaDB unavailable |
 
 ---
 
 ## Bootstrap / Operations Order
 
-Fresh environment or after data wipe:
+Fresh environment:
+```bash
+make dev
+make bootstrap    # bronze→silver→gold→baseline
+make train        # POST /train → MLflow
+# After Ollama models pulled:
+docker exec batch-service .venv/bin/prefect deployment run rag-index/rag-index-deployment
 ```
-make dev          # start all services
-make bootstrap    # exec into batch container: bronze→silver→gold→baseline
-make train        # POST /train to ml-service
-```
-
-`make bootstrap` requires batch-service to be running (`make dev` first). It runs `bootstrap_cli` directly — does not go through Prefect scheduler.
-
-Ongoing retrains happen automatically via Prefect `retrain` flow every 6h (runs `baseline_learning` then triggers `/train`).
 
 ### Why routes_skipped=20 in MLflow
 
-`build_features()` does `LEFT JOIN gold × baseline WHERE b.route_id IS NOT NULL`. If `gold.traffic_baseline` is empty, all rows are filtered → 0 features → every route skips. Fix: run `make bootstrap` then `make train`.
+`build_features()` LEFT JOIN gold × baseline → if `gold.traffic_baseline` is empty, all rows filter out → 0 features → every route skips. Fix: run `make bootstrap` then `make train`.
