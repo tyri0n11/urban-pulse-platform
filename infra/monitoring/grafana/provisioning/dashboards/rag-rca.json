@@ -1,0 +1,325 @@
+{
+  "uid": "rag-rca",
+  "title": "RAG / RCA Pipeline",
+  "tags": ["rag", "rca", "llm", "urban-pulse", "thesis"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total RCA Queries",
+      "description": "All-time queries in rag_interaction_log",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT COUNT(*) AS value FROM rag_interaction_log WHERE $__timeFilter(ts)",
+          "format": "table"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "purple" } } }
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Queries With Route Context",
+      "description": "Queries where a specific route_id was provided (enables richer RAG retrieval)",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT COUNT(*) AS value FROM rag_interaction_log WHERE $__timeFilter(ts) AND route_id IS NOT NULL",
+          "format": "table"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "blue" } } }
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Avg Chunks Retrieved",
+      "description": "Average number of RAG context chunks retrieved per query",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT ROUND(AVG(jsonb_array_length(retrieved_chunks))::numeric, 1) AS value FROM rag_interaction_log WHERE $__timeFilter(ts) AND retrieved_chunks IS NOT NULL AND jsonb_array_length(retrieved_chunks) > 0",
+          "format": "table"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "teal" } } }
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Positive Feedback",
+      "description": "Queries where user gave thumbs-up (+1)",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT COUNT(*) AS value FROM rag_interaction_log WHERE $__timeFilter(ts) AND feedback = 1",
+          "format": "table"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "green" } } }
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Negative Feedback",
+      "description": "Queries where user gave thumbs-down (-1)",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT COUNT(*) AS value FROM rag_interaction_log WHERE $__timeFilter(ts) AND feedback = -1",
+          "format": "table"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }] },
+          "color": { "mode": "thresholds" }
+        }
+      }
+    },
+
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "No LLM Response",
+      "description": "Queries that completed without a stored LLM response (LLM error / timeout)",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT COUNT(*) AS value FROM rag_interaction_log WHERE $__timeFilter(ts) AND (response IS NULL OR response = '')",
+          "format": "table"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        }
+      }
+    },
+
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "RCA Queries Over Time",
+      "description": "Number of /rca requests per hour, split by language",
+      "gridPos": { "x": 0, "y": 4, "w": 14, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT\n  DATE_TRUNC('hour', ts) AS time,\n  COUNT(*) FILTER (WHERE lang = 'vi') AS vietnamese,\n  COUNT(*) FILTER (WHERE lang = 'en') AS english\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 8 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "vietnamese" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }, { "id": "displayName", "value": "Vietnamese (vi)" }] },
+          { "matcher": { "id": "byName", "options": "english" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }, { "id": "displayName", "value": "English (en)" }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Avg Chunks Retrieved Over Time",
+      "description": "Average RAG chunks retrieved per query per hour — zero = no context retrieved (LLM hallucination risk)",
+      "gridPos": { "x": 14, "y": 4, "w": 10, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT\n  DATE_TRUNC('hour', ts) AS time,\n  ROUND(AVG(jsonb_array_length(retrieved_chunks))::numeric, 2) AS avg_chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\n  AND retrieved_chunks IS NOT NULL\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 8 }, "color": { "mode": "fixed", "fixedColor": "teal" } }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+
+    {
+      "id": 9,
+      "type": "barchart",
+      "title": "Feedback Distribution",
+      "description": "+1 = helpful, 0 = no feedback, -1 = not helpful",
+      "gridPos": { "x": 0, "y": 12, "w": 8, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT\n  CASE feedback WHEN 1 THEN 'Helpful (+1)' WHEN -1 THEN 'Not helpful (-1)' ELSE 'No feedback (0)' END AS label,\n  COUNT(*) AS count\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nGROUP BY feedback\nORDER BY feedback DESC",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Helpful (+1)" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Not helpful (-1)" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      },
+      "options": { "xField": "label", "barWidth": 0.6, "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Top Queried Routes",
+      "description": "Routes most frequently asked about via /rca — useful for identifying persistent anomaly patterns",
+      "gridPos": { "x": 8, "y": 12, "w": 16, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT\n  COALESCE(route_id, '(no route)') AS route_id,\n  COUNT(*) AS total_queries,\n  COUNT(*) FILTER (WHERE feedback = 1) AS positive,\n  COUNT(*) FILTER (WHERE feedback = -1) AS negative,\n  ROUND(AVG(jsonb_array_length(retrieved_chunks))::numeric, 1) AS avg_chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nGROUP BY route_id\nORDER BY total_queries DESC\nLIMIT 20",
+          "format": "table"
+        }
+      ],
+      "options": { "sortBy": [{ "displayName": "total_queries", "desc": true }], "footer": { "show": false } },
+      "fieldConfig": {
+        "defaults": { "custom": { "filterable": true } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "positive" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "negative" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, { "id": "color", "value": { "mode": "thresholds" } }] }
+        ]
+      }
+    },
+
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "LLM / ChromaDB Errors Over Time",
+      "description": "LLM timeout, Ollama connection errors, and ChromaDB retrieval failures from serving-service logs",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "rate({service=\"serving-service\"} |~ \"LLM timeout|Ollama error|LLM call failed\" [5m])",
+          "legendFormat": "LLM errors/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "rate({service=\"serving-service\"} |~ \"retrieval failed|chroma\" [5m])",
+          "legendFormat": "retrieval failures/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 8 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "LLM errors/s" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "retrieval failures/s" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "RCA / LLM Error Logs",
+      "description": "Raw log lines from serving-service related to RCA, LLM, or ChromaDB errors",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service=\"serving-service\"} |~ \"rca:|LLM timeout|Ollama error|retrieval failed|chroma\""
+        }
+      ],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Recent RCA Interactions",
+      "description": "Latest 20 queries from rag_interaction_log — useful for debugging and fine-tuning data review",
+      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 12 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT\n  id,\n  ts AT TIME ZONE 'UTC' AS ts,\n  lang,\n  COALESCE(route_id, '—') AS route_id,\n  LEFT(query, 120) AS query,\n  LEFT(COALESCE(response, ''), 200) AS response,\n  CASE feedback WHEN 1 THEN 'good' WHEN -1 THEN 'bad' ELSE '—' END AS feedback,\n  COALESCE(jsonb_array_length(retrieved_chunks), 0) AS chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nORDER BY ts DESC\nLIMIT 20",
+          "format": "table"
+        }
+      ],
+      "options": { "sortBy": [{ "displayName": "ts", "desc": true }], "footer": { "show": false } },
+      "fieldConfig": {
+        "defaults": { "custom": { "filterable": true, "width": 140 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "query" }, "properties": [{ "id": "custom.width", "value": 300 }] },
+          { "matcher": { "id": "byName", "options": "response" }, "properties": [{ "id": "custom.width", "value": 400 }] },
+          {
+            "matcher": { "id": "byName", "options": "feedback" },
+            "properties": [
+              { "id": "custom.displayMode", "value": "color-background" },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "good": { "color": "green" } } },
+                { "type": "value", "options": { "bad": { "color": "red" } } }
+              ]}
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "chunks" },
+            "properties": [
+              { "id": "custom.displayMode", "value": "color-background" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 1 }, { "color": "green", "value": 3 }] } },
+              { "id": "color", "value": { "mode": "thresholds" } }
+            ]
+          }
+        ]
+      }
+    }
+
+  ]
+}
