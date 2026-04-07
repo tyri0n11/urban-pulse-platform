@@ -1,11 +1,86 @@
 """FastAPI application factory and middleware configuration."""
 
+import asyncio
+import logging
+
 import asyncpg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from serving.dependencies import postgres_dsn
 from serving.routers import anomalies, chat, explain, health, metrics, online, predict, rca, telegram, ws as sse_router
+
+logger = logging.getLogger(__name__)
+
+_SCORER_INTERVAL = 15  # seconds — matches SSE poll interval
+
+
+async def _iforest_scorer_loop(pool: asyncpg.Pool) -> None:
+    """Background task: score all routes with IForest every 15s and persist to route_iforest_scores.
+
+    Runs independently of SSE connections so that anomaly_summary/history always
+    has IForest data for past hours, not just the current live window.
+    """
+    from serving.services import prediction_service
+
+    while True:
+        await asyncio.sleep(_SCORER_INTERVAL)
+        try:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT ON (route_id)
+                        route_id, window_start, is_anomaly,
+                        mean_heavy_ratio,
+                        COALESCE(mean_moderate_ratio, 0.0)  AS mean_moderate_ratio,
+                        COALESCE(max_severe_segments, 0.0)  AS max_severe_segments
+                    FROM online_route_features
+                    ORDER BY route_id, updated_at DESC
+                    """
+                )
+                if not rows:
+                    continue
+
+                row_dicts = [dict(r) for r in rows]
+                try:
+                    predictions = prediction_service.score_rows(row_dicts)
+                except Exception as exc:
+                    logger.debug("background scorer: score_rows failed — %s", exc)
+                    continue
+
+                window_by_route = {r["route_id"]: r["window_start"] for r in row_dicts}
+                upsert_rows = [
+                    (p.route_id, window_by_route[p.route_id],
+                     p.iforest_anomaly, p.iforest_score, p.both_anomaly)
+                    for p in predictions
+                    if p.route_id in window_by_route
+                ]
+                await conn.executemany(
+                    """
+                    INSERT INTO route_iforest_scores
+                        (route_id, window_start, scored_at, iforest_anomaly, iforest_score, both_anomaly,
+                         score_count, anomaly_count, both_count)
+                    VALUES ($1, $2, NOW(), $3, $4, $5,
+                            1,
+                            CASE WHEN $3 THEN 1 ELSE 0 END,
+                            CASE WHEN $5 THEN 1 ELSE 0 END)
+                    ON CONFLICT (route_id, window_start) DO UPDATE SET
+                        scored_at       = NOW(),
+                        iforest_anomaly = EXCLUDED.iforest_anomaly,
+                        iforest_score   = EXCLUDED.iforest_score,
+                        both_anomaly    = EXCLUDED.both_anomaly,
+                        score_count     = route_iforest_scores.score_count + 1,
+                        anomaly_count   = route_iforest_scores.anomaly_count
+                                          + CASE WHEN EXCLUDED.iforest_anomaly THEN 1 ELSE 0 END,
+                        both_count      = route_iforest_scores.both_count
+                                          + CASE WHEN EXCLUDED.both_anomaly THEN 1 ELSE 0 END
+                    """,
+                    upsert_rows,
+                )
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            logger.warning("background IForest scorer error: %s", exc)
 
 
 def create_app() -> FastAPI:
@@ -77,9 +152,19 @@ def create_app() -> FastAPI:
         app.state.pg_pool = await asyncpg.create_pool(postgres_dsn(), min_size=2, max_size=10)
         async with app.state.pg_pool.acquire() as conn:
             await conn.execute(_CREATE_IFOREST_TABLE)
+        app.state.scorer_task = asyncio.create_task(
+            _iforest_scorer_loop(app.state.pg_pool),
+            name="iforest-background-scorer",
+        )
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
+        task: asyncio.Task[None] = app.state.scorer_task
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
         await app.state.pg_pool.close()
 
     return app
