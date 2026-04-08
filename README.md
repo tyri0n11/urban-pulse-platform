@@ -1,5 +1,8 @@
 # Urban Pulse Platform
 
+![OVERVIEW](assets/urbanpulse.png)
+
+
 Real-time traffic anomaly detection platform cho Thành phố Hồ Chí Minh. Polls VietMap API mỗi 5 phút, xử lý qua medallion lakehouse, phát hiện bất thường bằng dual-signal (Z-Score + IsolationForest), stream kết quả lên dashboard Next.js qua SSE, và giải thích bằng LLM qua RAG pipeline.
 
 **Homelab deployment:** Intel i5-8th gen, 24 GB RAM · `tyr1on.io.vn`
