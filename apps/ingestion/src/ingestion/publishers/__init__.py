@@ -9,14 +9,14 @@ TRAFFIC_TOPIC = "traffic-route-bronze"
 
 
 class Publisher(Protocol):
-    def publish(self, observation: TrafficRouteObservation) -> None: ...
+    def publish(self, observation: TrafficRouteObservation, poll_ts_ms: int | None = None) -> None: ...
     def close(self) -> None: ...
 
 
 class StdoutPublisher:
     """DRY_RUN publisher — emits newline-delimited JSON to stdout. No Kafka required."""
 
-    def publish(self, observation: TrafficRouteObservation) -> None:
+    def publish(self, observation: TrafficRouteObservation, poll_ts_ms: int | None = None) -> None:
         line = json.dumps(
             {
                 "topic": TRAFFIC_TOPIC,
