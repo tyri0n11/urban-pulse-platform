@@ -62,9 +62,9 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "p95 Ingestion Lag",
-      "description": "p95 end-to-end lag from API ingest_ts to Postgres write. SLO: < 20 000 ms",
-      "gridPos": { "x": 8, "y": 0, "w": 5, "h": 4 },
+      "title": "Raw→Feature p95",
+      "description": "p95 full pipeline: VietMap API poll → Postgres write (poll_ts in Kafka header). SLO: < 20 000 ms",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
@@ -94,9 +94,41 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "p50 Ingestion Lag",
-      "description": "Median end-to-end ingestion-to-feature latency",
-      "gridPos": { "x": 13, "y": 0, "w": 5, "h": 4 },
+      "title": "Raw→Feature p99",
+      "description": "p99 full pipeline latency: VietMap API poll → Postgres write",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "rawSql": "SELECT PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS value FROM (SELECT DISTINCT ON (route_id) last_ingest_lag_ms FROM online_route_features WHERE updated_at > NOW() - INTERVAL '10 minutes' AND last_ingest_lag_ms IS NOT NULL ORDER BY route_id, updated_at DESC) t",
+          "format": "table"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 15000 },
+              { "color": "red", "value": 30000 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      }
+    },
+
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Raw→Feature p50",
+      "description": "Median full pipeline latency",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
@@ -132,15 +164,15 @@
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Ingestion-to-Feature Latency Over Time",
-      "description": "p50 and p95 lag per minute. Flat line below 20 000 ms = SLO met.",
+      "title": "Raw→Feature Latency Over Time (p50 / p95 / p99)",
+      "description": "Full pipeline: VietMap API poll → Postgres write. p95 SLO = 20 000 ms.",
       "gridPos": { "x": 0, "y": 4, "w": 14, "h": 8 },
       "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "postgres" },
-          "rawSql": "SELECT\n  DATE_TRUNC('minute', updated_at) AS time,\n  PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p50_ms,\n  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p95_ms\nFROM online_route_features\nWHERE $__timeFilter(updated_at)\n  AND last_ingest_lag_ms IS NOT NULL\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  DATE_TRUNC('minute', updated_at) AS time,\n  PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p50_ms,\n  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p95_ms,\n  PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p99_ms\nFROM online_route_features\nWHERE $__timeFilter(updated_at)\n  AND last_ingest_lag_ms IS NOT NULL\nGROUP BY 1\nORDER BY 1",
           "format": "time_series"
         }
       ],
@@ -148,7 +180,8 @@
         "defaults": { "unit": "ms", "custom": { "lineWidth": 2, "fillOpacity": 8 } },
         "overrides": [
           { "matcher": { "id": "byName", "options": "p50_ms" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }, { "id": "displayName", "value": "p50" }] },
-          { "matcher": { "id": "byName", "options": "p95_ms" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }, { "id": "displayName", "value": "p95 (SLO: 20 000 ms)" }] }
+          { "matcher": { "id": "byName", "options": "p95_ms" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }, { "id": "displayName", "value": "p95 (SLO: 20 000 ms)" }] },
+          { "matcher": { "id": "byName", "options": "p99_ms" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }, { "id": "displayName", "value": "p99" }] }
         ]
       },
       "options": {

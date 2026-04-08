@@ -31,6 +31,7 @@ def run(publisher: Publisher, api_key: str) -> None:
 
     for i, route in enumerate(routes):
         try:
+            poll_ts_ms = int(time.time() * 1000)  # wall-clock before API call
             t0 = time.monotonic()
             obs = fetch_route(
                 route_id=route["route_id"],
@@ -41,7 +42,7 @@ def run(publisher: Publisher, api_key: str) -> None:
                 api_key=api_key,
             )
             latency_api_ms = int((time.monotonic() - t0) * 1000)
-            publisher.publish(obs)
+            publisher.publish(obs, poll_ts_ms=poll_ts_ms)
             logger.info(
                 "[%d/%d] %s → %s  dist=%.1f km  dur=%.1f min  latency_api_ms=%d",
                 i + 1,
