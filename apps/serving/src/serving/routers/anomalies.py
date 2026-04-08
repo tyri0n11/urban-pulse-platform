@@ -146,19 +146,17 @@ async def anomaly_history(
             SELECT
                 route_id,
                 window_start,
-                iforest_anomaly,
                 iforest_score,
-                both_anomaly,
                 CASE WHEN score_count > 0
                      THEN anomaly_count::float / score_count >= 0.5
-                     ELSE iforest_anomaly END AS iforest_majority,
+                     ELSE iforest_anomaly END AS iforest_anomaly,
                 CASE WHEN score_count > 0
                      THEN both_count::float / score_count >= 0.5
-                     ELSE both_anomaly END    AS both_majority
+                     ELSE both_anomaly END    AS both_anomaly
             FROM route_iforest_scores
             WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
         ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
-        WHERE o.is_anomaly = true OR i.iforest_majority = true
+        WHERE o.is_anomaly = true OR i.iforest_anomaly = true
         ORDER BY o.window_start DESC, o.route_id
         """,
         hours,
