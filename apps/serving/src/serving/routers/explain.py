@@ -25,6 +25,7 @@ from fastapi.responses import StreamingResponse
 
 from serving.dependencies import get_db
 from serving.geo_knowledge import build_system_prompt
+from serving.routers.chat import _fetch_current_weather
 from rag.client import get_chroma_client
 from rag.retriever import retrieve_for_route, format_chunks_for_prompt
 
@@ -42,15 +43,22 @@ _cache: dict[str, tuple[float, str]] = {}
 # Build once at import time — geo knowledge is static
 _SYSTEM = build_system_prompt(
     "You are a traffic analyst for Ho Chi Minh City metro region. "
-    "Given real-time congestion sensor data for an anomalous route, write a concise 2–3 sentence explanation "
-    "of WHY the route is anomalous — reference the specific road names, the type of traffic "
-    "(container trucks, commuters, industrial freight), and what the congestion ratios imply. "
+    "Given real-time congestion sensor data, current weather conditions, and historical RAG context "
+    "for an anomalous route, write a concise 2–3 sentence explanation of WHY the route is anomalous. "
+    "Reference the specific road names, the type of traffic (container trucks, commuters, industrial freight), "
+    "and what the congestion ratios imply. "
+    "If weather data is present (rain, storm, fog), explicitly mention whether it likely contributes. "
     "Focus on heavy_ratio and moderate_ratio values — interpret them as percentage of road segments congested. "
     "Be specific about the numbers. Do not use bullet points. Do not add greetings or sign-offs."
 )
 
 
-def _build_user_prompt(row: dict[str, Any], lang: str, rag_context: str = "") -> str:
+def _build_user_prompt(
+    row: dict[str, Any],
+    lang: str,
+    rag_context: str = "",
+    weather: dict[str, Any] | None = None,
+) -> str:
     """Build the user-turn prompt (data only — geo context is in system prompt)."""
     heavy = row.get("mean_heavy_ratio") or 0.0
     moderate = row.get("mean_moderate_ratio") or 0.0
@@ -66,7 +74,7 @@ def _build_user_prompt(row: dict[str, Any], lang: str, rag_context: str = "") ->
     if is_z and is_if:
         signal.append("BOTH Z-Score lẫn IsolationForest (độ tin cậy cao nhất)")
     elif is_z:
-        signal.append("Z-Score (heavy_ratio > 30% — tắc nặng bất thường)")
+        signal.append("Z-Score (heavy_ratio bất thường so với baseline lịch sử)")
     elif is_if:
         signal.append("IsolationForest (cấu trúc congestion bất thường đa chiều)")
 
@@ -83,14 +91,28 @@ def _build_user_prompt(row: dict[str, Any], lang: str, rag_context: str = "") ->
         f"Tín hiệu bất thường: {', '.join(signal) if signal else 'none'}"
     ]
 
+    # Live weather — always present even if RAG hasn't indexed yet
+    if weather:
+        temp = weather.get("temperature_c")
+        rain = weather.get("rain_mm") or weather.get("precipitation_mm") or 0.0
+        wind = weather.get("wind_speed_kmh")
+        desc = weather.get("weather_desc", "")
+        parts.append(
+            f"\n=== THỜI TIẾT HIỆN TẠI TP.HCM (Open-Meteo) ===\n"
+            f"Điều kiện: {desc}"
+            + (f", {temp:.1f}°C" if temp is not None else "")
+            + (f", mưa {rain:.1f} mm" if float(rain) > 0 else ", không mưa")
+            + (f", gió {wind:.1f} km/h" if wind is not None else "")
+        )
+
     if rag_context:
         parts.append(f"\n{rag_context}")
 
     parts.append(
         f"\n{lang_instruction}\n"
-        f"Dựa vào kiến thức về hành lang này, mẫu giao thông điển hình, "
-        f"và context lịch sử ở trên (nếu có), "
-        f"hãy giải thích trong 2–3 câu tại sao tuyến đường này đang bất thường:"
+        f"Dựa vào dữ liệu tắc nghẽn, thời tiết hiện tại, mẫu giao thông lịch sử "
+        f"và context ở trên (nếu có), hãy giải thích trong 2–3 câu tại sao tuyến "
+        f"đường này đang bất thường — đề cập cụ thể đến thời tiết nếu có khả năng liên quan:"
     )
     return "\n".join(parts)
 
@@ -197,7 +219,9 @@ async def explain_anomaly(
 
     row = await _fetch_route_row(route_id, conn)
 
-    # RAG retrieval — best-effort, never blocks the response
+    # Live weather + RAG retrieval — both best-effort, never block the response
+    weather = await _fetch_current_weather()
+
     rag_context = ""
     try:
         from datetime import timezone
@@ -217,7 +241,7 @@ async def explain_anomaly(
     except Exception as exc:
         logger.debug("explain: RAG retrieval failed (non-fatal) — %s", exc)
 
-    user_prompt = _build_user_prompt(row, lang, rag_context=rag_context)
+    user_prompt = _build_user_prompt(row, lang, rag_context=rag_context, weather=weather)
     logger.info("explain: route=%s lang=%s model=%s rag_chunks=%d",
                 route_id, lang, _MODEL, len(rag_context.splitlines()) if rag_context else 0)
 

@@ -6,6 +6,7 @@ before calling Ollama.
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import chromadb
@@ -30,7 +31,7 @@ def retrieve_for_route(
     dow: int,
     n_anomaly: int = 3,
     n_pattern: int = 2,
-    n_external: int = 2,
+    n_external: int = 3,
 ) -> list[RetrievedChunk]:
     """Retrieve relevant context chunks for a specific route at a given time.
 
@@ -85,15 +86,37 @@ def retrieve_for_route(
     except Exception as exc:
         logger.debug("retrieve: traffic_patterns query failed — %s", exc)
 
-    # --- external_context: by time only (weather/events affect all routes) ---
+    # --- external_context: recent weather (last 24 h) preferred over same-hour historical ---
+    # Filtering by hour_ts gives current/near-current conditions which are most relevant
+    # for anomaly explanation. Falls back to same-hour-of-day if no recent records exist.
     try:
-        res = collections[EXTERNAL_CONTEXT].query(
-            query_texts=[query_text],
-            n_results=n_external,
-            where={"hour": hour},
-        )
+        recent_ts = int((datetime.now(timezone.utc) - timedelta(hours=24)).timestamp())
+        try:
+            res = collections[EXTERNAL_CONTEXT].query(
+                query_texts=[query_text],
+                n_results=n_external,
+                where={"hour_ts": {"$gte": recent_ts}},
+            )
+        except Exception:
+            # Collection empty or filter unsupported — fall back to hour-of-day filter
+            res = collections[EXTERNAL_CONTEXT].query(
+                query_texts=[query_text],
+                n_results=n_external,
+                where={"hour": hour},
+            )
+
+        docs = res["documents"][0] if res["documents"] else []
+        if not docs:
+            # No recent records — try same hour-of-day for historical pattern
+            res = collections[EXTERNAL_CONTEXT].query(
+                query_texts=[query_text],
+                n_results=n_external,
+                where={"hour": hour},
+            )
+            docs = res["documents"][0] if res["documents"] else []
+
         for doc, dist, meta in zip(
-            res["documents"][0], res["distances"][0], res["metadatas"][0]
+            docs, res["distances"][0], res["metadatas"][0]
         ):
             results.append(RetrievedChunk(
                 text=doc, score=dist, collection=EXTERNAL_CONTEXT, metadata=meta,
@@ -144,11 +167,14 @@ def format_chunks_for_prompt(chunks: list[RetrievedChunk]) -> str:
 
     lines = ["=== CONTEXT TỪ LỊCH SỬ & DỮ LIỆU NỀN ==="]
     for i, chunk in enumerate(chunks, 1):
-        source = {
-            ANOMALY_EVENTS: "Sự kiện lịch sử",
-            TRAFFIC_PATTERNS: "Pattern điển hình",
-            EXTERNAL_CONTEXT: "Context bên ngoài",
-        }.get(chunk.collection, chunk.collection)
+        if chunk.collection == EXTERNAL_CONTEXT:
+            ctx_type = chunk.metadata.get("context_type", "")
+            source = "Thời tiết TP.HCM" if ctx_type == "weather" else "Context bên ngoài"
+        else:
+            source = {
+                ANOMALY_EVENTS: "Sự kiện lịch sử",
+                TRAFFIC_PATTERNS: "Pattern điển hình",
+            }.get(chunk.collection, chunk.collection)
         lines.append(f"\n[{i}] {source}:")
         lines.append(chunk.text)
     lines.append("=== END CONTEXT ===")

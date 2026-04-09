@@ -90,12 +90,18 @@ VietMap API (every 5 min)
                       └─► online    ──► Postgres: online_route_features (real-time window features)
                                           └─► serving (reads on-demand)
 
+Open-Meteo API (free, no key — HCMC lat 10.7757, lon 106.7009)
+  └─► batch (every 1 hr)  ──► ChromaDB: external_context (7-day rolling hourly weather, ~192 docs)
+  └─► serving /chat       ──► live fetch direct (async httpx, cache 15 min) → inject into LLM prompt
+
 MinIO bronze
   └─► batch (every 5 min) ──► Iceberg: silver.traffic_route
-  └─► batch (every 1 hr)  ──► Iceberg: gold.traffic_summary
+  └─► batch (every 1 hr)  ──► Iceberg: gold.traffic_hourly
+                                └─► ChromaDB: anomaly_events + external_context/weather
   └─► batch (every 6 hrs) ──► POST http://ml-service:8000/train
                                 └─► MLflow registry: traffic-anomaly-iforest@champion
                                       └─► serving (loads on first /predict call, TTL 1h)
+                                └─► ChromaDB: traffic_patterns (full gold scan, ~3360 docs)
 ```
 
 ### Key infrastructure ports
@@ -112,7 +118,9 @@ MinIO bronze
 | Prefect Server | 4200 | |
 | PostgreSQL | 5432 | Online feature store |
 | ML service | 8000 | FastAPI: /train, /health, /status |
-| Serving API | 8001 | FastAPI: /online, /anomalies, /metrics, /predict |
+| Serving API | 8001 | FastAPI: /online, /anomalies, /metrics, /predict, /chat, /rca, /explain |
+| ChromaDB | 8010 | Vector DB — 3 collections: anomaly_events, traffic_patterns, external_context |
+| Ollama | 11434 | LLM: qwen2.5:3b; Embedding: nomic-embed-text (768-dim) |
 | Loki | 3100 | |
 | Grafana | 3001 | Changed from default 3000 to avoid conflict with Next.js UI |
 | Next.js UI | 3000 | Lives in `../v0-urban-pulse-dashboard` (sibling repo) |
@@ -146,8 +154,10 @@ All flows defined in `apps/batch/src/batch/pipeline.py` and registered in `main.
 | Flow | Schedule | What it does |
 |---|---|---|
 | `microbatch` | every 5 min | Bronze Parquet → Silver Iceberg (incremental) |
-| `hourly-gold` | every 1 hr | Silver Iceberg → Gold Iceberg (hourly aggregates) |
-| `retrain` | every 6 hrs | Gold → baseline table, then POST /train to ml-service |
+| `hourly-gold` | every 1 hr | Silver → Gold + RAG index (anomaly_events + weather from Open-Meteo) |
+| `retrain` | every 6 hrs | Gold → baseline + POST /train + RAG index (traffic_patterns full scan) |
+| `alert` | every 5 min | Check anomalies → Telegram (IForest-confirmed, 30-min cooldown) |
+| `rag-index` | manual | Re-index RAG; use `--param index_patterns=false` for weather+anomalies only |
 | `bootstrap` | manual | Full medallion rebuild from scratch |
 | `backfill` | manual | Time-range backfill for silver |
 

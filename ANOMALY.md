@@ -208,15 +208,26 @@ Heavy: 18.5% | Moderate: 32.1% | Severe segs: 3
 
 Khi user nhấn "Explain" hoặc dùng `/rca`, hệ thống:
 
-1. **Embed câu hỏi** bằng `nomic-embed-text` (768-dim)
-2. **Retrieve** từ ChromaDB:
-   - `anomaly_events` — lịch sử 7 ngày, filter theo `route_id`
-   - `traffic_patterns` — baseline theo (route, dow, hour)
-   - `external_context` — thời tiết / sự kiện (nếu có)
-3. **Inject context** vào prompt Ollama
-4. **Stream** response qua SSE
+1. **Fetch live weather** từ Open-Meteo API (cache 15 phút) → inject trực tiếp vào prompt
+2. **Embed câu hỏi** bằng `nomic-embed-text` (768-dim)
+3. **Retrieve** từ ChromaDB:
+   - `anomaly_events` — lịch sử bất thường 7 ngày, filter theo `route_id`
+   - `traffic_patterns` — baseline (route × dow × hour) từ gold layer
+   - `external_context` — thời tiết HCMC 7 ngày từ Open-Meteo, filter `hour_ts >= now-24h`
+4. **Inject context** vào prompt Ollama theo thứ tự: live weather → RAG chunks
+5. **Stream** response qua SSE
 
-Kết quả tốt hơn plain LLM vì model có **evidence thực tế** thay vì chỉ dựa vào parametric knowledge.
+**Three-layer context:**
+
+| Layer | Nguồn | Latency | Mục đích |
+|-------|-------|---------|---------|
+| Live weather | Open-Meteo API (direct) | ~200ms | Điều kiện thời tiết ngay lúc này |
+| RAG weather | ChromaDB `external_context` | ~50ms | Pattern thời tiết 7 ngày gần nhất |
+| RAG traffic | ChromaDB `anomaly_events` + `traffic_patterns` | ~50ms | Lịch sử bất thường + baseline |
+
+LLM (qwen2.5:3b) được instruction rõ ràng: nếu đang mưa/giông → phân tích mối liên hệ với tắc nghẽn; nếu trời quang → loại trừ yếu tố thời tiết.
+
+Kết quả tốt hơn plain LLM vì model có **evidence thực tế** (traffic history + weather) thay vì chỉ dựa vào parametric knowledge.
 
 ---
 
