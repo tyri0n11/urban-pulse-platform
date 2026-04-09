@@ -10,7 +10,7 @@ from typing import Any
 import chromadb
 
 from rag.collections import ANOMALY_EVENTS, TRAFFIC_PATTERNS, EXTERNAL_CONTEXT, get_or_create_collections
-from rag.documents import format_anomaly_event, format_traffic_pattern, format_external_event
+from rag.documents import format_anomaly_event, format_traffic_pattern, format_external_event, format_weather_hour
 
 logger = logging.getLogger(__name__)
 
@@ -109,5 +109,35 @@ def index_external_events(
     if ids:
         _upsert_batch(col, ids, docs, metas)
         logger.info("indexer: upserted %d external context docs", len(ids))
+
+    return len(ids)
+
+
+def index_weather_hours(
+    client: chromadb.HttpClient,
+    rows: list[dict[str, Any]],
+) -> int:
+    """Upsert Open-Meteo hourly weather records into the external_context collection.
+
+    Each row should come from openmeteo.fetch_hourly_weather().
+    Uses format_weather_hour() for richer, weather-specific document text.
+    Upsert is idempotent — safe to re-run hourly.
+    """
+    collections = get_or_create_collections(client)
+    col = collections[EXTERNAL_CONTEXT]
+
+    ids, docs, metas = [], [], []
+    for row in rows:
+        try:
+            doc_id, text, meta = format_weather_hour(row)
+            ids.append(doc_id)
+            docs.append(text)
+            metas.append(meta)
+        except Exception as exc:
+            logger.warning("indexer: skip weather row — %s", exc)
+
+    if ids:
+        _upsert_batch(col, ids, docs, metas)
+        logger.info("indexer: upserted %d weather hours into external_context", len(ids))
 
     return len(ids)

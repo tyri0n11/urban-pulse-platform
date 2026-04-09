@@ -62,19 +62,23 @@ VietMap API (every 5 min)
                       ├─► streaming ──► MinIO bronze/year=Y/month=M/day=D/hour=H/*.parquet
                       └─► online    ──► Postgres: online_route_features (Welford + z-score)
 
+Open-Meteo API (free, no key — HCMC lat/lon)
+  └─► batch (1 hr)   ──► ChromaDB: external_context (7-day rolling hourly weather)
+  └─► serving /chat  ──► live fetch (cache 15 min) ──► inject into LLM prompt
+
 MinIO bronze
   └─► batch (5 min)  ──► Iceberg silver.traffic_route
   └─► batch (1 hr)   ──► Iceberg gold.traffic_hourly
-                           └─► RAG index: anomaly_events (ChromaDB)
+                           └─► RAG index: anomaly_events + external_context/weather (ChromaDB)
   └─► batch (6 hrs)  ──► POST ml-service:8000/train
                            └─► MLflow: traffic-anomaly-iforest@champion
                                  └─► serving loads on /predict (TTL 1h)
-                           └─► RAG index: traffic_patterns (ChromaDB)
+                           └─► RAG index: traffic_patterns (ChromaDB, full gold scan)
   └─► batch (5 min)  ──► alert flow: check anomalies → Telegram (30-min cooldown)
 
 Postgres + ChromaDB
-  └─► serving /explain & /rca ──► RAG retrieval + Ollama ──► Stream SSE
-  └─► serving /chat ──► live snapshot + Ollama ──► Stream SSE
+  └─► serving /explain & /rca ──► RAG retrieval (anomaly + pattern + weather) + Ollama ──► SSE
+  └─► serving /chat ──► live snapshot (traffic + weather) + Ollama ──► Stream SSE
   └─► serving /telegram/webhook ──► @tyr1on_system_alert_bot ──► Stream SSE
 
 Postgres online_route_features
@@ -213,13 +217,17 @@ Serving source: current `online_route_features` + `datetime.utcnow()` for time e
 
 ## ChromaDB Collections (RAG)
 
-| Collection | Dimension | Metadata filters | Content |
-|-----------|-----------|-----------------|---------|
-| `anomaly_events` | 768 | `route_id`, `hour`, `dow` | Lịch sử bất thường 7 ngày |
-| `traffic_patterns` | 768 | `route_id`, `hour`, `dow` | Baseline patterns từ gold layer |
-| `external_context` | 768 | `hour` | Thời tiết / sự kiện (reserved) |
+| Collection | Docs | Metadata filters | Content | Refresh |
+|-----------|------|-----------------|---------|---------|
+| `anomaly_events` | 500+ | `route_id`, `hour`, `dow` | Lịch sử bất thường 7 ngày từ Postgres | Mỗi 1h |
+| `traffic_patterns` | 3360 | `route_id`, `hour`, `dow` | Baseline (route × dow × hour) từ gold | Mỗi 6h |
+| `external_context` | 192 | `hour`, `hour_ts`, `is_rain`, `is_storm`, `context_type` | Thời tiết HCMC 7 ngày + 1 ngày tương lai từ Open-Meteo | Mỗi 1h |
 
 Embedding model: `nomic-embed-text` via Ollama `/api/embed`. Space: cosine.
+
+**Retrieval strategy:**
+- `anomaly_events` + `traffic_patterns`: filter by `route_id`, semantic query
+- `external_context`: filter by `hour_ts >= now-24h` (recent weather ưu tiên); fallback về `{"hour": hour}` nếu collection rỗng
 
 ---
 
@@ -228,10 +236,10 @@ Embedding model: `nomic-embed-text` via Ollama `/api/embed`. Space: cosine.
 | Flow | Schedule | What it does |
 |------|----------|-------------|
 | `microbatch` | Every 5 min | Bronze → Silver (incremental) |
-| `hourly-gold` | Every 1 hr | Silver → Gold + RAG anomaly index |
-| `retrain` | Every 6 hrs | Gold → baseline + POST /train + RAG pattern index |
+| `hourly-gold` | Every 1 hr | Silver → Gold + RAG index (anomaly events + weather from Open-Meteo) |
+| `retrain` | Every 6 hrs | Gold → baseline + POST /train + RAG index (traffic patterns full scan) |
 | `alert` | Every 5 min | Check active anomalies → Telegram (IForest-confirmed only) |
-| `rag-index` | Manual | Full RAG re-index (anomaly events + traffic patterns) |
+| `rag-index` | Manual | Full re-index; `--param index_patterns=false` = weather + anomalies only (~60s) |
 | `bootstrap` | Manual | Full medallion rebuild from scratch |
 | `backfill` | Manual | Time-range backfill for silver |
 
@@ -267,8 +275,10 @@ Fresh environment:
 make dev
 make bootstrap    # bronze→silver→gold→baseline
 make train        # POST /train → MLflow
-# After Ollama models pulled:
-docker exec batch-service .venv/bin/prefect deployment run rag-index/rag-index-deployment
+# After Ollama models pulled — seed RAG index (weather + anomalies only, fast):
+docker exec batch-service .venv/bin/prefect deployment run rag-index/rag-index-deployment \
+  --param index_patterns=false
+# Traffic patterns index happens automatically on next retrain (every 6h)
 ```
 
 ### Why routes_skipped=20 in MLflow

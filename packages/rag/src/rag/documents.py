@@ -109,8 +109,66 @@ def format_traffic_pattern(row: dict[str, Any]) -> tuple[str, str, dict[str, Any
 
 
 # ---------------------------------------------------------------------------
-# external_context  (Phase 2 — weather / events / news)
+# external_context  — weather (Open-Meteo) / events / news
 # ---------------------------------------------------------------------------
+
+def format_weather_hour(row: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
+    """Format one Open-Meteo hourly record as a retrievable RAG document.
+
+    Expected keys (from openmeteo.fetch_hourly_weather):
+      hour_utc, temperature_c, precipitation_mm, rain_mm,
+      wind_speed_kmh, wind_direction_deg, wind_direction_name,
+      cloud_cover_pct, weather_code, weather_desc
+    """
+    hour_utc: datetime = row["hour_utc"]
+    if isinstance(hour_utc, str):
+        hour_utc = datetime.fromisoformat(hour_utc)
+    if hour_utc.tzinfo is None:
+        hour_utc = hour_utc.replace(tzinfo=timezone.utc)
+
+    temp = row.get("temperature_c")
+    precip = row.get("precipitation_mm")
+    rain = row.get("rain_mm")
+    wind = row.get("wind_speed_kmh")
+    wind_dir = row.get("wind_direction_name", "")
+    cloud = row.get("cloud_cover_pct")
+    desc: str = row.get("weather_desc", "")
+
+    temp_str = f"{temp:.1f}°C" if temp is not None else "N/A"
+    rain_str = f"{rain:.1f} mm" if rain is not None else (
+        f"{precip:.1f} mm" if precip is not None else "0 mm"
+    )
+    wind_str = f"{wind:.1f} km/h hướng {wind_dir}" if wind is not None else "N/A"
+    cloud_str = f"{cloud:.0f}%" if cloud is not None else "N/A"
+
+    # Flag significant weather for easier retrieval relevance
+    rain_val = rain if rain is not None else (precip or 0.0)
+    is_rain = float(rain_val) > 0.5
+    is_storm = int(row.get("weather_code", 0)) >= 80
+
+    dow_names = ["Chủ nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"]
+    dow = dow_names[(hour_utc.weekday() + 1) % 7]
+
+    text = (
+        f"Thời tiết TP.HCM — {dow} {hour_utc.strftime('%Y-%m-%d %H:%M')} UTC\n"
+        f"Điều kiện: {desc}\n"
+        f"Nhiệt độ: {temp_str}, Mưa: {rain_str}, "
+        f"Gió: {wind_str}, Mây phủ: {cloud_str}"
+    )
+
+    doc_id = f"weather_hcmc_{hour_utc.strftime('%Y%m%d%H%M')}"
+    metadata: dict[str, Any] = {
+        "context_type": "weather",
+        "hour": hour_utc.hour,
+        "dow": (hour_utc.weekday() + 1) % 7,
+        "hour_ts": int(hour_utc.timestamp()),
+        "source": "open-meteo",
+        "is_rain": is_rain,
+        "is_storm": is_storm,
+        "weather_code": int(row.get("weather_code", 0)),
+    }
+    return doc_id, text, metadata
+
 
 def format_external_event(row: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     """Format one gold.context_hourly row as an external context document."""

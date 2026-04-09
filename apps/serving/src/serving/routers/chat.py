@@ -14,6 +14,7 @@ GET /chat/context
 import json
 import logging
 import os
+import time
 from typing import Any, AsyncGenerator
 
 import asyncpg
@@ -31,13 +32,81 @@ logger = logging.getLogger(__name__)
 _OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 _MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 
+# Open-Meteo — HCMC city centre, no API key required
+_OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
+_HCMC_LAT = 10.7757
+_HCMC_LON = 106.7009
+_WEATHER_CACHE_TTL = 900  # 15 min — weather changes slowly
+
+_WMO_CODES: dict[int, str] = {
+    0: "trời quang", 1: "ít mây", 2: "nửa nhiều mây", 3: "u ám",
+    45: "sương mù", 48: "sương mù đóng băng",
+    51: "mưa phùn nhẹ", 53: "mưa phùn vừa", 55: "mưa phùn dày",
+    61: "mưa nhỏ", 63: "mưa vừa", 65: "mưa to",
+    80: "mưa rào nhẹ", 81: "mưa rào vừa", 82: "mưa rào mạnh",
+    95: "giông bão", 96: "giông bão kèm mưa đá", 99: "giông bão mạnh",
+}
+
+_weather_cache: tuple[float, dict[str, Any]] | None = None
+
+
+async def _fetch_current_weather() -> dict[str, Any] | None:
+    """Fetch current weather for HCMC from Open-Meteo with 15-min in-process cache."""
+    global _weather_cache
+    now = time.monotonic()
+    if _weather_cache and (now - _weather_cache[0]) < _WEATHER_CACHE_TTL:
+        return _weather_cache[1]
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                _OPENMETEO_URL,
+                params={
+                    "latitude": _HCMC_LAT,
+                    "longitude": _HCMC_LON,
+                    "current": ",".join([
+                        "temperature_2m",
+                        "precipitation",
+                        "rain",
+                        "wind_speed_10m",
+                        "wind_direction_10m",
+                        "cloud_cover",
+                        "weather_code",
+                    ]),
+                    "timezone": "UTC",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        logger.debug("chat: weather fetch failed — %s", exc)
+        return None
+
+    cur = data.get("current", {})
+    code = int(cur.get("weather_code") or 0)
+    result: dict[str, Any] = {
+        "temperature_c": cur.get("temperature_2m"),
+        "precipitation_mm": cur.get("precipitation"),
+        "rain_mm": cur.get("rain"),
+        "wind_speed_kmh": cur.get("wind_speed_10m"),
+        "cloud_cover_pct": cur.get("cloud_cover"),
+        "weather_desc": _WMO_CODES.get(code, f"mã WMO={code}"),
+        "observed_at": cur.get("time", ""),
+    }
+    _weather_cache = (now, result)
+    return result
+
 # Built once at import — grounding + geo knowledge + assistant role
 _SYSTEM = build_system_prompt(
-    "You are Urban Pulse AI, a traffic assistant embedded in the Urban Pulse "
+    "You are Urban Pulse AI, an intelligent assistant embedded in the Urban Pulse "
     "real-time monitoring dashboard for Ho Chi Minh City metro region. "
-    "You receive a live system snapshot with current congestion metrics and anomaly alerts. "
+    "You receive a live system snapshot that includes: "
+    "(1) current congestion metrics and anomaly alerts for all monitored routes, "
+    "(2) current weather conditions for HCMC from Open-Meteo. "
     "Congestion is measured by heavy_ratio (% road segments heavily congested), "
     "moderate_ratio (% moderately slow), and severe_segments (worst spots). "
+    "When asked about weather, use the weather data in the snapshot to answer directly — "
+    "never say weather data is unavailable if it is present in the snapshot. "
     "Answer questions concisely. Reference real road names (Xa lộ Hà Nội, QL13, etc.) "
     "and HCMC district names when relevant. "
     "Do not add greetings or sign-offs. "
@@ -51,7 +120,7 @@ class ChatRequest(BaseModel):
 
 
 async def _fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
-    """Fetch a concise current-state summary from Postgres."""
+    """Fetch a concise current-state summary from Postgres + live weather."""
 
     # Latest features per route
     rows = await conn.fetch(
@@ -98,13 +167,11 @@ async def _fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
         return "normal"
 
     def _short_name(route_id: str) -> str:
+        import re
         parts = route_id.split("_to_")
         if len(parts) != 2:
             return route_id
-        fmt = lambda s: s.replace(f"zone{s[4]}_", "", 1).replace("_", " ").title() if s.startswith("zone") else s.replace("_", " ").title()
-        # simpler approach
         def clean(s: str) -> str:
-            import re
             return re.sub(r"^zone\d+_", "", s).replace("_", " ").title()
         return f"{clean(parts[0])} → {clean(parts[1])}"
 
@@ -136,6 +203,8 @@ async def _fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
     # Latest snapshot timestamp (most recent updated_at across all routes)
     latest_ts = max((r["updated_at"] for r in row_list if r["updated_at"]), default=None)
 
+    weather = await _fetch_current_weather()
+
     return {
         "total_routes": len(row_list),
         "anomaly_count": len(anomalies),
@@ -150,6 +219,7 @@ async def _fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
         ],
         "avg_lag_ms": avg_lag,
         "snapshot_time": latest_ts.strftime("%Y-%m-%d %H:%M:%S UTC") if latest_ts else "unknown",
+        "weather": weather,
     }
 
 
@@ -165,7 +235,7 @@ def _build_user_prompt(snapshot: dict[str, Any], message: str, lang: str) -> str
         f"Thời điểm snapshot: {snapshot_time}",
         f"Đang giám sát {total} tuyến · Độ trễ cảm biến TB: {avg_lag} ms",
         f"Bất thường hiện tại: {anomaly_count}/{total} tuyến",
-        f"Ngưỡng tham chiếu: heavy_ratio > ~15% = tắc nghẽn nặng, < 5% = thông thoáng bình thường",
+        "Ngưỡng tham chiếu: heavy_ratio > ~15% = tắc nghẽn nặng, < 5% = thông thoáng bình thường",
         "",
     ]
 
@@ -187,6 +257,23 @@ def _build_user_prompt(snapshot: dict[str, Any], message: str, lang: str) -> str
             lines.append(
                 f"  {r['route']}: heavy={r['heavy_pct']:.1f}%, moderate={r['moderate_pct']:.1f}%"
             )
+
+    weather = snapshot.get("weather")
+    if weather:
+        temp = weather.get("temperature_c")
+        rain = weather.get("rain_mm") or weather.get("precipitation_mm") or 0.0
+        wind = weather.get("wind_speed_kmh")
+        cloud = weather.get("cloud_cover_pct")
+        desc = weather.get("weather_desc", "")
+        lines.append("")
+        lines.append("Thời tiết hiện tại TP.HCM (Open-Meteo):")
+        lines.append(
+            f"  {desc}"
+            + (f", {temp:.1f}°C" if temp is not None else "")
+            + (f", mưa {rain:.1f} mm" if rain > 0 else ", không mưa")
+            + (f", gió {wind:.1f} km/h" if wind is not None else "")
+            + (f", mây {cloud:.0f}%" if cloud is not None else "")
+        )
 
     lang_note = "Trả lời bằng tiếng Việt." if lang == "vi" else "Respond in English."
     lines += ["", "=== END SNAPSHOT ===", "", lang_note, "", f"Câu hỏi: {message}"]

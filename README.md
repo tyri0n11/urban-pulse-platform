@@ -3,7 +3,7 @@
 ![OVERVIEW](assets/urbanpulse.png)
 
 
-Real-time traffic anomaly detection platform cho Thành phố Hồ Chí Minh. Polls VietMap API mỗi 5 phút, xử lý qua medallion lakehouse, phát hiện bất thường bằng dual-signal (Z-Score + IsolationForest), stream kết quả lên dashboard Next.js qua SSE, và giải thích bằng LLM qua RAG pipeline.
+Real-time traffic anomaly detection platform cho Thành phố Hồ Chí Minh. Polls VietMap API mỗi 5 phút, xử lý qua medallion lakehouse, phát hiện bất thường bằng dual-signal (Z-Score + IsolationForest), stream kết quả lên dashboard Next.js qua SSE, và giải thích bằng LLM qua RAG pipeline với dữ liệu lịch sử + thời tiết thực (Open-Meteo).
 
 **Homelab deployment:** Intel i5-8th gen, 24 GB RAM · [tyr1on.io.vn](tyr1on.io.vn)
 
@@ -17,16 +17,22 @@ VietMap API (mỗi 5 phút)
                       ├─► streaming ──► MinIO: bronze/year=Y/month=M/day=D/hour=H/*.parquet
                       └─► online    ──► Postgres: online_route_features (z-score, Welford)
 
+Open-Meteo API (free, no key)
+  └─► batch (mỗi 1 giờ) ──► ChromaDB: external_context (7-day rolling weather)
+  └─► serving /chat      ──► live fetch → inject vào LLM prompt trực tiếp (cache 15 phút)
+
 MinIO bronze
   └─► batch (mỗi 5 phút) ──► Iceberg: silver.traffic_route
-  └─► batch (mỗi 1 giờ)  ──► Iceberg: gold.traffic_hourly + RAG index (anomaly events)
-  └─► batch (mỗi 6 giờ)  ──► POST /train → MLflow: iforest@champion + RAG index (traffic patterns)
+  └─► batch (mỗi 1 giờ)  ──► Iceberg: gold.traffic_hourly
+                                └─► RAG index: anomaly_events + external_context (weather)
+  └─► batch (mỗi 6 giờ)  ──► POST /train → MLflow: iforest@champion
+                                └─► RAG index: traffic_patterns (full re-index)
   └─► batch (mỗi 5 phút) ──► Anomaly alerter → Telegram (IForest-confirmed anomalies)
 
 Postgres + ChromaDB (RAG)
-  └─► serving /explain ──► RAG retrieval + Ollama → LLM explanation (SSE)
+  └─► serving /explain ──► RAG retrieval (anomaly history + patterns + weather) + Ollama → SSE
   └─► serving /rca     ──► RAG retrieval + Ollama → Root Cause Analysis (SSE)
-  └─► serving /chat    ──► Live snapshot + Ollama → Conversational AI (SSE)
+  └─► serving /chat    ──► Live snapshot (traffic + live weather) + Ollama → Conversational AI (SSE)
   └─► Telegram bot     ──► @tyr1on_system_alert_bot → chat with live data
 ```
 
@@ -42,15 +48,23 @@ Postgres + ChromaDB (RAG)
 ### RAG Pipeline (LLM Explain)
 
 ```
-Batch (hourly) ──► ChromaDB collections:
-  ├─ anomaly_events    (441+ docs) — lịch sử bất thường 7 ngày gần nhất
-  ├─ traffic_patterns  (3360+ docs) — baseline theo (route, dow, hour)
-  └─ external_context  — thời tiết / sự kiện (reserved)
+ChromaDB collections (3 tầng context):
+  ├─ anomaly_events    (500+ docs) — lịch sử bất thường 7 ngày (Postgres)
+  ├─ traffic_patterns  (3360 docs) — baseline (route × dow × hour) từ gold
+  └─ external_context  (192 docs)  — thời tiết HCMC 7 ngày (Open-Meteo, rolling)
+
+Indexing schedule:
+  hourly-gold (mỗi 1h)  → anomaly_events + external_context (weather)
+  retrain (mỗi 6h)      → traffic_patterns (full gold scan)
 
 serving /explain & /rca:
   Query → OllamaEmbedder (nomic-embed-text, 768-dim)
-         → ChromaDB cosine retrieval
+         → ChromaDB: anomaly (route filter) + pattern (route filter) + weather (24h window)
          → Inject context → Ollama (qwen2.5:3b) → Stream SSE
+
+serving /chat:
+  Postgres snapshot (traffic) + Open-Meteo live fetch (cache 15 phút)
+         → Inject → Ollama → Stream SSE
 ```
 
 ---
@@ -174,6 +188,11 @@ make train       # Train IsolationForest, push lên MLflow
 ### 6. Khởi tạo RAG index (lần đầu)
 
 ```bash
+# Chỉ index weather + anomaly events (nhanh, ~60s)
+docker exec batch-service .venv/bin/prefect deployment run rag-index/rag-index-deployment \
+  --param index_patterns=false
+
+# Index đầy đủ bao gồm traffic patterns (chậm hơn ~5-10 phút do Ollama embedding)
 docker exec batch-service .venv/bin/prefect deployment run rag-index/rag-index-deployment
 ```
 
@@ -308,10 +327,10 @@ gold/     Iceberg (Nessie)     — Hourly aggregates + baseline stats
 | Flow | Schedule | Mô tả |
 |------|----------|-------|
 | `microbatch` | Mỗi 5 phút | Bronze → Silver (incremental) |
-| `hourly-gold` | Mỗi 1 giờ | Silver → Gold + RAG index (anomaly events) |
-| `retrain` | Mỗi 6 giờ | Gold → baseline + POST `/train` + RAG index (traffic patterns) |
+| `hourly-gold` | Mỗi 1 giờ | Silver → Gold + RAG index (anomaly events + weather từ Open-Meteo) |
+| `retrain` | Mỗi 6 giờ | Gold → baseline + POST `/train` + RAG index (traffic patterns full scan) |
 | `alert` | Mỗi 5 phút | Check anomalies → Telegram alert (30-min cooldown per route) |
-| `rag-index` | Manual | Full RAG re-index (anomalies + patterns) |
+| `rag-index` | Manual | Full RAG re-index; dùng `--param index_patterns=false` để chỉ index weather + anomalies |
 | `bootstrap` | Manual | Full rebuild từ đầu |
 | `backfill` | Manual | Time-range backfill cho silver |
 
