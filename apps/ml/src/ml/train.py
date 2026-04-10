@@ -173,7 +173,7 @@ def _train_single_route(
 
         # Fit IsolationForest on cyclical time-encoded features
         iforest_params = {"contamination": 0.05, "n_estimators": 100, "random_state": 42}
-        detector = IsolationForestDetector(**iforest_params)
+        detector = IsolationForestDetector(**iforest_params)  # type: ignore[arg-type]
         mlflow.log_params({f"if_{k}": v for k, v in iforest_params.items()})
         detector.model.fit(X)
 
@@ -269,7 +269,7 @@ def run_training() -> TrainResult:
         ]
 
         completed = [r for r in results if r["status"] == "completed"]
-        total_samples = sum(r["sample_count"] for r in completed)
+        total_samples = sum(int(r["sample_count"]) for r in completed)  # type: ignore[call-overload]
 
         mlflow.log_metrics({
             "routes_trained": len(completed),

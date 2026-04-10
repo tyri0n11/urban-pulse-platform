@@ -60,7 +60,7 @@ _FEATURE_SQL = """
 def _scan_to_table(scan_result: object) -> pa.Table:
     if isinstance(scan_result, pa.Table):
         return scan_result
-    return scan_result.read_all()  # type: ignore[union-attr]
+    return scan_result.read_all()  # type: ignore[union-attr,no-any-return,attr-defined]
 
 
 def build_features(
@@ -111,7 +111,7 @@ def list_route_ids(catalog: Catalog) -> list[str]:
     if gold_arrow.num_rows == 0:
         return []
     import pyarrow.compute as pc
-    return pc.unique(gold_arrow.column("route_id")).to_pylist()
+    return pc.unique(gold_arrow.column("route_id")).to_pylist()  # type: ignore[no-any-return]
 
 
 def cyclical_time_features(hour: int, dow: int) -> tuple[float, float, float, float]:

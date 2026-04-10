@@ -18,7 +18,7 @@ _VEHICLE = "car"
 _ANNOTATIONS = "congestion"
 
 
-def _calc_congestion(segments: list[dict]) -> CongestionMetrics:
+def _calc_congestion(segments: list[dict[str, object]]) -> CongestionMetrics:
     if not segments:
         return CongestionMetrics()
     total = len(segments)
@@ -58,7 +58,7 @@ def fetch_route(
     data = resp.json()
 
     first = (data.get("paths") or [{}])[0]
-    congestion_segs: list[dict] = first.get("annotations", {}).get("congestion", [])
+    congestion_segs: list[dict[str, object]] = first.get("annotations", {}).get("congestion", [])
     duration_ms: float = first.get("time", 0.0)
 
     return TrafficRouteObservation(

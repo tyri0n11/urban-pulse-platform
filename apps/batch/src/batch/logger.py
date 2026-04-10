@@ -9,12 +9,12 @@ class Logger:
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
     
-    def info(self, message: str):
+    def info(self, message: str) -> None:
         self.logger.info(message)
-        
-    def warning(self, message: str):
+
+    def warning(self, message: str) -> None:
         self.logger.warning(message)
-    
-    def error(self, message: str):
+
+    def error(self, message: str) -> None:
         self.logger.error(message)
     

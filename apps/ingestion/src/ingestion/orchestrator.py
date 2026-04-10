@@ -4,6 +4,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 from urbanpulse_core.config import settings
 from ingestion.publishers import Publisher
@@ -14,9 +15,9 @@ logger = logging.getLogger(__name__)
 _INTER_REQUEST_DELAY_S = 10
 
 
-def _load_routes() -> list[dict]:
+def _load_routes() -> list[dict[str, Any]]:
     with open(Path(settings.routes_file)) as f:
-        return json.load(f)
+        return json.load(f)  # type: ignore[no-any-return]
 
 
 def run(publisher: Publisher, api_key: str) -> None:

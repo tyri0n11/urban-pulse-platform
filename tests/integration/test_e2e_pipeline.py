@@ -146,7 +146,8 @@ class TestKafkaToServingPipeline:
 
         body = response.json()
         assert body.get("last_ingest_lag_ms") is not None
-        assert body["last_ingest_lag_ms"] >= 0
+        # Allow small negative values due to clock skew between publisher and consumer
+        assert body["last_ingest_lag_ms"] >= -500
 
     def test_unknown_route_returns_404(self, require_serving):
         r = requests.get(

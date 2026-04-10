@@ -33,7 +33,7 @@ class ZScoreDetector:
             "HeavyRatioDetector: %d/%d anomalies (threshold=%.2f)",
             n_anomalies, len(labels), self.threshold,
         )
-        return labels
+        return labels  # type: ignore[no-any-return]
 
     def get_params(self) -> dict[str, float]:
         """Return model parameters for MLflow logging."""
