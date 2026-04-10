@@ -1,6 +1,6 @@
 """Per-route windowed state for online feature computation."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

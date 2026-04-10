@@ -12,7 +12,6 @@ For local dev, use ngrok:
 Incoming messages are routed to the same /chat logic (with snapshot context).
 """
 
-import json
 import logging
 import os
 from typing import Any

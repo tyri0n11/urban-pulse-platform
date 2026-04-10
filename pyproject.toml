@@ -4,6 +4,7 @@ members = ["apps/*", "packages/*"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["test.py"]
 
 [tool.mypy]
 python_version = "3.12"

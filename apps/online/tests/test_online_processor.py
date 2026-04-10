@@ -1,6 +1,4 @@
 """Tests for OnlineFeatureProcessor.process() — mocks out Postgres and Iceberg."""
-import json
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
