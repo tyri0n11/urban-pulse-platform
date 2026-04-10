@@ -1,6 +1,6 @@
 """Per-route windowed state for online feature computation."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -58,7 +58,7 @@ class RouteWindow:
     def stddev_duration(self) -> float:
         if self.count < 2:
             return 0.0
-        return (self.M2_duration / (self.count - 1)) ** 0.5
+        return float((self.M2_duration / (self.count - 1)) ** 0.5)
 
     @property
     def mean_heavy_ratio(self) -> float:
@@ -92,4 +92,5 @@ class RouteWindow:
 
     @classmethod
     def from_dict(cls, d: dict[str, object]) -> "RouteWindow":
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})  # type: ignore[attr-defined]
+        fields = cls.__dataclass_fields__  # type: ignore[attr-defined]
+        return cls(**{k: v for k, v in d.items() if k in fields})  # type: ignore[arg-type]

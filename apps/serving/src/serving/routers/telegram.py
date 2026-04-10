@@ -12,7 +12,6 @@ For local dev, use ngrok:
 Incoming messages are routed to the same /chat logic (with snapshot context).
 """
 
-import json
 import logging
 import os
 from typing import Any
@@ -75,7 +74,7 @@ async def _ask_llm(system: str, prompt: str) -> str:
                 },
             )
             resp.raise_for_status()
-            return resp.json().get("response", "").strip()
+            return resp.json().get("response", "").strip()  # type: ignore[no-any-return]
     except Exception as exc:
         logger.error("telegram: LLM call failed — %s", exc)
         return "Xin lỗi, tôi không thể kết nối tới LLM lúc này."
@@ -168,7 +167,7 @@ async def set_webhook(url: str) -> dict[str, Any]:
             f"{_TELEGRAM_API}/setWebhook",
             json={"url": f"{url}/telegram/webhook"},
         )
-        return resp.json()
+        return resp.json()  # type: ignore[no-any-return]
 
 
 @router.get("/info")
@@ -178,4 +177,4 @@ async def bot_info() -> dict[str, Any]:
         return {"error": "TELEGRAM_BOT_TOKEN not configured"}
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(f"{_TELEGRAM_API}/getMe")
-        return resp.json()
+        return resp.json()  # type: ignore[no-any-return]

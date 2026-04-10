@@ -45,7 +45,7 @@ class IsolationForestDetector:
         X = np.column_stack(arrays)
         # Replace NaN/inf with 0 for robustness
         X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-        return X
+        return X  # type: ignore[no-any-return]
 
     def fit(self, features: pa.Table) -> "IsolationForestDetector":
         """Train the Isolation Forest on feature table."""
@@ -65,12 +65,12 @@ class IsolationForestDetector:
         labels = (raw_labels == -1).astype(np.int32)
         n_anomalies = int(labels.sum())
         logger.info("IsolationForest: %d/%d anomalies", n_anomalies, len(labels))
-        return labels
+        return labels  # type: ignore[no-any-return]
 
     def decision_scores(self, features: pa.Table) -> np.ndarray:
         """Return anomaly scores (lower = more anomalous)."""
         X = self._to_numpy(features)
-        return self.model.decision_function(X)
+        return self.model.decision_function(X)  # type: ignore[no-any-return]
 
     def get_params(self) -> dict[str, object]:
         """Return model parameters for MLflow logging."""

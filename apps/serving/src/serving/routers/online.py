@@ -18,7 +18,6 @@ GET /online/reconcile
     Useful for detecting when the streaming layer has drifted from history.
 """
 
-from datetime import datetime, timezone
 from typing import Any
 
 import asyncpg
@@ -266,11 +265,6 @@ async def reconcile(
 
     Routes with no matching baseline entry are included with null deviations.
     """
-    now = datetime.now(timezone.utc)
-    # EXTRACT(DOW) in Postgres: 0=Sunday … 6=Saturday
-    dow = now.isoweekday() % 7   # Python isoweekday: Mon=1…Sun=7 → Sun=0…Sat=6
-    hour = now.hour
-
     rows = await conn.fetch(
         """
         SELECT

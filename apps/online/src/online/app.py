@@ -195,7 +195,7 @@ class OnlineFeatureProcessor:
         if time.monotonic() - self._last_baseline_refresh > self._BASELINE_TTL:
             self._refresh_baseline()
 
-        raw: bytes = msg.value()
+        raw: bytes = msg.value()  # type: ignore[assignment]
         try:
             obs = TrafficRouteObservation.model_validate(json.loads(raw))
         except Exception as exc:
@@ -205,8 +205,8 @@ class OnlineFeatureProcessor:
         # E2E ingestion lag
         lag_ms = 0
         headers = msg.headers() or []
-        for key, val in headers:
-            if key == "ingest_ts" and val:
+        for key, val in headers:  # type: ignore[misc,str-unpack]
+            if key == "ingest_ts" and isinstance(val, bytes):
                 try:
                     lag_ms = int(time.time() * 1000) - int(val.decode())
                 except (ValueError, TypeError):
@@ -328,7 +328,8 @@ def main() -> None:
             if msg is None:
                 continue
             if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
+                err = msg.error()
+                if err is not None and err.code() == KafkaError._PARTITION_EOF:
                     continue
                 raise KafkaException(msg.error())
             processor.process(msg)

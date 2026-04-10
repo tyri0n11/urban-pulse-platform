@@ -115,7 +115,8 @@ def _short_name(route_id: str) -> str:
     parts = route_id.split("_to_")
     if len(parts) != 2:
         return route_id
-    clean = lambda s: re.sub(r"^zone\d+_", "", s).replace("_", " ").title()
+    def clean(s: str) -> str:
+        return re.sub(r"^zone\d+_", "", s).replace("_", " ").title()
     return f"{clean(parts[0])} → {clean(parts[1])}"
 
 

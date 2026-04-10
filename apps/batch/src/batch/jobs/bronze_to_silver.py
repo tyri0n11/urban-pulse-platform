@@ -164,7 +164,7 @@ def _cast_to_arrow_schema(raw: pa.Table) -> pa.Table:
     return pa.table(columns, schema=_ARROW_SCHEMA)
 
 
-def _get_s3fs() -> "s3fs.S3FileSystem":  # type: ignore[name-defined]
+def _get_s3fs() -> "s3fs.S3FileSystem":  # type: ignore[name-defined]  # noqa: F821
     import s3fs
 
     return s3fs.S3FileSystem(
@@ -229,7 +229,7 @@ def microbatch(catalog: Catalog | None = None) -> int:
 
     raw = _read_bronze_parquet(bronze_path)
     if raw is None or len(raw) == 0:
-        print(f"bronze_to_silver microbatch: no bronze files for current hour — skipping")
+        print("bronze_to_silver microbatch: no bronze files for current hour — skipping")
         logger.info("bronze_to_silver microbatch: no bronze files for current hour — skipping")
         return 0
 

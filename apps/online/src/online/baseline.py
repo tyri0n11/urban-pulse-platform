@@ -6,7 +6,6 @@ so the in-memory lookup is O(1) during stream processing.
 """
 
 import logging
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
