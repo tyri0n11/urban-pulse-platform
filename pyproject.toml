@@ -10,9 +10,10 @@ python_version = "3.12"
 strict = true
 
 [tool.pytest.ini_options]
-testpaths = ["apps", "packages"]
+testpaths = ["apps", "packages", "tests"]
 markers = ["unit", "integration"]
 
 [dependency-groups]
 dev = [
+    "pytest>=9.0.3",
 ]
