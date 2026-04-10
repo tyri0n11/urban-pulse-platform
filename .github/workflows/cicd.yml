@@ -1,0 +1,67 @@
+name: CI / CD
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CI — runs on every PR and every push
+  # ---------------------------------------------------------------------------
+  ci:
+    name: Lint · Typecheck · Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-caching: true
+          cache-dependency-glob: "**/pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras
+
+      - name: Lint (ruff)
+        run: make lint
+
+      - name: Type check (mypy)
+        run: make typecheck
+
+      - name: Unit tests
+        run: make test-unit
+
+  # ---------------------------------------------------------------------------
+  # CD — only runs after CI passes AND the merge target is main
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to production
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            set -e
+            cd ~/deployment/urban-pulse-platform
+            git pull origin main
+            make prod-build
+            make prod && make prod-update-ui
