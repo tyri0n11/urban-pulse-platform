@@ -22,8 +22,6 @@ import asyncpg
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from serving.services import prediction_service
-
 router = APIRouter(tags=["events"])
 logger = logging.getLogger(__name__)
 
@@ -94,75 +92,36 @@ async def fetch_snapshot(pool: asyncpg.Pool) -> dict[str, Any]:
             if rid not in seen:
                 routes.append(data)
 
+        # Read pre-computed IForest scores from the background scorer task
+        # (started at app startup in app.py — always runs every 15s regardless of SSE clients)
         anomaly_rows = await conn.fetch(
             """
-            SELECT DISTINCT ON (route_id)
-                route_id, window_start, updated_at, observation_count,
-                mean_duration_minutes, stddev_duration_minutes, last_duration_minutes,
-                mean_heavy_ratio,
-                COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
-                COALESCE(max_severe_segments, 0.0) AS max_severe_segments,
-                duration_zscore, is_anomaly, last_ingest_lag_ms
-            FROM online_route_features
-            ORDER BY route_id, updated_at DESC
+            SELECT DISTINCT ON (orf.route_id)
+                orf.route_id, orf.window_start, orf.updated_at, orf.observation_count,
+                orf.mean_duration_minutes, orf.stddev_duration_minutes, orf.last_duration_minutes,
+                orf.mean_heavy_ratio,
+                COALESCE(orf.mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+                COALESCE(orf.max_severe_segments, 0.0) AS max_severe_segments,
+                orf.duration_zscore, orf.is_anomaly, orf.last_ingest_lag_ms,
+                rif.iforest_anomaly, rif.iforest_score, rif.both_anomaly
+            FROM online_route_features orf
+            LEFT JOIN LATERAL (
+                SELECT iforest_anomaly, iforest_score, both_anomaly
+                FROM route_iforest_scores
+                WHERE route_id = orf.route_id AND window_start = orf.window_start
+                LIMIT 1
+            ) rif ON true
+            ORDER BY orf.route_id, orf.updated_at DESC
             """
         )
-        row_dicts = [dict(r) for r in anomaly_rows]
-
-        # Run IsolationForest scoring (cached in-process, cheap after first load)
-        try:
-            predictions = prediction_service.score_rows(row_dicts)
-            pred_by_route = {p.route_id: p for p in predictions}
-        except Exception:
-            pred_by_route = {}
 
         anomalies: list[dict[str, Any]] = []
-        iforest_upsert_rows: list[tuple[Any, ...]] = []
-        for row in row_dicts:
-            rid = row["route_id"]
-            pred = pred_by_route.get(rid)
+        for row in [dict(r) for r in anomaly_rows]:
             is_zscore = bool(row.get("is_anomaly", False))
-            is_iforest = bool(pred.iforest_anomaly) if pred else False
-            if pred:
-                iforest_upsert_rows.append((
-                    rid,
-                    row["window_start"],
-                    pred.iforest_anomaly,
-                    pred.iforest_score,
-                    pred.both_anomaly,
-                ))
+            is_iforest = bool(row.get("iforest_anomaly", False))
             if not (is_zscore or is_iforest):
                 continue
-            entry = dict(row)
-            if pred:
-                entry["iforest_anomaly"] = pred.iforest_anomaly
-                entry["iforest_score"] = pred.iforest_score
-                entry["both_anomaly"] = pred.both_anomaly
-            anomalies.append(entry)
-
-        if iforest_upsert_rows:
-            await conn.executemany(
-                """
-                INSERT INTO route_iforest_scores
-                    (route_id, window_start, scored_at, iforest_anomaly, iforest_score, both_anomaly,
-                     score_count, anomaly_count, both_count)
-                VALUES ($1, $2, NOW(), $3, $4, $5,
-                        1,
-                        CASE WHEN $3 THEN 1 ELSE 0 END,
-                        CASE WHEN $5 THEN 1 ELSE 0 END)
-                ON CONFLICT (route_id, window_start) DO UPDATE SET
-                    scored_at       = NOW(),
-                    iforest_anomaly = EXCLUDED.iforest_anomaly,
-                    iforest_score   = EXCLUDED.iforest_score,
-                    both_anomaly    = EXCLUDED.both_anomaly,
-                    score_count     = route_iforest_scores.score_count + 1,
-                    anomaly_count   = route_iforest_scores.anomaly_count
-                                      + CASE WHEN EXCLUDED.iforest_anomaly THEN 1 ELSE 0 END,
-                    both_count      = route_iforest_scores.both_count
-                                      + CASE WHEN EXCLUDED.both_anomaly THEN 1 ELSE 0 END
-                """,
-                iforest_upsert_rows,
-            )
+            anomalies.append(row)
 
         lag_row = await conn.fetchrow(
             """

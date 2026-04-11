@@ -8,6 +8,7 @@ API or Kafka is not reachable, so they are safe to run in CI as long as
 the stack is not started there.
 """
 import time
+import psycopg2
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -54,6 +55,30 @@ def _kafka_reachable() -> bool:
 
 
 # ── module-scoped skip fixtures ───────────────────────────────────────────────
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_smoke_routes():
+    """Delete all smoke_test_* routes from Postgres after the test session.
+
+    Integration tests publish to the real Kafka topic, so the online service
+    writes smoke observations into the live DB. This fixture cleans up after
+    the entire session so test data never pollutes production metrics.
+    """
+    yield  # let all tests run first
+
+    from urbanpulse_core.config import settings
+    try:
+        conn = psycopg2.connect(settings.postgres_dsn)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM online_route_features WHERE route_id LIKE 'smoke_%'")
+            cur.execute("DELETE FROM route_iforest_scores  WHERE route_id LIKE 'smoke_%'")
+            cur.execute("DELETE FROM prediction_history    WHERE route_id LIKE 'smoke_%'")
+        conn.close()
+    except Exception as exc:
+        # Non-fatal: stack may not be running (CI without dev stack)
+        print(f"\n[conftest] smoke cleanup skipped: {exc}")
+
 
 @pytest.fixture(scope="module")
 def require_serving():

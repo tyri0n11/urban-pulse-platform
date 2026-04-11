@@ -56,6 +56,7 @@ async def route_metrics(
             is_anomaly,
             observation_count
         FROM online_route_features
+        WHERE route_id LIKE 'zone%'
         ORDER BY route_id, updated_at DESC
         """
     )
@@ -116,6 +117,7 @@ async def zone_metrics(
                 is_anomaly,
                 observation_count
             FROM online_route_features
+            WHERE route_id LIKE 'zone%'
             ORDER BY route_id, updated_at DESC
         )
         SELECT
@@ -156,7 +158,8 @@ async def congestion_leaderboard(
             observation_count,
             last_ingest_lag_ms
         FROM online_route_features
-        WHERE duration_zscore IS NOT NULL
+        WHERE route_id LIKE 'zone%'
+          AND duration_zscore IS NOT NULL
           AND observation_count >= 3
         ORDER BY route_id, updated_at DESC
         """,
@@ -203,7 +206,8 @@ async def zscore_heatmap(
                 is_anomaly,
                 observation_count
             FROM online_route_features
-            WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
+            WHERE route_id LIKE 'zone%'
+              AND window_start >= NOW() - ($1 * INTERVAL '1 hour')
             ORDER BY route_id, window_start DESC, updated_at DESC
         ) o
         LEFT JOIN (
