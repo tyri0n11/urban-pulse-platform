@@ -16,7 +16,7 @@ GET /predict/model/info
 from typing import Any
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from serving.dependencies import get_db
 from serving.services import prediction_service
@@ -125,3 +125,67 @@ async def model_info() -> dict[str, Any]:
 async def model_routes_status() -> list[dict[str, Any]]:
     """Return per-route model cache status (loaded, age, error)."""
     return prediction_service.route_cache_status()
+
+
+@router.get("/history")
+async def prediction_history(
+    hours: int = Query(default=24, ge=1, le=168),
+    conn: asyncpg.Connection = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Prediction history aggregated per route per hour.
+
+    Reads from prediction_history (append-only log written every 15s by the
+    background scorer). Each row represents one hour bucket per route with
+    aggregated rates and average scores — suitable for trend charts.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT
+            route_id,
+            DATE_TRUNC('hour', scored_at)      AS hour,
+            COUNT(*)                            AS tick_count,
+            AVG(iforest_score)                  AS avg_iforest_score,
+            AVG(iforest_anomaly::int)           AS iforest_anomaly_rate,
+            AVG(zscore_anomaly::int)            AS zscore_anomaly_rate,
+            AVG(both_anomaly::int)              AS both_anomaly_rate,
+            AVG(duration_zscore)                AS avg_duration_zscore,
+            AVG(mean_duration_minutes)          AS avg_duration_minutes,
+            AVG(mean_heavy_ratio)               AS avg_heavy_ratio
+        FROM prediction_history
+        WHERE scored_at >= NOW() - ($1 * INTERVAL '1 hour')
+        GROUP BY route_id, hour
+        ORDER BY hour DESC, route_id
+        """,
+        hours,
+    )
+    return [dict(r) for r in rows]
+
+
+@router.get("/history/{route_id}")
+async def route_prediction_history(
+    route_id: str,
+    hours: int = Query(default=24, ge=1, le=168),
+    conn: asyncpg.Connection = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Raw prediction ticks for a single route.
+
+    Returns one row per 15-second scoring cycle from prediction_history.
+    Useful for score drift analysis and fine-grained anomaly inspection.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT
+            id, scored_at, window_start,
+            iforest_score, iforest_anomaly, zscore_anomaly, both_anomaly,
+            duration_zscore, mean_duration_minutes, mean_heavy_ratio
+        FROM prediction_history
+        WHERE route_id = $1
+          AND scored_at >= NOW() - ($2 * INTERVAL '1 hour')
+        ORDER BY scored_at DESC
+        """,
+        route_id,
+        hours,
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No prediction history for route '{route_id}'")
+    return [dict(r) for r in rows]
