@@ -226,7 +226,11 @@ class OnlineFeatureProcessor:
         severe_segments = float(obs.congestion.severe_segments) if obs.congestion else 0.0
         window.update(obs.duration_minutes, heavy_ratio, moderate_ratio, low_ratio, severe_segments, lag_ms)
 
-        # Heavy-ratio z-score vs batch baseline
+        # Heavy-ratio z-score vs batch baseline.
+        # NOTE: stored as `duration_zscore` in Postgres for historical reasons —
+        # the value is the heavy_ratio z-score, not a duration z-score.
+        # Threshold is one-sided (high heavy_ratio = congested) and dynamic
+        # per-route from the baseline p99 (default 2.0).
         baseline = self._baseline.get(obs.route_id)
         zscore: float | None = None
         is_anomaly = False

@@ -154,13 +154,17 @@ async def root_cause_analysis(
 
     async def _stream_and_log() -> AsyncGenerator[str, None]:
         async for event in _stream_ollama(_SYSTEM, prompt):
-            yield event
             try:
                 data = json.loads(event.removeprefix("data: ").strip())
-                if "chunk" in data:
-                    full_text.append(data["chunk"])
             except Exception:
-                pass
+                yield event
+                continue
+            # Suppress the inner 'done' — we emit a single done with log_id below
+            if data.get("done"):
+                continue
+            if "chunk" in data:
+                full_text.append(data["chunk"])
+            yield event
         # Persist the full response for fine-tuning
         if log_id and full_text:
             try:
@@ -170,8 +174,11 @@ async def root_cause_analysis(
                 )
             except Exception:
                 pass
+        # Single done event — include log_id when available
+        done_payload: dict[str, Any] = {"done": True}
         if log_id:
-            yield f"data: {json.dumps({'done': True, 'log_id': log_id})}\n\n"
+            done_payload["log_id"] = log_id
+        yield f"data: {json.dumps(done_payload)}\n\n"
 
     logger.info("rca: route=%s chunks=%d", req.route_id, len(chunks))
     return StreamingResponse(

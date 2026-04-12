@@ -98,12 +98,13 @@ async def current_anomalies(
             entry["both_anomaly"] = pred.both_anomaly
         result.append(entry)
 
-    # Sort: both-agree first, then zscore-only, then iforest-only
+    # Sort: both-agree first, then zscore-only, then iforest-only;
+    # within each group highest |zscore| first (most severe at top).
     result.sort(key=lambda x: (
         not x.get("both_anomaly", False),
         not x.get("is_anomaly", False),
-        abs(x.get("duration_zscore") or 0),
-    ), reverse=False)
+        -abs(x.get("duration_zscore") or 0),
+    ))
 
     return result
 
