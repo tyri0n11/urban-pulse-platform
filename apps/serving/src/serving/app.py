@@ -161,9 +161,6 @@ def create_app() -> FastAPI:
         );
         CREATE INDEX IF NOT EXISTS idx_iforest_window_start
             ON route_iforest_scores (window_start DESC);
-        ALTER TABLE route_iforest_scores ADD COLUMN IF NOT EXISTS score_count   INT NOT NULL DEFAULT 0;
-        ALTER TABLE route_iforest_scores ADD COLUMN IF NOT EXISTS anomaly_count INT NOT NULL DEFAULT 0;
-        ALTER TABLE route_iforest_scores ADD COLUMN IF NOT EXISTS both_count    INT NOT NULL DEFAULT 0;
 
         CREATE TABLE IF NOT EXISTS prediction_history (
             id                    BIGSERIAL        PRIMARY KEY,

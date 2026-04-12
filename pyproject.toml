@@ -71,9 +71,18 @@ ignore_errors = true
 testpaths = ["apps", "packages", "tests"]
 markers = ["unit", "integration"]
 
+[tool.coverage.run]
+source = ["apps", "packages"]
+omit = ["*/tests/*", "*/.venv/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "pytest-cov>=6.0",
     "ruff>=0.9",
     "mypy>=1.15",
 ]

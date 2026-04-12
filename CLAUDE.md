@@ -128,7 +128,7 @@ MinIO bronze
 ### Dual-signal anomaly detection
 
 The platform detects anomalies using two independent signals:
-- **Z-Score** (real-time, speed layer): computed by the `online` service per-message as events arrive from Kafka. Threshold: `|zscore| > 3.0`. Result stored in `online_route_features.is_anomaly`.
+- **Z-Score** (real-time, speed layer): computed by the `online` service per-message as events arrive from Kafka. Measures **heavy_ratio** deviation from the per-route batch baseline. Threshold is **one-sided** (`zscore > threshold`; high heavy_ratio = congested, low is fine) and **dynamic per-route** from the baseline p99 (default 2.0). Result stored in `online_route_features.is_anomaly`. Note: the column is named `duration_zscore` for historical reasons — the value stored is the heavy_ratio z-score.
 - **IsolationForest** (batch model, serving layer): trained every 6h on gold-layer data, registered in MLflow as `traffic-anomaly-iforest@champion`. Loaded by the serving API with a 1-hour TTL cache; scored on-demand against the latest `online_route_features` snapshot.
 
 The `serving` app merges both signals in `/predict/anomalies` and `/anomalies/current`:
@@ -175,12 +175,14 @@ All endpoints read from Postgres (`online_route_features` table) via asyncpg con
 /online/features/{route_id}/history      # per-hour windows, ?hours=24
 /online/routes                           # latest + static coords from routes.json
 /online/lag                              # p50/p95/max ingest lag stats
-/online/reconcile                        # online vs batch baseline comparison
+/online/reconcile                        # online features + pre-computed baseline deviation
 
 /anomalies/current                       # anomalous routes now (runs IForest scoring)
 /anomalies/history                       # anomaly events, ?hours=24
 /anomalies/summary                       # count per hour for chart
 /anomalies/{route_id}                    # full timeline for one route
+/anomalies/{route_id}/explain            # SSE: LLM explanation of why route is anomalous
+/anomalies/explain/status                # Ollama health check + loaded model
 
 /metrics/routes                          # lightweight snapshot (all routes)
 /metrics/routes/{route_id}              # per-hour trend
@@ -190,13 +192,25 @@ All endpoints read from Postgres (`online_route_features` table) via asyncpg con
 
 /predict/anomalies                       # IForest score all routes
 /predict/anomalies/{route_id}           # IForest score one route
-/predict/model/info                      # cache age, loaded uri, next refresh
+/predict/model/info                      # aggregate cache status (age, TTL, next refresh)
+/predict/model/routes                    # per-route model cache status (loaded, age, error)
+/predict/history                         # prediction history aggregated per route per hour
+/predict/history/{route_id}             # raw 15-second prediction ticks for one route
+
+POST /rca                                # RAG-powered root cause analysis (SSE)
+POST /rca/feedback                       # thumbs-up/down for an RCA response
+GET  /rca/logs                           # recent RAG interaction logs
+
+POST /chat                               # conversational AI about current system state (SSE)
+GET  /chat/context                       # raw system snapshot (debug / FE preload)
+
+GET  /events/traffic                     # SSE stream: routes + anomalies + lag every 15s
 
 /health/live
 /health/ready
 ```
 
-CORS is configured for `http://localhost:3000` only (the Next.js dev server).
+CORS is configured for `http://localhost:3000`, `http://127.0.0.1:3000`, `https://tyr1on.io.vn`, and `https://www.tyr1on.io.vn`. Methods: GET, POST only.
 
 ### MLflow model loading in serving
 

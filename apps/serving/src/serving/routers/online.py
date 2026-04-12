@@ -254,16 +254,18 @@ async def ingestion_lag(
 async def reconcile(
     conn: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """Compare online mean_duration against the batch baseline mean.
+    """Compare online features against the batch baseline for each route.
 
-    For each route, returns:
-    - online_mean: what the Faust stream computed this hour
-    - baseline_mean: what the batch baseline expects for this (dow, hour)
-    - abs_deviation: |online_mean - baseline_mean|
-    - rel_deviation: abs_deviation / baseline_mean  (fraction)
-    - zscore: pre-computed z-score stored by Faust
-
-    Routes with no matching baseline entry are included with null deviations.
+    The baseline deviation is pre-computed by the online service on every
+    message and stored in online_route_features:
+    - online_mean: mean_duration_minutes from the current streaming window
+    - online_stddev: stddev_duration_minutes
+    - mean_heavy_ratio: current window mean heavy congestion ratio
+    - heavy_ratio_deviation: online heavy_ratio minus per-route baseline mean
+      (positive = more congested than expected; null if no baseline loaded yet)
+    - duration_zscore: heavy_ratio z-score vs per-route dynamic baseline
+      (named duration_zscore for historical reasons; value is heavy_ratio-based)
+    - is_anomaly: whether heavy_ratio z-score exceeded the per-route threshold
     """
     rows = await conn.fetch(
         """
@@ -272,8 +274,10 @@ async def reconcile(
             o.window_start,
             o.updated_at,
             o.observation_count,
-            o.mean_duration_minutes                         AS online_mean,
-            o.stddev_duration_minutes                       AS online_stddev,
+            o.mean_duration_minutes     AS online_mean,
+            o.stddev_duration_minutes   AS online_stddev,
+            o.mean_heavy_ratio,
+            o.heavy_ratio_deviation,
             o.duration_zscore,
             o.is_anomaly,
             o.last_ingest_lag_ms
@@ -284,8 +288,6 @@ async def reconcile(
         ) o
         ORDER BY o.route_id
         """,
-        # Note: baseline join happens in Python to avoid adding pyiceberg to
-        # the serving layer. Baseline data is owned by the batch service.
     )
 
     return [_row_to_dict(r) for r in rows]
