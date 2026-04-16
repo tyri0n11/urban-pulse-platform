@@ -18,7 +18,8 @@ GET /metrics/heatmap
     duration_zscore for every (route, hour) in last 24h — matrix for heatmap.
 """
 
-from typing import Any
+from datetime import datetime
+from typing import Any, Optional
 
 import asyncpg
 from fastapi import APIRouter, Depends, Query
@@ -179,52 +180,75 @@ async def congestion_leaderboard(
     return sorted_rows[:limit]
 
 
+_HEATMAP_SQL_HOURS = """
+    SELECT
+        o.route_id, o.window_start, o.duration_zscore,
+        o.is_anomaly, o.observation_count,
+        i.iforest_anomaly, i.both_anomaly
+    FROM (
+        SELECT DISTINCT ON (route_id, window_start)
+            route_id, window_start, duration_zscore, is_anomaly, observation_count
+        FROM online_route_features
+        WHERE route_id LIKE 'zone%'
+          AND window_start >= NOW() - ($1 * INTERVAL '1 hour')
+        ORDER BY route_id, window_start DESC, updated_at DESC
+    ) o
+    LEFT JOIN (
+        SELECT route_id, window_start,
+            CASE WHEN score_count > 0
+                 THEN anomaly_count::float / score_count >= 0.5
+                 ELSE iforest_anomaly END AS iforest_anomaly,
+            CASE WHEN score_count > 0
+                 THEN both_count::float / score_count >= 0.5
+                 ELSE both_anomaly END    AS both_anomaly
+        FROM route_iforest_scores
+        WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
+    ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
+    ORDER BY o.route_id, o.window_start DESC
+"""
+
+_HEATMAP_SQL_RANGE = """
+    SELECT
+        o.route_id, o.window_start, o.duration_zscore,
+        o.is_anomaly, o.observation_count,
+        i.iforest_anomaly, i.both_anomaly
+    FROM (
+        SELECT DISTINCT ON (route_id, window_start)
+            route_id, window_start, duration_zscore, is_anomaly, observation_count
+        FROM online_route_features
+        WHERE route_id LIKE 'zone%'
+          AND window_start >= $1 AND window_start <= $2
+        ORDER BY route_id, window_start DESC, updated_at DESC
+    ) o
+    LEFT JOIN (
+        SELECT route_id, window_start,
+            CASE WHEN score_count > 0
+                 THEN anomaly_count::float / score_count >= 0.5
+                 ELSE iforest_anomaly END AS iforest_anomaly,
+            CASE WHEN score_count > 0
+                 THEN both_count::float / score_count >= 0.5
+                 ELSE both_anomaly END    AS both_anomaly
+        FROM route_iforest_scores
+        WHERE window_start >= $1 AND window_start <= $2
+    ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
+    ORDER BY o.route_id, o.window_start DESC
+"""
+
+
 @router.get("/heatmap")
 async def zscore_heatmap(
-    hours: int = Query(default=24, ge=1, le=72),
+    hours: int = Query(default=24, ge=1, le=720),
+    start: Optional[datetime] = Query(default=None),
+    end: Optional[datetime] = Query(default=None),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """Z-score matrix: one row per (route_id, hour) for the last N hours.
+    """Z-score matrix: one row per (route_id, hour).
 
+    Accepts either ?hours=N or ?start=ISO&end=ISO.
     Used to render a route × time heatmap where cell color = zscore intensity.
     """
-    rows = await conn.fetch(
-        """
-        SELECT
-            o.route_id,
-            o.window_start,
-            o.duration_zscore,
-            o.is_anomaly,
-            o.observation_count,
-            i.iforest_anomaly,
-            i.both_anomaly
-        FROM (
-            SELECT DISTINCT ON (route_id, window_start)
-                route_id,
-                window_start,
-                duration_zscore,
-                is_anomaly,
-                observation_count
-            FROM online_route_features
-            WHERE route_id LIKE 'zone%'
-              AND window_start >= NOW() - ($1 * INTERVAL '1 hour')
-            ORDER BY route_id, window_start DESC, updated_at DESC
-        ) o
-        LEFT JOIN (
-            SELECT
-                route_id,
-                window_start,
-                CASE WHEN score_count > 0
-                     THEN anomaly_count::float / score_count >= 0.5
-                     ELSE iforest_anomaly END AS iforest_anomaly,
-                CASE WHEN score_count > 0
-                     THEN both_count::float / score_count >= 0.5
-                     ELSE both_anomaly END    AS both_anomaly
-            FROM route_iforest_scores
-            WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-        ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
-        ORDER BY o.route_id, o.window_start DESC
-        """,
-        hours,
-    )
+    if start is not None and end is not None:
+        rows = await conn.fetch(_HEATMAP_SQL_RANGE, start, end)
+    else:
+        rows = await conn.fetch(_HEATMAP_SQL_HOURS, hours)
     return [_row_to_dict(r) for r in rows]
