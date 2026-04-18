@@ -568,10 +568,20 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
+      # General API router - 120 req/min per IP
       - "traefik.http.routers.serving.rule=Host(`api.tyr1on.io.vn`)"
       - "traefik.http.routers.serving.entrypoints=websecure"
       - "traefik.http.routers.serving.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.serving.middlewares=api-ratelimit@file,secure-headers@file"
+      - "traefik.http.routers.serving.priority=1"
       - "traefik.http.services.serving.loadbalancer.server.port=8000"
+      # LLM router (higher priority) - 10 req/min per IP
+      - "traefik.http.routers.serving-llm.rule=Host(`api.tyr1on.io.vn`) && (PathPrefix(`/chat`) || PathPrefix(`/rca`))"
+      - "traefik.http.routers.serving-llm.entrypoints=websecure"
+      - "traefik.http.routers.serving-llm.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.serving-llm.middlewares=llm-ratelimit@file,secure-headers@file"
+      - "traefik.http.routers.serving-llm.service=serving"
+      - "traefik.http.routers.serving-llm.priority=10"
     deploy:
       resources:
         limits:
