@@ -717,6 +717,7 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
+    runtime: nvidia
     restart: unless-stopped
     networks:
       - urban-pulse-platform
