@@ -223,6 +223,7 @@ async def explain_anomaly(
     weather = await _fetch_current_weather()
 
     rag_context = ""
+    retrieved_chunks: list[Any] = []
     try:
         from datetime import timezone
         window_start = row.get("updated_at")
@@ -236,14 +237,30 @@ async def explain_anomaly(
             hour, dow = now.hour, (now.weekday() + 1) % 7
 
         chroma = get_chroma_client()
-        chunks = retrieve_for_route(chroma, route_id, hour=hour, dow=dow)
-        rag_context = format_chunks_for_prompt(chunks)
+        retrieved_chunks = retrieve_for_route(chroma, route_id, hour=hour, dow=dow)
+        rag_context = format_chunks_for_prompt(retrieved_chunks)
     except Exception as exc:
         logger.debug("explain: RAG retrieval failed (non-fatal) — %s", exc)
 
     user_prompt = _build_user_prompt(row, lang, rag_context=rag_context, weather=weather)
     logger.info("explain: route=%s lang=%s model=%s rag_chunks=%d",
-                route_id, lang, _MODEL, len(rag_context.splitlines()) if rag_context else 0)
+                route_id, lang, _MODEL, len(retrieved_chunks))
+
+    log_id: int | None = None
+    try:
+        chunk_data = [{"text": c.text, "score": c.score, "collection": c.collection}
+                      for c in retrieved_chunks]
+        log_id = await conn.fetchval(
+            """
+            INSERT INTO rag_interaction_log
+                (query_type, route_id, query, retrieved_chunks, lang)
+            VALUES ('explain', $1, $1, $2::jsonb, $3)
+            RETURNING id
+            """,
+            route_id, json.dumps(chunk_data) if chunk_data else None, lang,
+        )
+    except Exception as exc:
+        logger.debug("explain: failed to log interaction — %s", exc)
 
     full_text: list[str] = []
 
@@ -257,6 +274,14 @@ async def explain_anomaly(
             except Exception:
                 pass
         _cache[f"{route_id}:{lang}"] = (time.monotonic(), "".join(full_text))
+        if log_id and full_text:
+            try:
+                await conn.execute(
+                    "UPDATE rag_interaction_log SET response = $1 WHERE id = $2",
+                    "".join(full_text), log_id,
+                )
+            except Exception:
+                pass
 
     return StreamingResponse(
         _stream_and_cache(),
