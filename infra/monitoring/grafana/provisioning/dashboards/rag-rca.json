@@ -11,8 +11,8 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Total RCA Queries",
-      "description": "All-time queries in rag_interaction_log",
+      "title": "Total LLM Queries",
+      "description": "All-time queries in rag_interaction_log (chat + rca + explain)",
       "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
@@ -137,23 +137,24 @@
     {
       "id": 7,
       "type": "timeseries",
-      "title": "RCA Queries Over Time",
-      "description": "Number of /rca requests per hour, split by language",
+      "title": "LLM Queries Over Time by Type",
+      "description": "Number of LLM requests per hour, split by query type (chat / rca / explain)",
       "gridPos": { "x": 0, "y": 4, "w": 14, "h": 8 },
       "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "postgres" },
-          "rawSql": "SELECT\n  DATE_TRUNC('hour', ts) AS time,\n  COUNT(*) FILTER (WHERE lang = 'vi') AS vietnamese,\n  COUNT(*) FILTER (WHERE lang = 'en') AS english\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  DATE_TRUNC('hour', ts) AS time,\n  COUNT(*) FILTER (WHERE query_type = 'chat') AS chat,\n  COUNT(*) FILTER (WHERE query_type = 'rca') AS rca,\n  COUNT(*) FILTER (WHERE query_type = 'explain') AS explain\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nGROUP BY 1\nORDER BY 1",
           "format": "time_series"
         }
       ],
       "fieldConfig": {
         "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 8 } },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "vietnamese" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }, { "id": "displayName", "value": "Vietnamese (vi)" }] },
-          { "matcher": { "id": "byName", "options": "english" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }, { "id": "displayName", "value": "English (en)" }] }
+          { "matcher": { "id": "byName", "options": "chat" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }, { "id": "displayName", "value": "Chat (/chat)" }] },
+          { "matcher": { "id": "byName", "options": "rca" }, "properties": [{ "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }, { "id": "displayName", "value": "RCA (/rca)" }] },
+          { "matcher": { "id": "byName", "options": "explain" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }, { "id": "displayName", "value": "Explain (/anomalies/explain)" }] }
         ]
       },
       "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
@@ -272,7 +273,7 @@
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{service=\"serving-service\"} |~ \"rca:|LLM timeout|Ollama error|retrieval failed|chroma\""
+          "expr": "{service=\"serving-service\"} |~ \"rca:|chat:|explain:|LLM timeout|Ollama error|retrieval failed|chroma\""
         }
       ],
       "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
@@ -281,15 +282,15 @@
     {
       "id": 13,
       "type": "table",
-      "title": "Recent RCA Interactions",
-      "description": "Latest 20 queries from rag_interaction_log — useful for debugging and fine-tuning data review",
+      "title": "Recent LLM Interactions",
+      "description": "Latest 20 queries from rag_interaction_log (chat + rca + explain) — useful for debugging and fine-tuning data review",
       "gridPos": { "x": 0, "y": 28, "w": 24, "h": 12 },
       "datasource": { "type": "postgres", "uid": "postgres" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "postgres" },
-          "rawSql": "SELECT\n  id,\n  ts AT TIME ZONE 'UTC' AS ts,\n  lang,\n  COALESCE(route_id, '—') AS route_id,\n  LEFT(query, 120) AS query,\n  LEFT(COALESCE(response, ''), 200) AS response,\n  CASE feedback WHEN 1 THEN 'good' WHEN -1 THEN 'bad' ELSE '—' END AS feedback,\n  COALESCE(jsonb_array_length(retrieved_chunks), 0) AS chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nORDER BY ts DESC\nLIMIT 20",
+          "rawSql": "SELECT\n  id,\n  ts AT TIME ZONE 'UTC' AS ts,\n  query_type,\n  lang,\n  COALESCE(route_id, '—') AS route_id,\n  LEFT(query, 120) AS query,\n  LEFT(COALESCE(response, ''), 200) AS response,\n  CASE feedback WHEN 1 THEN 'good' WHEN -1 THEN 'bad' ELSE '—' END AS feedback,\n  COALESCE(jsonb_array_length(retrieved_chunks), 0) AS chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nORDER BY ts DESC\nLIMIT 20",
           "format": "table"
         }
       ],

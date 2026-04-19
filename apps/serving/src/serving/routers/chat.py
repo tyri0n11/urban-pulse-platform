@@ -327,8 +327,43 @@ async def chat(
     user_prompt = _build_user_prompt(snapshot, req.message, req.lang)
     logger.info("chat: lang=%s msg_len=%d anomalies=%d", req.lang, len(req.message), snapshot["anomaly_count"])
 
+    log_id: int | None = None
+    try:
+        log_id = await conn.fetchval(
+            """
+            INSERT INTO rag_interaction_log
+                (query_type, route_id, query, retrieved_chunks, lang)
+            VALUES ('chat', NULL, $1, NULL, $2)
+            RETURNING id
+            """,
+            req.message, req.lang,
+        )
+    except Exception as exc:
+        logger.debug("chat: failed to log interaction — %s", exc)
+
+    full_text: list[str] = []
+
+    async def _stream_and_log() -> AsyncGenerator[str, None]:
+        async for event in _stream_ollama(_SYSTEM, user_prompt):
+            try:
+                data = json.loads(event.removeprefix("data: ").strip())
+            except Exception:
+                yield event
+                continue
+            if "chunk" in data:
+                full_text.append(data["chunk"])
+            yield event
+        if log_id and full_text:
+            try:
+                await conn.execute(
+                    "UPDATE rag_interaction_log SET response = $1 WHERE id = $2",
+                    "".join(full_text), log_id,
+                )
+            except Exception:
+                pass
+
     return StreamingResponse(
-        _stream_ollama(_SYSTEM, user_prompt),
+        _stream_and_log(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
