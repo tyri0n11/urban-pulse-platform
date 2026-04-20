@@ -22,6 +22,8 @@ from typing import Any
 
 import numpy as np
 
+from serving.models.prediction import PredictionResult
+
 logger = logging.getLogger(__name__)
 
 MODEL_TTL = 3600.0  # seconds before reloading from MLflow
@@ -40,15 +42,6 @@ _FEATURE_ORDER = [
     "dow_sin",
     "dow_cos",
 ]
-
-
-@dataclass
-class PredictionResult:
-    route_id: str
-    iforest_score: float
-    iforest_anomaly: bool
-    zscore_anomaly: bool
-    both_anomaly: bool
 
 
 @dataclass

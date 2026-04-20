@@ -1,20 +1,4 @@
-"""Router: anomaly query endpoints.
-
-Endpoints
----------
-GET /anomalies/current
-    All routes currently flagged as anomalous (latest window).
-
-GET /anomalies/history
-    Anomaly events over the last N hours across all routes.
-
-GET /anomalies/summary
-    Aggregate counts: zscore anomalies, iforest anomalies, both-agree,
-    grouped by hour — for timeline chart.
-
-GET /anomalies/{route_id}
-    Full anomaly history for a single route.
-"""
+"""Router: anomaly query endpoints."""
 
 from datetime import datetime
 from typing import Any, Optional
@@ -22,153 +6,18 @@ from typing import Any, Optional
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from serving.controllers.anomaly_controller import get_current_anomalies
 from serving.dependencies import get_db
-from serving.services import prediction_service
+from serving.repo import anomalies as anomaly_repo
 
 router = APIRouter(prefix="/anomalies", tags=["anomalies"])
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _row_to_dict(row: asyncpg.Record) -> dict[str, Any]:
-    return dict(row)
-
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
 
 
 @router.get("/current")
 async def current_anomalies(
     conn: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """Return all routes where is_anomaly = true in their latest window.
-
-    Also runs IsolationForest scoring so the response includes both signals.
-    """
-    rows = await conn.fetch(
-        """
-        SELECT DISTINCT ON (route_id)
-            route_id,
-            window_start,
-            updated_at,
-            observation_count,
-            mean_duration_minutes,
-            stddev_duration_minutes,
-            last_duration_minutes,
-            mean_heavy_ratio,
-            COALESCE(mean_moderate_ratio, 0.0)   AS mean_moderate_ratio,
-            COALESCE(mean_low_ratio, 0.0)        AS mean_low_ratio,
-            COALESCE(max_severe_segments, 0.0)   AS max_severe_segments,
-            duration_zscore,
-            is_anomaly,
-            last_ingest_lag_ms
-        FROM online_route_features
-        ORDER BY route_id, updated_at DESC
-        """
-    )
-    if not rows:
-        return []
-
-    row_dicts = [dict(r) for r in rows]
-
-    # Score all with IsolationForest — filter to anomalous ones
-    try:
-        predictions = prediction_service.score_rows(row_dicts)
-        pred_by_route = {p.route_id: p for p in predictions}
-    except Exception:
-        pred_by_route = {}
-
-    result = []
-    for row in row_dicts:
-        rid = row["route_id"]
-        pred = pred_by_route.get(rid)
-        is_zscore_anomaly = bool(row.get("is_anomaly", False))
-        is_iforest_anomaly = pred.iforest_anomaly if pred else None
-
-        if not (is_zscore_anomaly or is_iforest_anomaly):
-            continue
-
-        entry = {**row}
-        if pred:
-            entry["iforest_anomaly"] = pred.iforest_anomaly
-            entry["iforest_score"] = pred.iforest_score
-            entry["both_anomaly"] = pred.both_anomaly
-        result.append(entry)
-
-    # Sort: both-agree first, then zscore-only, then iforest-only;
-    # within each group highest |zscore| first (most severe at top).
-    result.sort(key=lambda x: (
-        not x.get("both_anomaly", False),
-        not x.get("is_anomaly", False),
-        -abs(x.get("duration_zscore") or 0),
-    ))
-
-    return result
-
-
-_HISTORY_SQL_HOURS = """
-    SELECT
-        o.route_id, o.window_start, o.updated_at, o.observation_count,
-        o.mean_duration_minutes, o.mean_heavy_ratio, o.mean_moderate_ratio,
-        o.duration_zscore, o.is_anomaly, o.last_ingest_lag_ms,
-        i.iforest_anomaly, i.iforest_score, i.both_anomaly
-    FROM (
-        SELECT DISTINCT ON (route_id, window_start)
-            route_id, window_start, updated_at, observation_count,
-            mean_duration_minutes, mean_heavy_ratio, mean_moderate_ratio,
-            duration_zscore, is_anomaly, last_ingest_lag_ms
-        FROM online_route_features
-        WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-        ORDER BY route_id, window_start, updated_at DESC
-    ) o
-    LEFT JOIN (
-        SELECT route_id, window_start, iforest_score,
-            CASE WHEN score_count > 0
-                 THEN anomaly_count::float / score_count >= 0.5
-                 ELSE iforest_anomaly END AS iforest_anomaly,
-            CASE WHEN score_count > 0
-                 THEN both_count::float / score_count >= 0.5
-                 ELSE both_anomaly END    AS both_anomaly
-        FROM route_iforest_scores
-        WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-    ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
-    WHERE o.is_anomaly = true OR i.iforest_anomaly = true
-    ORDER BY o.window_start DESC, o.route_id
-"""
-
-_HISTORY_SQL_RANGE = """
-    SELECT
-        o.route_id, o.window_start, o.updated_at, o.observation_count,
-        o.mean_duration_minutes, o.mean_heavy_ratio, o.mean_moderate_ratio,
-        o.duration_zscore, o.is_anomaly, o.last_ingest_lag_ms,
-        i.iforest_anomaly, i.iforest_score, i.both_anomaly
-    FROM (
-        SELECT DISTINCT ON (route_id, window_start)
-            route_id, window_start, updated_at, observation_count,
-            mean_duration_minutes, mean_heavy_ratio, mean_moderate_ratio,
-            duration_zscore, is_anomaly, last_ingest_lag_ms
-        FROM online_route_features
-        WHERE window_start >= $1 AND window_start <= $2
-        ORDER BY route_id, window_start, updated_at DESC
-    ) o
-    LEFT JOIN (
-        SELECT route_id, window_start, iforest_score,
-            CASE WHEN score_count > 0
-                 THEN anomaly_count::float / score_count >= 0.5
-                 ELSE iforest_anomaly END AS iforest_anomaly,
-            CASE WHEN score_count > 0
-                 THEN both_count::float / score_count >= 0.5
-                 ELSE both_anomaly END    AS both_anomaly
-        FROM route_iforest_scores
-        WHERE window_start >= $1 AND window_start <= $2
-    ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
-    WHERE o.is_anomaly = true OR i.iforest_anomaly = true
-    ORDER BY o.window_start DESC, o.route_id
-"""
+    return await get_current_anomalies(conn)
 
 
 @router.get("/history")
@@ -178,87 +27,9 @@ async def anomaly_history(
     end: Optional[datetime] = Query(default=None),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """Return all anomalous windows across all routes.
-
-    Accepts either ?hours=N (relative, default 24) or ?start=ISO&end=ISO (absolute range).
-    One row per (route_id, window_start) where is_anomaly was true at any point.
-    """
     if start is not None and end is not None:
-        rows = await conn.fetch(_HISTORY_SQL_RANGE, start, end)
-    else:
-        rows = await conn.fetch(_HISTORY_SQL_HOURS, hours)
-    return [_row_to_dict(r) for r in rows]
-
-
-_SUMMARY_SQL_HOURS = """
-    SELECT
-        z.hour, z.zscore_anomaly_count, z.total_routes,
-        COALESCE(i.iforest_anomaly_count, 0) AS iforest_anomaly_count,
-        COALESCE(i.both_anomaly_count, 0)    AS both_anomaly_count
-    FROM (
-        SELECT
-            DATE_TRUNC('hour', window_start) AS hour,
-            COUNT(*) FILTER (WHERE is_anomaly = true) AS zscore_anomaly_count,
-            COUNT(DISTINCT route_id)                  AS total_routes
-        FROM (
-            SELECT DISTINCT ON (route_id, window_start)
-                route_id, window_start, is_anomaly
-            FROM online_route_features
-            WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-            ORDER BY route_id, window_start, updated_at DESC
-        ) t
-        GROUP BY 1
-    ) z
-    LEFT JOIN (
-        SELECT
-            DATE_TRUNC('hour', window_start) AS hour,
-            COUNT(*) FILTER (
-                WHERE score_count > 0 AND anomaly_count::float / score_count >= 0.5
-            ) AS iforest_anomaly_count,
-            COUNT(*) FILTER (
-                WHERE score_count > 0 AND both_count::float / score_count >= 0.5
-            ) AS both_anomaly_count
-        FROM route_iforest_scores
-        WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-        GROUP BY 1
-    ) i ON z.hour = i.hour
-    ORDER BY 1
-"""
-
-_SUMMARY_SQL_RANGE = """
-    SELECT
-        z.hour, z.zscore_anomaly_count, z.total_routes,
-        COALESCE(i.iforest_anomaly_count, 0) AS iforest_anomaly_count,
-        COALESCE(i.both_anomaly_count, 0)    AS both_anomaly_count
-    FROM (
-        SELECT
-            DATE_TRUNC('hour', window_start) AS hour,
-            COUNT(*) FILTER (WHERE is_anomaly = true) AS zscore_anomaly_count,
-            COUNT(DISTINCT route_id)                  AS total_routes
-        FROM (
-            SELECT DISTINCT ON (route_id, window_start)
-                route_id, window_start, is_anomaly
-            FROM online_route_features
-            WHERE window_start >= $1 AND window_start <= $2
-            ORDER BY route_id, window_start, updated_at DESC
-        ) t
-        GROUP BY 1
-    ) z
-    LEFT JOIN (
-        SELECT
-            DATE_TRUNC('hour', window_start) AS hour,
-            COUNT(*) FILTER (
-                WHERE score_count > 0 AND anomaly_count::float / score_count >= 0.5
-            ) AS iforest_anomaly_count,
-            COUNT(*) FILTER (
-                WHERE score_count > 0 AND both_count::float / score_count >= 0.5
-            ) AS both_anomaly_count
-        FROM route_iforest_scores
-        WHERE window_start >= $1 AND window_start <= $2
-        GROUP BY 1
-    ) i ON z.hour = i.hour
-    ORDER BY 1
-"""
+        return await anomaly_repo.fetch_history_range(conn, start, end)
+    return await anomaly_repo.fetch_history_hours(conn, hours)
 
 
 @router.get("/summary")
@@ -268,18 +39,9 @@ async def anomaly_summary(
     end: Optional[datetime] = Query(default=None),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """Anomaly counts grouped by hour.
-
-    Returns time-series data suitable for a chart:
-      hour | zscore_anomaly_count | iforest_anomaly_count | both_anomaly_count | total_routes
-
-    Accepts either ?hours=N or ?start=ISO&end=ISO.
-    """
     if start is not None and end is not None:
-        rows = await conn.fetch(_SUMMARY_SQL_RANGE, start, end)
-    else:
-        rows = await conn.fetch(_SUMMARY_SQL_HOURS, hours)
-    return [_row_to_dict(r) for r in rows]
+        return await anomaly_repo.fetch_summary_range(conn, start, end)
+    return await anomaly_repo.fetch_summary_hours(conn, hours)
 
 
 @router.get("/{route_id}")
@@ -288,31 +50,7 @@ async def route_anomaly_history(
     hours: int = Query(default=48, ge=1, le=168),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """Return anomaly history for a single route over the last N hours.
-
-    Includes all windows (not just anomalous ones) so the UI can render
-    a full timeline with anomaly markers.
-    """
-    rows = await conn.fetch(
-        """
-        SELECT DISTINCT ON (window_start)
-            route_id,
-            window_start,
-            updated_at,
-            observation_count,
-            mean_duration_minutes,
-            stddev_duration_minutes,
-            duration_zscore,
-            is_anomaly,
-            last_ingest_lag_ms
-        FROM online_route_features
-        WHERE route_id = $1
-          AND window_start >= NOW() - ($2 * INTERVAL '1 hour')
-        ORDER BY window_start DESC, updated_at DESC
-        """,
-        route_id,
-        hours,
-    )
+    rows = await anomaly_repo.fetch_route_history(conn, route_id, hours)
     if not rows:
         raise HTTPException(status_code=404, detail=f"No data for route '{route_id}'")
-    return [_row_to_dict(r) for r in rows]
+    return rows
