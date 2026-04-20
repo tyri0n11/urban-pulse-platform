@@ -9,7 +9,6 @@ from fastapi import HTTPException
 from serving.repo import online as online_repo
 from serving.services import prediction_service
 from serving.utils.routes import load_routes_coords
-from serving.utils.weather import fetch_current_weather
 
 
 async def fetch_route_data(route_id: str, conn: asyncpg.Connection) -> dict[str, Any]:

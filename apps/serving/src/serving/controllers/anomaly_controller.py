@@ -4,7 +4,6 @@ from typing import Any
 
 import asyncpg
 
-from serving.repo import anomalies as anomaly_repo
 from serving.repo import online as online_repo
 from serving.services import prediction_service
 

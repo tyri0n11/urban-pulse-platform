@@ -35,7 +35,6 @@ async def retrieve_context(
         except Exception as exc:
             logger.debug("rca: free-text retrieval failed — %s", exc)
 
-    from rag.retriever import format_chunks_for_prompt
     return chunks, format_chunks_for_prompt(chunks)
 
 
