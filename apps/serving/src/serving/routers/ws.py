@@ -1,85 +1,36 @@
-"""SSE (Server-Sent Events) router — streams live traffic snapshots.
+"""SSE router — streams live traffic snapshots every 15 seconds.
 
 Endpoint: GET /events/traffic
 Media type: text/event-stream
-
-Each connected client gets its own polling loop that queries Postgres every
-POLL_INTERVAL seconds and pushes a single "data: {...}" event.  The browser's
-EventSource API handles reconnection automatically.
-
-Message format (JSON):
-    { "type": "traffic_update", "routes": [...], "anomalies": [...], "lag": {...}, "ts": "..." }
+Message format: { "type": "traffic_update", "routes": [...], "anomalies": [...], "lag": {...}, "ts": "..." }
 """
 
-import json
+import asyncio
 import logging
-import os
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import datetime
 from typing import Any, AsyncGenerator
 
 import asyncpg
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from serving.repo import anomalies as anomaly_repo
+from serving.repo import online as online_repo
+from serving.utils.routes import load_routes_coords
+from serving.utils.serializers import dumps
+
 router = APIRouter(tags=["events"])
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL = 15  # seconds
-
-# Cache routes.json so we don't re-read it on every tick
-_routes_coords: dict[str, dict[str, Any]] | None = None
-
-
-def _default(obj: Any) -> Any:
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    if isinstance(obj, Decimal):
-        return float(obj)
-    raise TypeError(f"Not JSON serializable: {type(obj)!r}")
-
-
-def _dumps(payload: dict[str, Any]) -> str:
-    return json.dumps(payload, default=_default)
-
-
-def _load_routes_coords() -> dict[str, dict[str, Any]]:
-    global _routes_coords
-    if _routes_coords is None:
-        import json as _j
-        routes_path = os.environ.get("ROUTES_JSON_PATH", "/app/routes.json")
-        coords: dict[str, dict[str, Any]] = {}
-        try:
-            with open(routes_path) as f:
-                for r in _j.load(f):
-                    coords[r["route_id"]] = {
-                        "origin": r.get("origin"),
-                        "destination": r.get("destination"),
-                        "origin_anchor": r.get("origin_anchor"),
-                        "destination_anchor": r.get("destination_anchor"),
-                    }
-        except FileNotFoundError:
-            pass
-        _routes_coords = coords
-    return _routes_coords
+POLL_INTERVAL = 15
 
 
 async def fetch_snapshot(pool: asyncpg.Pool) -> dict[str, Any]:
     """Fetch routes, current anomalies, and lag in one connection."""
-    route_coords = _load_routes_coords()
+    route_coords = load_routes_coords()
 
     async with pool.acquire() as conn:
-        route_rows = await conn.fetch(
-            """
-            SELECT DISTINCT ON (route_id)
-                route_id, window_start, updated_at, observation_count,
-                mean_duration_minutes, stddev_duration_minutes,
-                duration_zscore, is_anomaly, last_ingest_lag_ms
-            FROM online_route_features
-            ORDER BY route_id, updated_at DESC
-            """
-        )
-        online_by_id: dict[str, dict[str, Any]] = {r["route_id"]: dict(r) for r in route_rows}
+        online_by_id = await online_repo.fetch_routes_snapshot(conn)
 
         routes: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -92,68 +43,8 @@ async def fetch_snapshot(pool: asyncpg.Pool) -> dict[str, Any]:
             if rid not in seen:
                 routes.append(data)
 
-        # Read pre-computed IForest scores from the background scorer task
-        # (started at app startup in app.py — always runs every 15s regardless of SSE clients)
-        anomaly_rows = await conn.fetch(
-            """
-            SELECT DISTINCT ON (orf.route_id)
-                orf.route_id, orf.window_start, orf.updated_at, orf.observation_count,
-                orf.mean_duration_minutes, orf.stddev_duration_minutes, orf.last_duration_minutes,
-                orf.mean_heavy_ratio,
-                COALESCE(orf.mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
-                COALESCE(orf.max_severe_segments, 0.0) AS max_severe_segments,
-                orf.duration_zscore, orf.is_anomaly, orf.last_ingest_lag_ms,
-                rif.iforest_anomaly, rif.iforest_score, rif.both_anomaly
-            FROM online_route_features orf
-            LEFT JOIN LATERAL (
-                SELECT iforest_anomaly, iforest_score, both_anomaly
-                FROM route_iforest_scores
-                WHERE route_id = orf.route_id AND window_start = orf.window_start
-                LIMIT 1
-            ) rif ON true
-            ORDER BY orf.route_id, orf.updated_at DESC
-            """
-        )
-
-        anomalies: list[dict[str, Any]] = []
-        for row in [dict(r) for r in anomaly_rows]:
-            is_zscore = bool(row.get("is_anomaly", False))
-            is_iforest = bool(row.get("iforest_anomaly", False))
-            if not (is_zscore or is_iforest):
-                continue
-            anomalies.append(row)
-
-        lag_row = await conn.fetchrow(
-            """
-            SELECT
-                COUNT(*)                                              AS active_routes,
-                PERCENTILE_CONT(0.50) WITHIN GROUP
-                    (ORDER BY last_ingest_lag_ms)                    AS p50_ms,
-                PERCENTILE_CONT(0.95) WITHIN GROUP
-                    (ORDER BY last_ingest_lag_ms)                    AS p95_ms,
-                MAX(last_ingest_lag_ms)                              AS max_ms,
-                AVG(last_ingest_lag_ms)                              AS mean_ms
-            FROM (
-                SELECT DISTINCT ON (route_id) last_ingest_lag_ms
-                FROM online_route_features
-                WHERE updated_at > NOW() - INTERVAL '10 minutes'
-                  AND last_ingest_lag_ms IS NOT NULL
-                ORDER BY route_id, updated_at DESC
-            ) t
-            """
-        )
-
-    if lag_row and lag_row["active_routes"] > 0:
-        lag: dict[str, Any] = {
-            "active_routes": int(lag_row["active_routes"]),
-            "p50_ms": float(lag_row["p50_ms"]) if lag_row["p50_ms"] is not None else None,
-            "p95_ms": float(lag_row["p95_ms"]) if lag_row["p95_ms"] is not None else None,
-            "max_ms": float(lag_row["max_ms"]) if lag_row["max_ms"] is not None else None,
-            "mean_ms": float(lag_row["mean_ms"]) if lag_row["mean_ms"] is not None else None,
-            "slo_met": (float(lag_row["p95_ms"]) < 20_000) if lag_row["p95_ms"] is not None else None,
-        }
-    else:
-        lag = {"active_routes": 0, "p50_ms": None, "p95_ms": None, "max_ms": None, "mean_ms": None}
+        anomalies = await anomaly_repo.fetch_sse_anomalies(conn)
+        lag = await online_repo.fetch_lag(conn)
 
     return {
         "type": "traffic_update",
@@ -165,20 +56,16 @@ async def fetch_snapshot(pool: asyncpg.Pool) -> dict[str, Any]:
 
 
 async def _event_stream(request: Request) -> AsyncGenerator[str, None]:
-    """Async generator that yields SSE-formatted events until client disconnects."""
     pool: asyncpg.Pool = request.app.state.pg_pool
 
-    # Send initial snapshot immediately on connect
     try:
         snapshot = await fetch_snapshot(pool)
-        yield f"data: {_dumps(snapshot)}\n\n"
+        yield f"data: {dumps(snapshot)}\n\n"
     except Exception as exc:
         logger.error("sse: initial snapshot error: %s", exc)
 
-    import asyncio
     while True:
-        # Sleep in small increments so we can detect disconnects quickly
-        for _ in range(POLL_INTERVAL * 2):  # check every 0.5s
+        for _ in range(POLL_INTERVAL * 2):
             await asyncio.sleep(0.5)
             if await request.is_disconnected():
                 logger.debug("sse: client disconnected")
@@ -186,22 +73,16 @@ async def _event_stream(request: Request) -> AsyncGenerator[str, None]:
 
         try:
             snapshot = await fetch_snapshot(pool)
-            yield f"data: {_dumps(snapshot)}\n\n"
+            yield f"data: {dumps(snapshot)}\n\n"
         except Exception as exc:
             logger.error("sse: snapshot error: %s", exc)
-            # yield a keepalive comment so the connection stays open
             yield ": error\n\n"
 
 
 @router.get("/events/traffic")
 async def sse_traffic(request: Request) -> StreamingResponse:
-    """Stream live traffic updates as Server-Sent Events."""
     return StreamingResponse(
         _event_stream(request),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
