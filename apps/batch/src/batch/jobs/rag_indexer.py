@@ -151,13 +151,62 @@ def _wind_dir_name(deg: float | None) -> str:
     return "Bắc"
 
 
-def _fetch_weather_context(past_days: int = 7) -> list[dict[str, Any]]:
-    """Fetch hourly weather for HCMC from Open-Meteo and convert to external_context rows.
+def _fetch_weather_from_silver(catalog: Any, lookback_days: int = 7) -> list[dict[str, Any]]:
+    """Read recent hourly weather from silver.weather_hourly Iceberg table.
 
-    Uses httpx (already a batch dependency). Falls back silently on network error
-    so a weather API outage never blocks the rest of the indexing pipeline.
+    Falls back to direct Open-Meteo API call if silver table doesn't exist yet
+    (e.g. before the first weather bootstrap has run).
 
-    Returns rows suitable for index_weather_hours().
+    Returns rows compatible with index_weather_hours().
+    """
+    from pyiceberg.exceptions import NoSuchTableError
+
+    try:
+        table = catalog.load_table("silver.weather_hourly")
+    except NoSuchTableError:
+        logger.warning(
+            "rag_indexer: silver.weather_hourly not found — falling back to Open-Meteo API"
+        )
+        return _fetch_weather_context_fallback(lookback_days)
+
+    since = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    try:
+        from pyiceberg.expressions import GreaterThanOrEqual
+        arrow = table.scan(
+            row_filter=GreaterThanOrEqual("hour_utc", since.isoformat()),
+        ).to_arrow()
+    except Exception as exc:
+        logger.warning("rag_indexer: silver.weather_hourly scan failed — %s", exc)
+        return _fetch_weather_context_fallback(lookback_days)
+
+    rows: list[dict[str, Any]] = []
+    for i in range(arrow.num_rows):
+        hour_utc = arrow.column("hour_utc")[i].as_py()
+        if hour_utc is None:
+            continue
+        if not hasattr(hour_utc, "tzinfo") or hour_utc.tzinfo is None:
+            hour_utc = hour_utc.replace(tzinfo=timezone.utc)
+        rows.append({
+            "hour_utc": hour_utc,
+            "temperature_c": arrow.column("temperature_c")[i].as_py(),
+            "precipitation_mm": arrow.column("precipitation_mm")[i].as_py(),
+            "rain_mm": arrow.column("rain_mm")[i].as_py(),
+            "wind_speed_kmh": arrow.column("wind_speed_kmh")[i].as_py(),
+            "wind_direction_deg": arrow.column("wind_direction_deg")[i].as_py(),
+            "wind_direction_name": arrow.column("wind_direction_name")[i].as_py() or "",
+            "cloud_cover_pct": arrow.column("cloud_cover_pct")[i].as_py(),
+            "weather_code": int(arrow.column("weather_code")[i].as_py() or 0),
+            "weather_desc": arrow.column("weather_desc")[i].as_py() or "",
+        })
+
+    logger.info("rag_indexer: fetched %d weather hours from silver.weather_hourly", len(rows))
+    return rows
+
+
+def _fetch_weather_context_fallback(past_days: int = 7) -> list[dict[str, Any]]:
+    """Fallback: fetch hourly weather directly from Open-Meteo API.
+
+    Used when silver.weather_hourly is not yet available.
     """
     try:
         resp = httpx.get(
@@ -184,7 +233,7 @@ def _fetch_weather_context(past_days: int = 7) -> list[dict[str, Any]]:
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:
-        logger.warning("rag_indexer: Open-Meteo fetch failed — %s", exc)
+        logger.warning("rag_indexer: Open-Meteo fallback fetch failed — %s", exc)
         return []
 
     hourly: dict[str, list[Any]] = data["hourly"]
@@ -209,7 +258,7 @@ def _fetch_weather_context(past_days: int = 7) -> list[dict[str, Any]]:
             "weather_desc": _WMO_CODES.get(code, f"mã WMO={code}"),
         })
 
-    logger.info("rag_indexer: fetched %d weather hours from Open-Meteo", len(rows))
+    logger.info("rag_indexer: fetched %d weather hours from Open-Meteo (fallback)", len(rows))
     return rows
 
 
@@ -233,8 +282,8 @@ def run(catalog: Any, index_patterns: bool = False) -> dict[str, int]:
         pattern_rows = _fetch_traffic_patterns(catalog)
         counts["traffic_patterns"] = index_traffic_patterns(client, pattern_rows)
 
-    # Always fetch and index weather context from Open-Meteo (free API, ~168 rows/run)
-    weather_rows = _fetch_weather_context(past_days=7)
+    # Fetch recent weather from silver Iceberg (falls back to API if not yet bootstrapped)
+    weather_rows = _fetch_weather_from_silver(catalog, lookback_days=7)
     counts["weather_hours"] = index_weather_hours(client, weather_rows)
 
     return counts

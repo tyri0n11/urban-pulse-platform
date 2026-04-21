@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from ingestion.publishers import TRAFFIC_TOPIC
-from ingestion.publishers.kafka import KafkaPublisher
+from traffic_ingestion.publishers import TRAFFIC_TOPIC
+from traffic_ingestion.publishers.kafka import KafkaPublisher
 
 
 @pytest.fixture

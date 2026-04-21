@@ -16,15 +16,16 @@ resolution-markers = [
 [manifest]
 members = [
     "batch",
-    "ingestion",
     "ml",
     "online",
     "serving",
     "streaming",
+    "traffic-ingestion",
     "urbanpulse-core",
     "urbanpulse-infra-clients",
     "urbanpulse-observability",
     "urbanpulse-rag",
+    "weather-ingestion",
 ]
 
 [manifest.dependency-groups]
@@ -1714,23 +1715,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cf/8c/f834fbf984f691b4f7ff60f50b514cc3de5cc08abfc3295564dd89c5e2e7/importlib_resources-6.5.2.tar.gz", hash = "sha256:185f87adef5bcc288449d98fb4fba07cea78bc036455dd44c5fc4a2fe78fed2c", size = 44693, upload-time = "2025-01-03T18:51:56.698Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a4/ed/1f1afb2e9e7f38a545d628f864d562a5ae64fe6f7a10e28ffb9b185b4e89/importlib_resources-6.5.2-py3-none-any.whl", hash = "sha256:789cfdc3ed28c78b67a06acb8126751ced69a3d5f79c095a98298cd8a760ccec", size = 37461, upload-time = "2025-01-03T18:51:54.306Z" },
-]
-
-[[package]]
-name = "ingestion"
-version = "0.1.0"
-source = { editable = "apps/ingestion" }
-dependencies = [
-    { name = "requests" },
-    { name = "urbanpulse-core" },
-    { name = "urbanpulse-infra-clients" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "requests", specifier = ">=2.32" },
-    { name = "urbanpulse-core", editable = "packages/core" },
-    { name = "urbanpulse-infra-clients", editable = "packages/infra-clients" },
 ]
 
 [[package]]
@@ -4663,6 +4647,23 @@ wheels = [
 ]
 
 [[package]]
+name = "traffic-ingestion"
+version = "0.1.0"
+source = { editable = "apps/traffic-ingestion" }
+dependencies = [
+    { name = "requests" },
+    { name = "urbanpulse-core" },
+    { name = "urbanpulse-infra-clients" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "requests", specifier = ">=2.32" },
+    { name = "urbanpulse-core", editable = "packages/core" },
+    { name = "urbanpulse-infra-clients", editable = "packages/infra-clients" },
+]
+
+[[package]]
 name = "typer"
 version = "0.24.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4920,6 +4921,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/55/2af26693fd15165c4ff7857e38330e1b61ab8c37d15dc79118cdba115b7a/watchfiles-1.1.1-cp314-cp314t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8c91ed27800188c2ae96d16e3149f199d62f86c7af5f5f4d2c61a3ed8cd3666c", size = 455072, upload-time = "2025-10-14T15:05:48.928Z" },
     { url = "https://files.pythonhosted.org/packages/66/1d/d0d200b10c9311ec25d2273f8aad8c3ef7cc7ea11808022501811208a750/watchfiles-1.1.1-cp314-cp314t-musllinux_1_1_aarch64.whl", hash = "sha256:311ff15a0bae3714ffb603e6ba6dbfba4065ab60865d15a6ec544133bdb21099", size = 629104, upload-time = "2025-10-14T15:05:49.908Z" },
     { url = "https://files.pythonhosted.org/packages/e3/bd/fa9bb053192491b3867ba07d2343d9f2252e00811567d30ae8d0f78136fe/watchfiles-1.1.1-cp314-cp314t-musllinux_1_1_x86_64.whl", hash = "sha256:a916a2932da8f8ab582f242c065f5c81bed3462849ca79ee357dd9551b0e9b01", size = 622112, upload-time = "2025-10-14T15:05:50.941Z" },
+]
+
+[[package]]
+name = "weather-ingestion"
+version = "0.1.0"
+source = { editable = "apps/weather-ingestion" }
+dependencies = [
+    { name = "requests" },
+    { name = "urbanpulse-core" },
+    { name = "urbanpulse-infra-clients" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "requests", specifier = ">=2.32" },
+    { name = "urbanpulse-core", editable = "packages/core" },
+    { name = "urbanpulse-infra-clients", editable = "packages/infra-clients" },
 ]
 
 [[package]]

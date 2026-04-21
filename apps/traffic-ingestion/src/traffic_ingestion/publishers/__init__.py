@@ -1,4 +1,4 @@
-"""Publisher implementations for ingestion events."""
+"""Publisher implementations for traffic ingestion events."""
 
 import json
 from typing import Protocol

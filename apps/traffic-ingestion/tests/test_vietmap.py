@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from ingestion.sources.vietmap import _calc_congestion, fetch_route
+from traffic_ingestion.sources.vietmap import _calc_congestion, fetch_route
 from urbanpulse_core.models.traffic import CongestionMetrics
 
 

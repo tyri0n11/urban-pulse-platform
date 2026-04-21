@@ -1,12 +1,12 @@
-"""Entry point for the ingestion service."""
+"""Entry point for the traffic ingestion service."""
 
 import logging
 import time
 
 from urbanpulse_core.config import settings
-from ingestion.orchestrator import run
-from ingestion.publishers import Publisher, StdoutPublisher, TRAFFIC_TOPIC
-from ingestion.publishers.kafka import KafkaPublisher
+from traffic_ingestion.orchestrator import run
+from traffic_ingestion.publishers import Publisher, StdoutPublisher, TRAFFIC_TOPIC
+from traffic_ingestion.publishers.kafka import KafkaPublisher
 
 logging.basicConfig(
     level=logging.INFO,

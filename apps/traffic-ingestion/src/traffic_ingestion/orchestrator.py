@@ -1,4 +1,4 @@
-"""Orchestrates ingestion jobs across all data sources."""
+"""Orchestrates ingestion jobs across all traffic data sources."""
 
 import json
 import logging
@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from urbanpulse_core.config import settings
-from ingestion.publishers import Publisher
-from ingestion.sources.vietmap import fetch_route
+from traffic_ingestion.publishers import Publisher
+from traffic_ingestion.sources.vietmap import fetch_route
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def run(publisher: Publisher, api_key: str) -> None:
 
     for i, route in enumerate(routes):
         try:
-            poll_ts_ms = int(time.time() * 1000)  # wall-clock before API call
+            poll_ts_ms = int(time.time() * 1000)
             t0 = time.monotonic()
             obs = fetch_route(
                 route_id=route["route_id"],

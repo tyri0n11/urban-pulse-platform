@@ -388,11 +388,11 @@ services:
   # ---------------------------------------------------------------------------
   # App services
   # ---------------------------------------------------------------------------
-  ingestion:
-    container_name: ingestion-service
+  traffic-ingestion:
+    container_name: traffic-ingestion-service
     build:
       context: ../..
-      dockerfile: apps/ingestion/Dockerfile
+      dockerfile: apps/traffic-ingestion/Dockerfile
     restart: unless-stopped
     environment:
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
@@ -410,6 +410,25 @@ services:
       resources:
         limits:
           memory: 256m
+
+  weather-ingestion:
+    container_name: weather-ingestion-service
+    build:
+      context: ../..
+      dockerfile: apps/weather-ingestion/Dockerfile
+    restart: unless-stopped
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      DRY_RUN: "false"
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128m
 
   streaming:
     container_name: streaming-service
