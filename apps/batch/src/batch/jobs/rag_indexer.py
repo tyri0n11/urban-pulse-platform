@@ -6,7 +6,7 @@ Three index passes:
   1. anomaly_events   — last 7 days of anomalous windows from PostgreSQL
   2. traffic_patterns — full gold.traffic_hourly aggregated by (route, dow, hour)
                         (refreshed on retrain flow, not every hour)
-  3. external_context — past 7 days of hourly weather for HCMC from Open-Meteo
+  3. external_context — past 7 days of city-level hourly weather from gold.weather_hourly
 """
 
 import logging
@@ -151,21 +151,21 @@ def _wind_dir_name(deg: float | None) -> str:
     return "Bắc"
 
 
-def _fetch_weather_from_silver(catalog: Any, lookback_days: int = 7) -> list[dict[str, Any]]:
-    """Read recent hourly weather from silver.weather_hourly Iceberg table.
+def _fetch_weather_from_gold(catalog: Any, lookback_days: int = 7) -> list[dict[str, Any]]:
+    """Read recent city-level hourly weather from gold.weather_hourly Iceberg table.
 
-    Falls back to direct Open-Meteo API call if silver table doesn't exist yet
-    (e.g. before the first weather bootstrap has run).
+    gold.weather_hourly has 1 row per hour (averaged across all 6 HCMC zones).
+    Falls back to direct Open-Meteo API call if gold table doesn't exist yet.
 
-    Returns rows compatible with index_weather_hours().
+    Returns rows compatible with index_weather_hours() / format_weather_hour().
     """
     from pyiceberg.exceptions import NoSuchTableError
 
     try:
-        table = catalog.load_table("silver.weather_hourly")
+        table = catalog.load_table("gold.weather_hourly")
     except NoSuchTableError:
         logger.warning(
-            "rag_indexer: silver.weather_hourly not found — falling back to Open-Meteo API"
+            "rag_indexer: gold.weather_hourly not found — falling back to Open-Meteo API"
         )
         return _fetch_weather_context_fallback(lookback_days)
 
@@ -176,7 +176,7 @@ def _fetch_weather_from_silver(catalog: Any, lookback_days: int = 7) -> list[dic
             row_filter=GreaterThanOrEqual("hour_utc", since.isoformat()),
         ).to_arrow()
     except Exception as exc:
-        logger.warning("rag_indexer: silver.weather_hourly scan failed — %s", exc)
+        logger.warning("rag_indexer: gold.weather_hourly scan failed — %s", exc)
         return _fetch_weather_context_fallback(lookback_days)
 
     rows: list[dict[str, Any]] = []
@@ -188,18 +188,17 @@ def _fetch_weather_from_silver(catalog: Any, lookback_days: int = 7) -> list[dic
             hour_utc = hour_utc.replace(tzinfo=timezone.utc)
         rows.append({
             "hour_utc": hour_utc,
-            "temperature_c": arrow.column("temperature_c")[i].as_py(),
-            "precipitation_mm": arrow.column("precipitation_mm")[i].as_py(),
-            "rain_mm": arrow.column("rain_mm")[i].as_py(),
-            "wind_speed_kmh": arrow.column("wind_speed_kmh")[i].as_py(),
-            "wind_direction_deg": arrow.column("wind_direction_deg")[i].as_py(),
-            "wind_direction_name": arrow.column("wind_direction_name")[i].as_py() or "",
-            "cloud_cover_pct": arrow.column("cloud_cover_pct")[i].as_py(),
-            "weather_code": int(arrow.column("weather_code")[i].as_py() or 0),
-            "weather_desc": arrow.column("weather_desc")[i].as_py() or "",
+            "temperature_c": arrow.column("avg_temperature_c")[i].as_py(),
+            "precipitation_mm": arrow.column("avg_precipitation_mm")[i].as_py(),
+            "rain_mm": arrow.column("avg_rain_mm")[i].as_py(),
+            "wind_speed_kmh": arrow.column("max_wind_speed_kmh")[i].as_py(),
+            "weather_code": int(arrow.column("dominant_weather_code")[i].as_py() or 0),
+            "weather_desc": arrow.column("dominant_weather_desc")[i].as_py() or "",
+            "rainy_zones": int(arrow.column("rainy_zones")[i].as_py() or 0),
+            "zone_count": int(arrow.column("zone_count")[i].as_py() or 6),
         })
 
-    logger.info("rag_indexer: fetched %d weather hours from silver.weather_hourly", len(rows))
+    logger.info("rag_indexer: fetched %d weather hours from gold.weather_hourly", len(rows))
     return rows
 
 
@@ -282,8 +281,8 @@ def run(catalog: Any, index_patterns: bool = False) -> dict[str, int]:
         pattern_rows = _fetch_traffic_patterns(catalog)
         counts["traffic_patterns"] = index_traffic_patterns(client, pattern_rows)
 
-    # Fetch recent weather from silver Iceberg (falls back to API if not yet bootstrapped)
-    weather_rows = _fetch_weather_from_silver(catalog, lookback_days=7)
+    # Fetch city-level hourly weather from gold (falls back to API if not yet bootstrapped)
+    weather_rows = _fetch_weather_from_gold(catalog, lookback_days=7)
     counts["weather_hours"] = index_weather_hours(client, weather_rows)
 
     return counts
