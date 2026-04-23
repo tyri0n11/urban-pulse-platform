@@ -12,8 +12,8 @@ class TestOrchestratorRun:
 
         publisher = MagicMock()
         with (
-            patch("ingestion.orchestrator._load_routes", return_value=sample_routes),
-            patch("ingestion.orchestrator.fetch_route", return_value=sample_observation),
+            patch("traffic_ingestion.orchestrator._load_routes", return_value=sample_routes),
+            patch("traffic_ingestion.orchestrator.fetch_route", return_value=sample_observation),
             patch("time.sleep"),
         ):
             run(publisher, api_key="test-key")
@@ -26,9 +26,9 @@ class TestOrchestratorRun:
 
         publisher = MagicMock()
         with (
-            patch("ingestion.orchestrator._load_routes", return_value=sample_routes),
+            patch("traffic_ingestion.orchestrator._load_routes", return_value=sample_routes),
             patch(
-                "ingestion.orchestrator.fetch_route",
+                "traffic_ingestion.orchestrator.fetch_route",
                 side_effect=[Exception("API timeout"), sample_observation],
             ),
             patch("time.sleep"),
@@ -42,7 +42,7 @@ class TestOrchestratorRun:
         from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
-        with patch("ingestion.orchestrator._load_routes", return_value=[]):
+        with patch("traffic_ingestion.orchestrator._load_routes", return_value=[]):
             run(publisher, api_key="test-key")
 
         publisher.publish.assert_not_called()
@@ -53,9 +53,9 @@ class TestOrchestratorRun:
 
         publisher = MagicMock()
         with (
-            patch("ingestion.orchestrator._load_routes", return_value=sample_routes),
+            patch("traffic_ingestion.orchestrator._load_routes", return_value=sample_routes),
             patch(
-                "ingestion.orchestrator.fetch_route", return_value=sample_observation
+                "traffic_ingestion.orchestrator.fetch_route", return_value=sample_observation
             ) as mock_fetch,
             patch("time.sleep"),
         ):
@@ -70,8 +70,8 @@ class TestOrchestratorRun:
 
         publisher = MagicMock()
         with (
-            patch("ingestion.orchestrator._load_routes", return_value=sample_routes),
-            patch("ingestion.orchestrator.fetch_route", return_value=sample_observation),
+            patch("traffic_ingestion.orchestrator._load_routes", return_value=sample_routes),
+            patch("traffic_ingestion.orchestrator.fetch_route", return_value=sample_observation),
             patch("time.sleep"),
         ):
             run(publisher, api_key="key")
@@ -85,8 +85,8 @@ class TestOrchestratorRun:
 
         publisher = MagicMock()
         with (
-            patch("ingestion.orchestrator._load_routes", return_value=sample_routes),
-            patch("ingestion.orchestrator.fetch_route", return_value=sample_observation),
+            patch("traffic_ingestion.orchestrator._load_routes", return_value=sample_routes),
+            patch("traffic_ingestion.orchestrator.fetch_route", return_value=sample_observation),
             patch("time.sleep") as mock_sleep,
         ):
             run(publisher, api_key="key")

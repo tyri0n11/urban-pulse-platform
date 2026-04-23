@@ -91,7 +91,7 @@ class TestFetchRoute:
             api_key="key123",
         )
         defaults.update(kwargs)
-        with patch("ingestion.sources.vietmap.requests.get", return_value=mock_resp):
+        with patch("traffic_ingestion.sources.vietmap.requests.get", return_value=mock_resp):
             return fetch_route(**defaults)
 
     def test_returns_typed_observation(self):
@@ -129,7 +129,7 @@ class TestFetchRoute:
     def test_api_key_included_in_request_url(self):
         resp = _make_api_response()
         with patch(
-            "ingestion.sources.vietmap.requests.get", return_value=resp
+            "traffic_ingestion.sources.vietmap.requests.get", return_value=resp
         ) as mock_get:
             fetch_route(
                 route_id="r",
@@ -145,7 +145,7 @@ class TestFetchRoute:
     def test_anchor_coordinates_in_request_url(self):
         resp = _make_api_response()
         with patch(
-            "ingestion.sources.vietmap.requests.get", return_value=resp
+            "traffic_ingestion.sources.vietmap.requests.get", return_value=resp
         ) as mock_get:
             fetch_route(
                 route_id="r",
