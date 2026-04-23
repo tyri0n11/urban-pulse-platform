@@ -4,14 +4,14 @@ from unittest.mock import patch
 
 import pytest
 
-from ingestion.publishers import TRAFFIC_TOPIC
-from ingestion.publishers.kafka import KafkaPublisher
+from traffic_ingestion.publishers import TRAFFIC_TOPIC
+from traffic_ingestion.publishers.kafka import KafkaPublisher
 
 
 @pytest.fixture
 def publisher_and_producer(sample_observation):
     """KafkaPublisher with a mocked producer. Yields (publisher, mock_producer)."""
-    with patch("ingestion.publishers.kafka.KafkaProducer") as MockProducer:
+    with patch("traffic_ingestion.publishers.kafka.KafkaProducer") as MockProducer:
         pub = KafkaPublisher()
         yield pub, MockProducer.return_value
 
@@ -53,7 +53,7 @@ class TestKafkaPublisher:
         self, publisher_and_producer, sample_observation
     ):
         pub, mock_producer = publisher_and_producer
-        with patch("ingestion.publishers.kafka.time.time", return_value=1234567.0):
+        with patch("traffic_ingestion.publishers.kafka.time.time", return_value=1234567.0):
             pub.publish(sample_observation, poll_ts_ms=None)
         _, kwargs = mock_producer.produce.call_args
         assert kwargs["headers"]["ingest_ts"] == b"1234567000"

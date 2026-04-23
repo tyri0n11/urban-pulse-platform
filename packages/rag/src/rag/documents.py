@@ -113,12 +113,14 @@ def format_traffic_pattern(row: dict[str, Any]) -> tuple[str, str, dict[str, Any
 # ---------------------------------------------------------------------------
 
 def format_weather_hour(row: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
-    """Format one Open-Meteo hourly record as a retrievable RAG document.
+    """Format one gold.weather_hourly row as a retrievable RAG document.
 
-    Expected keys (from openmeteo.fetch_hourly_weather):
+    City-level: 1 document per hour, averaged across all 6 HCMC zones.
+
+    Expected keys (from gold.weather_hourly):
       hour_utc, temperature_c, precipitation_mm, rain_mm,
-      wind_speed_kmh, wind_direction_deg, wind_direction_name,
-      cloud_cover_pct, weather_code, weather_desc
+      wind_speed_kmh, weather_code, weather_desc,
+      rainy_zones (optional), zone_count (optional)
     """
     hour_utc: datetime = row["hour_utc"]
     if isinstance(hour_utc, str):
@@ -130,18 +132,16 @@ def format_weather_hour(row: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     precip = row.get("precipitation_mm")
     rain = row.get("rain_mm")
     wind = row.get("wind_speed_kmh")
-    wind_dir = row.get("wind_direction_name", "")
-    cloud = row.get("cloud_cover_pct")
     desc: str = row.get("weather_desc", "")
+    rainy_zones: int = int(row.get("rainy_zones") or 0)
+    zone_count: int = int(row.get("zone_count") or 6)
 
     temp_str = f"{temp:.1f}°C" if temp is not None else "N/A"
     rain_str = f"{rain:.1f} mm" if rain is not None else (
         f"{precip:.1f} mm" if precip is not None else "0 mm"
     )
-    wind_str = f"{wind:.1f} km/h hướng {wind_dir}" if wind is not None else "N/A"
-    cloud_str = f"{cloud:.0f}%" if cloud is not None else "N/A"
+    wind_str = f"{wind:.1f} km/h" if wind is not None else "N/A"
 
-    # Flag significant weather for easier retrieval relevance
     rain_val = rain if rain is not None else (precip or 0.0)
     is_rain = float(rain_val) > 0.5
     is_storm = int(row.get("weather_code", 0)) >= 80
@@ -149,11 +149,12 @@ def format_weather_hour(row: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     dow_names = ["Chủ nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"]
     dow = dow_names[(hour_utc.weekday() + 1) % 7]
 
+    rainy_str = f", {rainy_zones}/{zone_count} khu vực có mưa" if rainy_zones > 0 else ""
+
     text = (
         f"Thời tiết TP.HCM — {dow} {hour_utc.strftime('%Y-%m-%d %H:%M')} UTC\n"
-        f"Điều kiện: {desc}\n"
-        f"Nhiệt độ: {temp_str}, Mưa: {rain_str}, "
-        f"Gió: {wind_str}, Mây phủ: {cloud_str}"
+        f"Điều kiện: {desc}{rainy_str}\n"
+        f"Nhiệt độ TB: {temp_str}, Mưa TB: {rain_str}, Gió tối đa: {wind_str}"
     )
 
     doc_id = f"weather_hcmc_{hour_utc.strftime('%Y%m%d%H%M')}"
@@ -166,6 +167,7 @@ def format_weather_hour(row: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
         "is_rain": is_rain,
         "is_storm": is_storm,
         "weather_code": int(row.get("weather_code", 0)),
+        "rainy_zones": rainy_zones,
     }
     return doc_id, text, metadata
 

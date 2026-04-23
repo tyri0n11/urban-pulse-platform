@@ -376,7 +376,7 @@ services:
     volumes:
       - /opt/urban-pulse/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-urbanpulse}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -386,13 +386,41 @@ services:
           memory: 512m
 
   # ---------------------------------------------------------------------------
+  # Cloudflare DDNS — auto-update DNS when server IP changes
+  # ---------------------------------------------------------------------------
+  cloudflare-ddns:
+    image: favonia/cloudflare-ddns:latest
+    container_name: cloudflare-ddns
+    restart: unless-stopped
+    network_mode: host
+    cap_drop:
+      - ALL
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CF_API_TOKEN: ${CF_API_TOKEN}
+      DOMAINS: >-
+        tyr1on.io.vn,
+        api.tyr1on.io.vn,
+        grafana.tyr1on.io.vn,
+        mlflow.tyr1on.io.vn,
+        minio.tyr1on.io.vn,
+        prefect.tyr1on.io.vn,
+        redpanda.tyr1on.io.vn,
+        dremio.tyr1on.io.vn
+      PROXIED: "false"
+      UPDATE_CRON: "@every 5m"
+      IP6_PROVIDER: "none"
+
+  # ---------------------------------------------------------------------------
   # App services
   # ---------------------------------------------------------------------------
-  ingestion:
-    container_name: ingestion-service
+  traffic-ingestion:
+    container_name: traffic-ingestion-service
     build:
       context: ../..
-      dockerfile: apps/ingestion/Dockerfile
+      dockerfile: apps/traffic-ingestion/Dockerfile
     restart: unless-stopped
     environment:
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
@@ -410,6 +438,25 @@ services:
       resources:
         limits:
           memory: 256m
+
+  weather-ingestion:
+    container_name: weather-ingestion-service
+    build:
+      context: ../..
+      dockerfile: apps/weather-ingestion/Dockerfile
+    restart: unless-stopped
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      DRY_RUN: "false"
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128m
 
   streaming:
     container_name: streaming-service
@@ -575,6 +622,7 @@ services:
       - "traefik.http.routers.serving.middlewares=api-ratelimit@file,secure-headers@file"
       - "traefik.http.routers.serving.priority=1"
       - "traefik.http.services.serving.loadbalancer.server.port=8000"
+      - "traefik.http.services.serving.loadbalancer.responseForwarding.flushInterval=-1"
       # LLM router (higher priority) - 10 req/min per IP
       - "traefik.http.routers.serving-llm.rule=Host(`api.tyr1on.io.vn`) && (PathPrefix(`/chat`) || PathPrefix(`/rca`))"
       - "traefik.http.routers.serving-llm.entrypoints=websecure"

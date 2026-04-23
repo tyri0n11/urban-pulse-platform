@@ -108,11 +108,11 @@ services:
       CONNECT_HEAP_OPTS: -Xms512M -Xmx512M
       CONNECT_LOG_LEVEL: info
 
-  ingestion:
-    container_name: ingestion-service
+  traffic-ingestion:
+    container_name: traffic-ingestion-service
     build:
       context: ../..
-      dockerfile: apps/ingestion/Dockerfile
+      dockerfile: apps/traffic-ingestion/Dockerfile
     env_file:
       - ../../.env
     environment:
@@ -120,6 +120,23 @@ services:
       DRY_RUN: ${DRY_RUN:-false}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    networks:
+      - urban-pulse-platform
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: on-failure
+
+  weather-ingestion:
+    container_name: weather-ingestion-service
+    build:
+      context: ../..
+      dockerfile: apps/weather-ingestion/Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      DRY_RUN: ${DRY_RUN:-false}
     networks:
       - urban-pulse-platform
     depends_on:
@@ -325,7 +342,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       ICEBERG_CATALOG_URI: http://nessie:19120/iceberg/
       PREFECT_LOGGING_TO_API_ENABLED: "false"
-      PREFECT_LOGGING_EXTRA_LOGGERS: "batch.jobs.bronze_to_silver,batch.jobs.silver_to_gold,batch.jobs.baseline_learning,batch.jobs.rag_indexer,batch.pipeline"
+      PREFECT_LOGGING_EXTRA_LOGGERS: "batch.jobs.bronze_to_silver,batch.jobs.bronze_to_silver_weather,batch.jobs.silver_to_gold,batch.jobs.silver_to_gold_weather,batch.jobs.weather_bootstrap,batch.jobs.baseline_learning,batch.jobs.rag_indexer,batch.pipeline"
       PREFECT_LOGGING_LEVEL: INFO
       DATABASE_URL: postgresql://urbanpulse:urbanpulse@postgres:5432/urbanpulse
       OLLAMA_URL: http://host.docker.internal:11434
@@ -400,7 +417,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U urbanpulse"]
+      test: ["CMD-SHELL", "pg_isready -U urbanpulse -d urbanpulse"]
       interval: 5s
       timeout: 5s
       retries: 5

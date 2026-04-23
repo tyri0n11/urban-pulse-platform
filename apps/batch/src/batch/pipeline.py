@@ -6,7 +6,16 @@ from datetime import datetime, timezone
 import httpx
 from prefect import flow, task
 
-from batch.jobs import alerter, baseline_learning, bronze_to_silver, rag_indexer, silver_to_gold
+from batch.jobs import (
+    alerter,
+    baseline_learning,
+    bronze_to_silver,
+    bronze_to_silver_weather,
+    rag_indexer,
+    silver_to_gold,
+    silver_to_gold_weather,
+    weather_bootstrap,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +29,31 @@ _ML_SERVICE_URL = "http://ml-service:8000"
 @task(name="microbatch-bronze-to-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_microbatch_bronze_to_silver() -> int:
     return bronze_to_silver.microbatch()
+
+
+@task(name="microbatch-weather-bronze-to-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
+def task_microbatch_weather_bronze_to_silver() -> int:
+    return bronze_to_silver_weather.microbatch()
+
+
+@task(name="weather-silver-to-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
+def task_weather_silver_to_gold() -> int:
+    return silver_to_gold_weather.run()
+
+
+@task(name="bootstrap-weather-bronze", retries=2, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
+def task_bootstrap_weather_bronze(from_date: str, to_date: str) -> int:
+    return weather_bootstrap.backfill_to_bronze(from_date, to_date)
+
+
+@task(name="bootstrap-weather-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
+def task_bootstrap_weather_silver() -> int:
+    return bronze_to_silver_weather.bootstrap()
+
+
+@task(name="bootstrap-weather-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
+def task_bootstrap_weather_gold() -> int:
+    return silver_to_gold_weather.bootstrap()
 
 
 @task(name="silver-to-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
@@ -64,9 +98,10 @@ def microbatch() -> None:
     """Fast-path microbatch: promote new bronze records to silver.
 
     Runs every 5 min so the silver layer stays close to real-time
-    while keeping each DuckDB scan small.
+    while keeping each DuckDB scan small. Processes both traffic and weather.
     """
     task_microbatch_bronze_to_silver()
+    task_microbatch_weather_bronze_to_silver()
 
 
 @flow(name="hourly-gold", log_prints=True)  # type: ignore[untyped-decorator]
@@ -79,13 +114,14 @@ def hourly_gold() -> None:
     from urbanpulse_infra.iceberg import get_iceberg_catalog
     from urbanpulse_core.config import settings
     gold_rows = task_silver_to_gold()
+    weather_gold_rows = task_weather_silver_to_gold()
     catalog = get_iceberg_catalog(
         catalog_uri=settings.iceberg_catalog_uri,
         minio_endpoint=settings.minio_endpoint,
         access_key=settings.minio_access_key,
         secret_key=settings.minio_secret_key,
     )
-    task_index_rag(catalog, index_patterns=False, wait_for=[gold_rows])
+    task_index_rag(catalog, index_patterns=False, wait_for=[gold_rows, weather_gold_rows])
 
 
 @flow(name="retrain", log_prints=True)  # type: ignore[untyped-decorator]
@@ -165,7 +201,7 @@ def bootstrap_baseline_learning() -> int:
 
 @flow(name="bootstrap", log_prints=True)  # type: ignore[untyped-decorator]
 def bootstrap() -> None:
-    """Full medallion bootstrap: bronze → silver → gold → baseline.
+    """Full medallion bootstrap: bronze → silver → gold → baseline (traffic + weather).
 
     Runs each stage sequentially with explicit dependencies.
     """
@@ -173,6 +209,29 @@ def bootstrap() -> None:
     silver_rows = bootstrap_traffic_silver()
     gold_rows = bootstrap_silver_to_gold(wait_for=[silver_rows])
     bootstrap_baseline_learning(wait_for=[gold_rows])
+
+
+@flow(name="weather-bootstrap", log_prints=True)  # type: ignore[untyped-decorator]
+def weather_bootstrap_flow(
+    from_date: str = "2026-01-01",
+    to_date: str | None = None,
+) -> None:
+    """Backfill weather history: Open-Meteo archive → bronze → silver → gold.
+
+    Fetches hourly weather from the Open-Meteo archive API and writes it through
+    the full medallion pipeline. Safe to re-run — bronze writes are idempotent
+    (deterministic filenames) and silver deduplicates on (location_id, hour_utc).
+
+    Args:
+        from_date: ISO date string, e.g. "2026-01-01"
+        to_date:   ISO date string (defaults to today)
+    """
+    resolved_to = to_date or datetime.now(timezone.utc).date().isoformat()
+    logger.info("weather_bootstrap_flow: %s → %s", from_date, resolved_to)
+
+    bronze_rows = task_bootstrap_weather_bronze(from_date, resolved_to)
+    silver_rows = task_bootstrap_weather_silver(wait_for=[bronze_rows])
+    task_bootstrap_weather_gold(wait_for=[silver_rows])
 
 
 # ---------------------------------------------------------------------------
