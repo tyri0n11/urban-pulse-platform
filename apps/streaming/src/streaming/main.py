@@ -7,6 +7,7 @@ from urbanpulse_infra.kafka import KafkaProducer
 from consumers.kafka import KafkaConsumer
 from logger import Logger
 from processors.traffic import TrafficProcessor
+from processors.weather import WeatherProcessor
 from sinks.minio import MinioClient
 
 running = True
@@ -50,11 +51,12 @@ def main() -> None:
     consumer = KafkaConsumer(
         bootstrap_servers=settings.kafka_bootstrap_servers,
         group_id="streaming-group",
-        topics=["traffic-route-bronze"],
+        topics=["traffic-route-bronze", "weather-hcmc-bronze"],
     )
 
     processors = {
         "traffic-route-bronze": TrafficProcessor(minio=minio),
+        "weather-hcmc-bronze": WeatherProcessor(minio=minio),
     }
 
     consumer.start()

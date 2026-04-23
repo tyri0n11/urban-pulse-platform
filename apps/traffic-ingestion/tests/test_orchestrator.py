@@ -8,7 +8,7 @@ import pytest
 class TestOrchestratorRun:
     def test_publishes_once_per_route(self, sample_routes, sample_observation):
         """run() calls publisher.publish exactly N times for N routes."""
-        from ingestion.orchestrator import run
+        from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
         with (
@@ -22,7 +22,7 @@ class TestOrchestratorRun:
 
     def test_skips_failed_route_continues_rest(self, sample_routes, sample_observation):
         """If one route raises, orchestrator logs and moves on to the next."""
-        from ingestion.orchestrator import run
+        from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
         with (
@@ -39,7 +39,7 @@ class TestOrchestratorRun:
 
     def test_empty_routes_never_calls_publish(self):
         """With no routes, publisher is never called."""
-        from ingestion.orchestrator import run
+        from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
         with patch("ingestion.orchestrator._load_routes", return_value=[]):
@@ -49,7 +49,7 @@ class TestOrchestratorRun:
 
     def test_api_key_forwarded_to_every_fetch(self, sample_routes, sample_observation):
         """The api_key must reach every fetch_route call."""
-        from ingestion.orchestrator import run
+        from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
         with (
@@ -66,7 +66,7 @@ class TestOrchestratorRun:
 
     def test_poll_ts_ms_passed_to_publish(self, sample_routes, sample_observation):
         """publish() must receive a non-None poll_ts_ms (wall-clock before API call)."""
-        from ingestion.orchestrator import run
+        from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
         with (
@@ -81,7 +81,7 @@ class TestOrchestratorRun:
 
     def test_sleep_between_routes_not_after_last(self, sample_routes, sample_observation):
         """sleep is called N-1 times (between routes, not after the last one)."""
-        from ingestion.orchestrator import run
+        from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
         with (
