@@ -14,8 +14,12 @@ _handler.setFormatter(logging.Formatter(_FMT))
 
 for _module in (
     "batch.jobs.bronze_to_silver",
+    "batch.jobs.bronze_to_silver_weather",
     "batch.jobs.silver_to_gold",
+    "batch.jobs.silver_to_gold_weather",
     "batch.jobs.baseline_learning",
+    "batch.jobs.rag_indexer",
+    "batch.jobs.weather_bootstrap",
     "batch.pipeline",
 ):
     _log = logging.getLogger(_module)
