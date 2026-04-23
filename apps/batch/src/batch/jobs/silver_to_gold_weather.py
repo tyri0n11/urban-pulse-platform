@@ -154,10 +154,28 @@ def _scan_to_arrow(scan_result: object) -> pa.Table:
 
 def _aggregate_silver(silver_arrow: pa.Table) -> pa.Table:
     import duckdb
+    logger.info(
+        "_aggregate_silver: input %d rows, schema=%s",
+        silver_arrow.num_rows,
+        silver_arrow.schema,
+    )
     con = duckdb.connect()
     con.register("silver", silver_arrow)
-    result = con.execute(_AGG_SQL).arrow()
-    return result.cast(_GOLD_ARROW_SCHEMA)
+    try:
+        result = con.execute(_AGG_SQL).arrow()
+    except Exception:
+        logger.exception("_aggregate_silver: DuckDB query failed")
+        raise
+    logger.info("_aggregate_silver: DuckDB produced %d rows, casting schema", result.num_rows)
+    try:
+        return result.cast(_GOLD_ARROW_SCHEMA)
+    except Exception:
+        logger.exception(
+            "_aggregate_silver: schema cast failed — result schema: %s, target: %s",
+            result.schema,
+            _GOLD_ARROW_SCHEMA,
+        )
+        raise
 
 
 def run(catalog: Catalog | None = None) -> int:
@@ -215,16 +233,24 @@ def bootstrap(catalog: Catalog | None = None) -> int:
     Overwrites entire gold table. Idempotent.
     Returns total rows written (1 row per hour across full history).
     """
+    logger.info("silver_to_gold_weather bootstrap: starting")
     if catalog is None:
         catalog = _get_catalog()
 
     try:
         silver_table = catalog.load_table(_SILVER_TABLE)
+        logger.info("silver_to_gold_weather bootstrap: loaded silver table OK")
     except Exception as exc:
         logger.warning("silver_to_gold_weather bootstrap: silver table not found — %s", exc)
         return 0
 
-    silver_arrow = _scan_to_arrow(silver_table.scan().to_arrow())
+    logger.info("silver_to_gold_weather bootstrap: scanning all silver rows")
+    try:
+        silver_arrow = _scan_to_arrow(silver_table.scan().to_arrow())
+    except Exception:
+        logger.exception("silver_to_gold_weather bootstrap: silver scan failed")
+        raise
+    logger.info("silver_to_gold_weather bootstrap: scanned %d silver rows", silver_arrow.num_rows)
 
     if silver_arrow.num_rows == 0:
         logger.info("silver_to_gold_weather bootstrap: no silver data — skipping")
@@ -232,9 +258,15 @@ def bootstrap(catalog: Catalog | None = None) -> int:
 
     gold_arrow = _aggregate_silver(silver_arrow)
     row_count = gold_arrow.num_rows
+    logger.info("silver_to_gold_weather bootstrap: aggregated → %d gold rows", row_count)
 
-    gold_table = _ensure_gold_table(catalog)
-    gold_table.overwrite(gold_arrow)
+    try:
+        gold_table = _ensure_gold_table(catalog)
+        logger.info("silver_to_gold_weather bootstrap: writing to gold table")
+        gold_table.overwrite(gold_arrow)
+    except Exception:
+        logger.exception("silver_to_gold_weather bootstrap: gold overwrite failed")
+        raise
 
-    logger.info("silver_to_gold_weather bootstrap: wrote %d hourly rows", row_count)
+    logger.info("silver_to_gold_weather bootstrap: done — wrote %d hourly rows", row_count)
     return row_count

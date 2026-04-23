@@ -1,10 +1,9 @@
 """Defines the medallion batch pipeline stages and execution graph."""
 
-import logging
 from datetime import datetime, timezone
 
 import httpx
-from prefect import flow, task
+from prefect import flow, get_run_logger, task
 
 from batch.jobs import (
     alerter,
@@ -17,8 +16,6 @@ from batch.jobs import (
     weather_bootstrap,
 )
 
-logger = logging.getLogger(__name__)
-
 _ML_SERVICE_URL = "http://ml-service:8000"
 
 
@@ -28,65 +25,147 @@ _ML_SERVICE_URL = "http://ml-service:8000"
 
 @task(name="microbatch-bronze-to-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_microbatch_bronze_to_silver() -> int:
-    return bronze_to_silver.microbatch()
+    log = get_run_logger()
+    try:
+        log.info("Starting microbatch: bronze → silver (traffic)")
+        rows = bronze_to_silver.microbatch()
+        log.info("microbatch bronze→silver done: %d rows", rows)
+        return rows
+    except Exception:
+        log.exception("microbatch bronze→silver failed")
+        raise
 
 
 @task(name="microbatch-weather-bronze-to-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_microbatch_weather_bronze_to_silver() -> int:
-    return bronze_to_silver_weather.microbatch()
+    log = get_run_logger()
+    try:
+        log.info("Starting microbatch: bronze → silver (weather)")
+        rows = bronze_to_silver_weather.microbatch()
+        log.info("microbatch weather bronze→silver done: %d rows", rows)
+        return rows
+    except Exception:
+        log.exception("microbatch weather bronze→silver failed")
+        raise
 
 
 @task(name="weather-silver-to-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_weather_silver_to_gold() -> int:
-    return silver_to_gold_weather.run()
+    log = get_run_logger()
+    try:
+        log.info("Starting weather silver → gold aggregation")
+        rows = silver_to_gold_weather.run()
+        log.info("weather silver→gold done: %d rows", rows)
+        return rows
+    except Exception:
+        log.exception("weather silver→gold failed")
+        raise
 
 
 @task(name="bootstrap-weather-bronze", retries=2, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_bootstrap_weather_bronze(from_date: str, to_date: str) -> int:
-    return weather_bootstrap.backfill_to_bronze(from_date, to_date)
+    log = get_run_logger()
+    try:
+        log.info("Starting weather bronze backfill: %s → %s", from_date, to_date)
+        rows = weather_bootstrap.backfill_to_bronze(from_date, to_date)
+        log.info("weather bronze backfill done: %d records written", rows)
+        return rows
+    except Exception:
+        log.exception("weather bronze backfill failed (from=%s to=%s)", from_date, to_date)
+        raise
 
 
 @task(name="bootstrap-weather-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_bootstrap_weather_silver() -> int:
-    return bronze_to_silver_weather.bootstrap()
+    log = get_run_logger()
+    try:
+        log.info("Starting weather bootstrap: bronze → silver")
+        rows = bronze_to_silver_weather.bootstrap()
+        log.info("weather bootstrap bronze→silver done: %d rows", rows)
+        return rows
+    except Exception:
+        log.exception("weather bootstrap bronze→silver failed")
+        raise
 
 
 @task(name="bootstrap-weather-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_bootstrap_weather_gold() -> int:
-    return silver_to_gold_weather.bootstrap()
+    log = get_run_logger()
+    try:
+        log.info("Starting weather bootstrap: silver → gold")
+        rows = silver_to_gold_weather.bootstrap()
+        log.info("weather bootstrap silver→gold done: %d rows", rows)
+        return rows
+    except Exception:
+        log.exception("weather bootstrap silver→gold failed")
+        raise
 
 
 @task(name="silver-to-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_silver_to_gold() -> int:
-    return silver_to_gold.run()
+    log = get_run_logger()
+    try:
+        log.info("Starting silver → gold aggregation (traffic)")
+        rows = silver_to_gold.run()
+        log.info("silver→gold done: %d rows", rows)
+        return rows
+    except Exception:
+        log.exception("silver→gold failed")
+        raise
 
 
 @task(name="baseline-learning", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def task_baseline_learning() -> int:
-    return baseline_learning.run()
+    log = get_run_logger()
+    try:
+        log.info("Starting baseline learning")
+        rows = baseline_learning.run()
+        log.info("baseline learning done: %d routes processed", rows)
+        return rows
+    except Exception:
+        log.exception("baseline learning failed")
+        raise
 
 
 @task(name="index-rag", retries=2, retry_delay_seconds=30)  # type: ignore[untyped-decorator]
 def task_index_rag(catalog: object, index_patterns: bool = False) -> dict[str, int]:
-    """Index recent anomaly events (and optionally traffic patterns) into ChromaDB."""
-    return rag_indexer.run(catalog, index_patterns=index_patterns)  # type: ignore[return-value]
+    log = get_run_logger()
+    try:
+        log.info("Starting RAG indexing (index_patterns=%s)", index_patterns)
+        result = rag_indexer.run(catalog, index_patterns=index_patterns)  # type: ignore[return-value]
+        log.info("RAG indexing done: %s", result)
+        return result  # type: ignore[return-value]
+    except Exception:
+        log.exception("RAG indexing failed")
+        raise
 
 
 @task(name="check-and-alert", retries=2, retry_delay_seconds=30)  # type: ignore[untyped-decorator]
 def task_check_and_alert() -> int:
-    """Check for active anomalies and send Telegram alerts."""
-    return alerter.run()
+    log = get_run_logger()
+    try:
+        log.info("Checking anomalies and sending alerts")
+        sent = alerter.run()
+        log.info("alert check done: %d alerts sent", sent)
+        return sent
+    except Exception:
+        log.exception("alert check failed")
+        raise
 
 
 @task(name="trigger-ml-retrain", retries=2, retry_delay_seconds=30)  # type: ignore[untyped-decorator]
 def task_trigger_ml_retrain() -> dict[str, object]:
-    """Trigger ML training via HTTP call to ml-service."""
-    logger.info("Triggering ML retrain at %s", _ML_SERVICE_URL)
-    resp = httpx.post(f"{_ML_SERVICE_URL}/train", timeout=300)
-    resp.raise_for_status()
-    result = resp.json()
-    logger.info("ML retrain result: status=%s, run_id=%s", result["status"], result["run_id"])
-    return result  # type: ignore[return-value]
+    log = get_run_logger()
+    try:
+        log.info("Triggering ML retrain at %s", _ML_SERVICE_URL)
+        resp = httpx.post(f"{_ML_SERVICE_URL}/train", timeout=300)
+        resp.raise_for_status()
+        result = resp.json()
+        log.info("ML retrain done: status=%s run_id=%s", result.get("status"), result.get("run_id"))
+        return result  # type: ignore[return-value]
+    except Exception:
+        log.exception("ML retrain trigger failed")
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -180,23 +259,41 @@ def rag_index(index_patterns: bool = True) -> None:
 
 @task(name="bootstrap-traffic-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def bootstrap_traffic_silver() -> int:
-    """Full backfill: all bronze → silver."""
-    logger.info("Bootstrapping traffic silver with an immediate run")
-    return bronze_to_silver.bootstrap()
+    log = get_run_logger()
+    try:
+        log.info("Starting bootstrap: all bronze → silver (traffic)")
+        rows = bronze_to_silver.bootstrap()
+        log.info("bootstrap traffic silver done: %d rows", rows)
+        return rows
+    except Exception:
+        log.exception("bootstrap traffic silver failed")
+        raise
 
 
 @task(name="bootstrap-silver-to-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def bootstrap_silver_to_gold() -> int:
-    """Full re-aggregate: all silver → gold hourly."""
-    logger.info("Bootstrapping silver to gold")
-    return silver_to_gold.bootstrap()
+    log = get_run_logger()
+    try:
+        log.info("Starting bootstrap: all silver → gold (traffic)")
+        rows = silver_to_gold.bootstrap()
+        log.info("bootstrap silver→gold done: %d rows", rows)
+        return rows
+    except Exception:
+        log.exception("bootstrap silver→gold failed")
+        raise
 
 
 @task(name="bootstrap-baseline-learning", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
 def bootstrap_baseline_learning() -> int:
-    """Recompute baselines from all gold data."""
-    logger.info("Bootstrapping baseline learning")
-    return baseline_learning.run()
+    log = get_run_logger()
+    try:
+        log.info("Starting bootstrap: baseline learning")
+        rows = baseline_learning.run()
+        log.info("bootstrap baseline learning done: %d routes", rows)
+        return rows
+    except Exception:
+        log.exception("bootstrap baseline learning failed")
+        raise
 
 
 @flow(name="bootstrap", log_prints=True)  # type: ignore[untyped-decorator]
@@ -205,10 +302,12 @@ def bootstrap() -> None:
 
     Runs each stage sequentially with explicit dependencies.
     """
-    logger.info("Bootstrapping full medallion pipeline")
+    log = get_run_logger()
+    log.info("Starting full medallion bootstrap (traffic)")
     silver_rows = bootstrap_traffic_silver()
     gold_rows = bootstrap_silver_to_gold(wait_for=[silver_rows])
     bootstrap_baseline_learning(wait_for=[gold_rows])
+    log.info("Full medallion bootstrap complete")
 
 
 @flow(name="weather-bootstrap", log_prints=True)  # type: ignore[untyped-decorator]
@@ -226,12 +325,14 @@ def weather_bootstrap_flow(
         from_date: ISO date string, e.g. "2026-01-01"
         to_date:   ISO date string (defaults to today)
     """
+    log = get_run_logger()
     resolved_to = to_date or datetime.now(timezone.utc).date().isoformat()
-    logger.info("weather_bootstrap_flow: %s → %s", from_date, resolved_to)
+    log.info("Starting weather bootstrap: %s → %s", from_date, resolved_to)
 
     bronze_rows = task_bootstrap_weather_bronze(from_date, resolved_to)
     silver_rows = task_bootstrap_weather_silver(wait_for=[bronze_rows])
     task_bootstrap_weather_gold(wait_for=[silver_rows])
+    log.info("Weather bootstrap complete")
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +341,15 @@ def weather_bootstrap_flow(
 
 @task(name="backfill-traffic-silver", retries=2, retry_delay_seconds=30)  # type: ignore[untyped-decorator]
 def task_backfill_traffic_silver(from_dt: datetime, to_dt: datetime) -> int:
-    return bronze_to_silver.backfill(from_dt=from_dt, to_dt=to_dt)
+    log = get_run_logger()
+    try:
+        log.info("Starting backfill: bronze → silver from %s to %s", from_dt, to_dt)
+        rows = bronze_to_silver.backfill(from_dt=from_dt, to_dt=to_dt)
+        log.info("backfill bronze→silver done: %d rows", rows)
+        return rows
+    except Exception:
+        log.exception("backfill bronze→silver failed (from=%s to=%s)", from_dt, to_dt)
+        raise
 
 
 @flow(name="backfill", log_prints=True)  # type: ignore[untyped-decorator]
@@ -255,6 +364,8 @@ def backfill(
             -p from_dt="2026-03-21T00:00:00+00:00" \\
             -p to_dt="2026-03-21T23:00:00+00:00"
     """
+    log = get_run_logger()
     resolved_to = to_dt or datetime.now(timezone.utc)
-    logger.info("Backfilling silver from %s to %s", from_dt, resolved_to)
+    log.info("Starting backfill: silver from %s to %s", from_dt, resolved_to)
     task_backfill_traffic_silver(from_dt=from_dt, to_dt=resolved_to)
+    log.info("Backfill complete")
