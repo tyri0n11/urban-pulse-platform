@@ -162,7 +162,7 @@ def _aggregate_silver(silver_arrow: pa.Table) -> pa.Table:
     con = duckdb.connect()
     con.register("silver", silver_arrow)
     try:
-        result = con.execute(_AGG_SQL).arrow()
+        result = con.execute(_AGG_SQL).fetch_arrow_table()
     except Exception:
         logger.exception("_aggregate_silver: DuckDB query failed")
         raise
