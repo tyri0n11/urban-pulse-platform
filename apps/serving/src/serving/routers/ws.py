@@ -1,4 +1,4 @@
-"""SSE router — streams live traffic snapshots every 15 seconds.
+"""SSE router — streams live traffic snapshots every 10 seconds.
 
 Endpoint: GET /events/traffic
 Media type: text/event-stream
@@ -22,7 +22,7 @@ from serving.utils.serializers import dumps
 router = APIRouter(tags=["events"])
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL = 15
+POLL_INTERVAL = 10
 
 
 async def fetch_snapshot(pool: asyncpg.Pool) -> dict[str, Any]:

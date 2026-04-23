@@ -183,6 +183,32 @@ Telegram alert history for deduplication:
 | `signal` | TEXT | `BOTH` or `IFOREST` |
 | `message` | TEXT | Full Telegram message sent |
 
+### prediction_history
+
+Per-tick IForest scoring results + full E2E latency breakdown (one row per 15s scoring cycle):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BIGSERIAL | PK |
+| `scored_at` | TIMESTAMPTZ | When IForest predict() ran |
+| `route_id` | TEXT | Route scored |
+| `window_start` | TIMESTAMPTZ | UTC hour bucket from `online_route_features` |
+| `iforest_score` | DOUBLE | `decision_function()` — negative = anomaly |
+| `iforest_anomaly` | BOOLEAN | `predict() == -1` |
+| `zscore_anomaly` | BOOLEAN | `is_anomaly` from `online_route_features` |
+| `both_anomaly` | BOOLEAN | Both signals agree |
+| `duration_zscore` | DOUBLE | Z-score value at time of scoring |
+| `mean_duration_minutes` | DOUBLE | |
+| `mean_heavy_ratio` | DOUBLE | |
+| `ingest_lag_ms` | BIGINT | VietMap poll → Postgres write (pipeline input latency) |
+| `staleness_ms` | BIGINT | Postgres write → IForest score (data age at scoring) |
+| `scoring_ms` | BIGINT | IForest predict() wall clock |
+| `full_e2e_ms` | BIGINT | ingest_lag_ms + staleness_ms + scoring_ms |
+
+**Two SLOs tracked here:**
+- **Pipeline processing latency** = `ingest_lag_ms + scoring_ms` — system overhead only, target p95 < 60 s
+- **Data freshness** = `staleness_ms` — bounded by VietMap 5-min poll interval, target p95 < 310 s
+
 ### rag_interaction_log
 
 RCA query log for fine-tuning data collection:

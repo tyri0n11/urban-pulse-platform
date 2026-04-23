@@ -20,10 +20,10 @@ zscore = (current_mean - baseline_mean) / baseline_stddev
 # online/app.py
 if baseline and baseline.stddev > 0:
     zscore = (window.mean_duration - baseline.mean) / baseline.stddev
-    is_anomaly = abs(zscore) > 3.0
+    is_anomaly = zscore > 3.0   # one-sided: only high duration (congestion) is flagged
 ```
 
-**Threshold:** `|zscore| > 3.0` → `is_anomaly = True`
+**Threshold:** `zscore > 3.0` → `is_anomaly = True` (one-sided — low duration / fast traffic is not an anomaly)
 
 ### Khi nào zscore = NULL
 
@@ -249,3 +249,36 @@ gold.traffic_baseline    — historical stats per (route_id, day_of_week, hour_o
 - Cyclical features được tính hoàn toàn giống nhau ở cả training (DuckDB SQL) và serving (Python `math.sin/cos`) — không có xấp xỉ
 - `max_severe_segments` ở serving là max trong window hiện tại, training là max trong hourly aggregate — tương đương khi window = 1 giờ
 - `mean_moderate_ratio` ở serving đọc từ `online_route_features`; nếu NULL thì COALESCE về 0.0 giống training
+
+---
+
+## End-to-End Latency & SLOs
+
+Mỗi lần scoring trong `_iforest_scorer_loop` (mỗi 15s), serving ghi một row vào `prediction_history` với latency breakdown đầy đủ:
+
+```
+ingest_lag_ms  = time(Postgres write) - ingest_ts header    # pipeline input cost
+staleness_ms   = time(IForest score)  - updated_at          # data age at scoring time
+scoring_ms     = IForest predict() wall clock
+full_e2e_ms    = ingest_lag_ms + staleness_ms + scoring_ms
+```
+
+### SLO 1 — Pipeline Processing Latency
+
+**Đo lường:** `ingest_lag_ms + scoring_ms` — chỉ system overhead, không tính thời gian chờ poll.
+
+**Target:** p95 < 15 s — đây là phần hệ thống kiểm soát được (parallel fetch ~3–5s + Kafka + online service).
+
+**Thực tế:** ingest_lag_ms ~2–10s, scoring_ms ~50–500ms (IForest predict).
+
+### SLO 2 — Data Freshness
+
+**Đo lường:** `staleness_ms` — tuổi của data tại thời điểm score.
+
+**Target:** p95 < 15 s — VietMap poll interval 10s + 5s buffer.
+
+**Thực tế:** staleness_ms thường 0–15s, bị chi phối bởi VietMap poll frequency (external constraint), không phải lỗi hệ thống.
+
+### Tại sao tách 2 SLO
+
+Với 10s polling, cả 2 SLO đều trong cùng order of magnitude (~15s) — hệ thống thực sự near-real-time. Báo cáo riêng biệt vẫn cần thiết để phân biệt system overhead (kiểm soát được) và external constraint (không kiểm soát được).

@@ -13,7 +13,7 @@ from serving.dependencies import get_db
 from serving.geo_knowledge import build_system_prompt
 from serving.repo import interactions as interactions_repo
 from serving.schemas.chat import ChatRequest
-from serving.services.llm_service import stream_ollama
+from serving.services.llm_service import stream_ollama_chat
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -44,13 +44,18 @@ async def chat(
     user_prompt = build_user_prompt(snapshot, req.message, req.lang)
     logger.info("chat: lang=%s msg_len=%d anomalies=%d", req.lang, len(req.message), snapshot["anomaly_count"])
 
+    # Cap history to last 10 messages to stay within qwen2.5:3b context window
+    history = [{"role": m.role, "content": m.content} for m in req.history[-10:]]
+
     log_id = await interactions_repo.log_interaction(
         conn, query_type="chat", query=req.message, lang=req.lang,
     )
     full_text: list[str] = []
 
     async def _stream_and_log() -> AsyncGenerator[str, None]:
-        async for event in stream_ollama(_SYSTEM, user_prompt, temperature=0.4, num_predict=300):
+        async for event in stream_ollama_chat(
+            _SYSTEM, history, user_prompt, temperature=0.4, num_predict=300
+        ):
             try:
                 data = json.loads(event.removeprefix("data: ").strip())
             except Exception:

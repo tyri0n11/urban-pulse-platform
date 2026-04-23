@@ -12,7 +12,7 @@ from traffic_ingestion.sources.vietmap import fetch_route
 
 logger = logging.getLogger(__name__)
 
-_INTER_REQUEST_DELAY_S = 10
+_INTER_REQUEST_DELAY_S = 2
 
 
 def _load_routes() -> list[dict[str, Any]]:
@@ -21,15 +21,13 @@ def _load_routes() -> list[dict[str, Any]]:
 
 
 def run(publisher: Publisher, api_key: str) -> None:
-    """Fetch all routes sequentially (10 s delay between calls) and publish each."""
+    """Fetch all routes sequentially (2 s delay between calls) and publish each."""
     routes = _load_routes()
     total = len(routes)
-    logger.info(
-        "Starting crawl cycle: %d routes, %ds inter-request delay",
-        total,
-        _INTER_REQUEST_DELAY_S,
-    )
+    t_cycle = time.monotonic()
+    logger.info("Starting crawl cycle: %d routes, %ds inter-request delay", total, _INTER_REQUEST_DELAY_S)
 
+    ok = 0
     for i, route in enumerate(routes):
         try:
             poll_ts_ms = int(time.time() * 1000)
@@ -54,8 +52,11 @@ def run(publisher: Publisher, api_key: str) -> None:
                 obs.duration_minutes,
                 latency_api_ms,
             )
+            ok += 1
         except Exception:
             logger.exception("Failed to fetch route %s", route["route_id"])
 
         if i < total - 1:
             time.sleep(_INTER_REQUEST_DELAY_S)
+
+    logger.info("Crawl cycle done in %.1fs (%d/%d routes)", time.monotonic() - t_cycle, ok, total)
