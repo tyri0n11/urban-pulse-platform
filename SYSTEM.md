@@ -39,7 +39,8 @@ Real-time traffic anomaly detection platform for Ho Chi Minh City. Polls VietMap
 | **prefect-server** | prefecthq/prefect:3-latest | `prefect.tyr1on.io.vn` | Workflow orchestration UI (basicauth) |
 | **chromadb** | chromadb/chroma:latest | internal | Vector DB for RAG pipeline |
 | **ollama** | ollama/ollama:latest | internal | LLM + embedding inference |
-| **ingestion** | custom | internal | Polls VietMap API → Kafka |
+| **traffic-ingestion** | custom | internal | Polls VietMap API every 5 min → Kafka (sequential, 10s inter-request delay) |
+| **weather-ingestion** | custom | internal | Polls Open-Meteo API hourly → triggers batch weather pipeline |
 | **streaming** | custom | internal | Kafka → MinIO bronze Parquet |
 | **online** | custom | internal | Kafka → Postgres real-time features |
 | **batch** | custom | internal | Prefect: medallion + retrain + RAG indexer + alerter |
@@ -291,6 +292,34 @@ Embedding model: `nomic-embed-text` via Ollama `/api/embed`. Space: cosine.
 | Telegram alert | Best-effort; failure logged but doesn't break flow |
 | serving model load | Falls back to zscore-only if no MLflow model for route |
 | RAG retrieval in /explain | Best-effort; proceeds without context if ChromaDB unavailable |
+| traffic-ingestion → VietMap | Per-route exception caught; cycle continues with remaining routes. Failed routes logged as ERROR and counted in Grafana. |
+
+---
+
+## Observability
+
+### Grafana Dashboards
+
+| Dashboard | Key metrics |
+|-----------|-------------|
+| `ingestion-service` | Cycle duration, routes fetched/cycle, VietMap API latency p50/p90/p95, 429 rate limit hits |
+| `online-features` | IForest SLO (pipeline latency p95 < 60s, data freshness p95 < 310s), scoring breakdown |
+| `streaming-service` | Kafka consumer lag, MinIO write rate |
+| `batch-service` | Prefect flow run status, medallion pipeline duration |
+| `serving-api` | Request rate, LLM latency, SSE connections |
+| `anomaly-detection` | Anomaly rate per route, dual-signal breakdown |
+| `system-health` | Container health, memory/CPU |
+
+### Promtail Log Collection
+
+Promtail scrapes stdout from these containers (via Docker socket):
+
+```
+traffic-ingestion-service, weather-ingestion-service,
+streaming-service, batch-service, ml-service, online-service, serving-service
+```
+
+Labels extracted: `service` (container name), `stream` (stdout/stderr), `level` (INFO/ERROR/WARNING from log format).
 
 ---
 

@@ -10,7 +10,8 @@ Complete technology inventory for Urban Pulse. Every component was selected to s
 |-----------|-----------|---------|------|
 | Traffic source | VietMap Traffic API | REST/JSON | Real-time congestion data for HCMC |
 | Weather source | Open-Meteo API | REST/JSON | Free, no-key HCMC hourly weather |
-| Ingestion service | Python (FastAPI worker) | 3.12 | Polls VietMap every 5 min, publishes to Kafka |
+| Traffic ingestion | Python (`traffic-ingestion`) | 3.12 | Polls VietMap every 5 min, sequential with 10s inter-request delay, publishes to Kafka |
+| Weather ingestion | Python (`weather-ingestion`) | 3.12 | Polls Open-Meteo hourly, triggers batch weather pipeline |
 | Message broker | Apache Kafka (Redpanda) | v25.3.10 | Durable, partitioned event log |
 | Schema validation | JSON Schema + Pydantic | — | Contract enforcement on Kafka messages |
 

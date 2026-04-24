@@ -63,9 +63,17 @@ platform/schemas/    # JSON Schema for Kafka message format validation
 
 ## Service Descriptions
 
-### ingestion
+### traffic-ingestion
 
-Polls the VietMap Traffic API every 5 minutes for all 20 monitored routes. Each poll produces one `TrafficRouteObservation` Pydantic model per route, serialized to JSON, and published to the `traffic-route-bronze` Kafka topic with an `ingest_ts` header (Unix timestamp of the API call). This header is the anchor for all downstream latency measurements.
+Polls the VietMap Traffic API every 5 minutes for all 20 monitored routes. Fetches routes sequentially with a 10-second inter-request delay to stay within API rate limits. Each poll produces one `TrafficRouteObservation` Pydantic model per route, serialized to JSON, and published to the `traffic-route-bronze` Kafka topic with an `ingest_ts` header (Unix timestamp of the API call). This header is the anchor for all downstream latency measurements.
+
+Logs emitted per cycle (captured by Promtail → Loki → Grafana):
+- `[N/20] {origin} → {dest}  latency_api_ms=XXX` — per-route API latency
+- `Crawl cycle done in X.Xs (N/20 routes)` — cycle summary, used for Grafana cycle duration panel
+
+### weather-ingestion
+
+Polls the Open-Meteo API hourly for HCMC weather (lat 10.7757, lon 106.7009). Free tier, no API key required. Feeds the `hourly-gold` Prefect flow which writes to `gold.weather_hourly` and indexes the last 7 days into ChromaDB `external_context` for RAG-enhanced anomaly explanations.
 
 ### streaming
 
