@@ -13,8 +13,7 @@ Urban Pulse ingests raw traffic data from VietMap API every 5 minutes across 20 
 1. Raw data preservation for replayability and debugging
 2. Cleaned, typed data for ad-hoc analysis and anomaly baseline computation
 3. Hourly aggregates for ML training and RAG indexing
-4. Weather data integration alongside traffic data (same pipeline pattern)
-5. Incremental processing (only new data each cycle, not full recompute)
+4. Incremental processing (only new data each cycle, not full recompute)
 
 Two main alternatives were considered:
 
@@ -30,7 +29,7 @@ Adopt **Option B** — the medallion architecture with three layers:
 
 - **Bronze**: Raw Parquet files on MinIO, partitioned by `year/month/day/hour`. Schema-exact copy of the Kafka messages. Written by the `streaming` service. Never modified after write.
 - **Silver**: Cleaned, typed, deduplicated Iceberg table (`silver.traffic_route`). Written by the `microbatch` Prefect flow every 5 minutes from newly arrived bronze files. Handles type casting, null coalescing, and deduplication by `(route_id, event_ts)`.
-- **Gold**: Hourly aggregations (`gold.traffic_hourly`) and derived tables (`gold.traffic_baseline`, `gold.weather_hourly`). Written by the `hourly-gold` Prefect flow. Source for ML training, baseline computation, and RAG indexing.
+- **Gold**: Hourly aggregations (`gold.traffic_hourly`) and derived tables (`gold.traffic_baseline`). Written by the `hourly-gold` Prefect flow. Source for ML training, baseline computation, and RAG indexing.
 
 ---
 
@@ -46,7 +45,7 @@ Adopt **Option B** — the medallion architecture with three layers:
 
 **Independent ML training**: `gold.traffic_hourly` is the single source of truth for ML features. The ML service queries this table directly via DuckDB without needing to touch raw Parquet or Postgres.
 
-**Weather pipeline reuse**: The same medallion pattern was applied to weather data (Open-Meteo → bronze Parquet → `silver.weather` → `gold.weather_hourly`) with minimal new code, demonstrating the architecture's extensibility.
+**Weather context for RAG**: Weather data for the RAG pipeline is fetched directly from the Open-Meteo archive API by the `rag_indexer` job and written to ChromaDB (`external_context` collection). This avoids a separate medallion pipeline for weather while still providing the LLM with hourly weather history.
 
 ### Costs
 

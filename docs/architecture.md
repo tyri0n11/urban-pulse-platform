@@ -14,13 +14,14 @@ Open-Meteo API (weather) ──┐                                          │
                             │                                          ├─► streaming ──► MinIO (bronze Parquet)
                             │                                          └─► online ────► Postgres (online features)
                             │
-                            └──► batch (hourly) ──► ChromaDB (weather history)
-                            └──► serving /chat   ──► live fetch (cache 15 min)
+                            └──► weather-ingestion ──► Kafka: weather-hcmc-bronze ──► MinIO (archive only)
+                            └──► rag_indexer (hourly) ──► ChromaDB: external_context
+                            └──► serving /chat & /explain ──► live fetch (cache 15 min)
 
-MinIO (bronze Parquet)
+MinIO bronze (traffic only)
   └─► batch/microbatch (5 min)  ──► Iceberg: silver.traffic_route
   └─► batch/hourly-gold (1 hr)  ──► Iceberg: gold.traffic_hourly
-                                        └─► ChromaDB: anomaly_events + external_context
+                                        └─► ChromaDB: anomaly_events
   └─► batch/retrain (6 hr)      ──► POST ml-service:8000/train
                                         └─► MLflow: traffic-anomaly-iforest@champion
                                         └─► ChromaDB: traffic_patterns
@@ -73,7 +74,7 @@ Logs emitted per cycle (captured by Promtail → Loki → Grafana):
 
 ### weather-ingestion
 
-Polls the Open-Meteo API hourly for HCMC weather (lat 10.7757, lon 106.7009). Free tier, no API key required. Feeds the `hourly-gold` Prefect flow which writes to `gold.weather_hourly` and indexes the last 7 days into ChromaDB `external_context` for RAG-enhanced anomaly explanations.
+Polls the Open-Meteo API hourly for HCMC weather (lat 10.7757, lon 106.7009). Publishes observations to Kafka topic `weather-hcmc-bronze`, which the `streaming` service archives to MinIO. Weather data for the RAG pipeline (`external_context` ChromaDB collection) is fetched directly from the Open-Meteo archive API by the `rag_indexer` job — there is no Iceberg layer for weather.
 
 ### streaming
 
@@ -99,12 +100,12 @@ Prefect orchestration service running five scheduled flows and several manual-tr
 | Flow | Schedule | Description |
 |------|----------|-------------|
 | `microbatch` | Every 5 min | Reads new bronze Parquet files → writes to `silver.traffic_route` (incremental) |
-| `hourly-gold` | Every 1 hr | Aggregates silver → `gold.traffic_hourly`; indexes anomaly events + weather into ChromaDB |
+| `hourly-gold` | Every 1 hr | Aggregates silver → `gold.traffic_hourly`; indexes anomaly events into ChromaDB; fetches weather from Open-Meteo → `external_context` |
 | `retrain` | Every 6 hr | Full gold scan → POST /train → ChromaDB traffic_patterns full re-index |
 | `alert` | Every 5 min | Reads active IForest-confirmed anomalies → Telegram push (30-min cooldown per route) |
-| `bootstrap` | Manual | Full medallion rebuild from scratch |
+| `bootstrap` | Manual | Full medallion rebuild; pauses competing Prefect deployments during run |
 | `backfill` | Manual | Time-range silver backfill |
-| `rag-index` | Manual | Re-index RAG; `index_patterns=false` for weather+anomalies only (~60s) |
+| `rag-index` | Manual | Re-index RAG; `index_patterns=false` for anomalies+weather only (~60s) |
 
 ### ml
 
@@ -151,10 +152,9 @@ warehouse/ (Dremio warehouse)
 
 | Table | Layer | Key columns |
 |-------|-------|-------------|
-| `silver.traffic_route` | Silver | `route_id`, `event_ts`, `duration_minutes`, `congestion_*` |
+| `silver.traffic_route` | Silver | `route_id`, `timestamp_utc`, `duration_minutes`, `congestion_*` |
 | `gold.traffic_hourly` | Gold | `route_id`, `hour_utc`, `avg_duration_minutes`, `avg_heavy_ratio`, `max_severe_segments` |
 | `gold.traffic_baseline` | Gold | `route_id`, `day_of_week`, `hour_of_day`, `baseline_duration_mean`, `baseline_duration_stddev` |
-| `gold.weather_hourly` | Gold | `hour_utc`, `temperature_2m`, `precipitation`, `weather_code` |
 
 ### PostgreSQL (Online Feature Store)
 
