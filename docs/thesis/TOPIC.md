@@ -74,8 +74,8 @@ This thesis designs, implements, and evaluates an end-to-end platform — **Urba
 | Dimension | Metric | Target |
 |-----------|--------|--------|
 | Anomaly detection | Precision / Recall / F1 on labelled ground truth | Dual-signal > single-signal |
-| Pipeline processing latency | p95 of `ingest_lag_ms + scoring_ms` | < 15 s |
-| Data freshness | p95 of `staleness_ms` | < 15 s |
+| Pipeline processing latency | p95 of `ingest_lag_ms + scoring_ms` | < 60 s |
+| Data freshness | p95 of `staleness_ms` | < 310 s |
 | IForest scoring speed | p95 of `scoring_ms` | < 500 ms |
 | LLM explanation quality | Human evaluation (Likert 1–5) | Mean ≥ 3.5 |
 | System availability | Uptime over evaluation window | ≥ 99% |

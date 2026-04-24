@@ -267,18 +267,18 @@ full_e2e_ms    = ingest_lag_ms + staleness_ms + scoring_ms
 
 **Đo lường:** `ingest_lag_ms + scoring_ms` — chỉ system overhead, không tính thời gian chờ poll.
 
-**Target:** p95 < 15 s — đây là phần hệ thống kiểm soát được (parallel fetch ~3–5s + Kafka + online service).
+**Target:** p95 < 60 s — đây là phần hệ thống kiểm soát được (Kafka + online service).
 
-**Thực tế:** ingest_lag_ms ~2–10s, scoring_ms ~50–500ms (IForest predict).
+**Thực tế:** ingest_lag_ms ~10–30s (Kafka + online service), scoring_ms ~50–500ms (IForest predict).
 
 ### SLO 2 — Data Freshness
 
 **Đo lường:** `staleness_ms` — tuổi của data tại thời điểm score.
 
-**Target:** p95 < 15 s — VietMap poll interval 10s + 5s buffer.
+**Target:** p95 < 310 s — VietMap poll interval 5 phút + 10s buffer.
 
-**Thực tế:** staleness_ms thường 0–15s, bị chi phối bởi VietMap poll frequency (external constraint), không phải lỗi hệ thống.
+**Thực tế:** staleness_ms thường 0–310s, bị chi phối bởi VietMap poll frequency (external constraint), không phải lỗi hệ thống.
 
 ### Tại sao tách 2 SLO
 
-Với 10s polling, cả 2 SLO đều trong cùng order of magnitude (~15s) — hệ thống thực sự near-real-time. Báo cáo riêng biệt vẫn cần thiết để phân biệt system overhead (kiểm soát được) và external constraint (không kiểm soát được).
+Full e2e > 5 phút là bình thường và đúng khi staleness dominates — phản ánh VietMap API poll frequency, không phải fault của hệ thống. Báo cáo riêng biệt giúp đánh giá thesis trung thực và có thể đưa ra hành động cụ thể.

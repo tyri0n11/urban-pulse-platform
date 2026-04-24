@@ -13,7 +13,7 @@ from serving.routers import anomalies, chat, explain, health, metrics, online, p
 
 logger = logging.getLogger(__name__)
 
-_SCORER_INTERVAL = 5  # seconds — matches SSE poll interval
+_SCORER_INTERVAL = 15  # seconds — matches SSE poll interval
 
 
 async def _iforest_scorer_loop(pool: asyncpg.Pool) -> None:

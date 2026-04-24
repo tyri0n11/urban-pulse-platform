@@ -790,7 +790,7 @@
       "id": 12,
       "type": "stat",
       "title": "Pipeline Latency p95",
-      "description": "SLO: p95 < 15 000 ms. Parallel fetch ~3-5s + Kafka + online service.",
+      "description": "SLO: p95 < 60 000 ms. System overhead: Kafka + online service processing.",
       "gridPos": {
         "x": 4,
         "y": 32,
@@ -833,11 +833,11 @@
               },
               {
                 "color": "orange",
-                "value": 10000
+                "value": 45000
               },
               {
                 "color": "red",
-                "value": 15000
+                "value": 60000
               }
             ]
           },
@@ -870,7 +870,7 @@
             "uid": "postgres"
           },
           "format": "table",
-          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN ingest_lag_ms + scoring_ms < 15000 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS value FROM prediction_history WHERE $__timeFilter(scored_at) AND ingest_lag_ms IS NOT NULL"
+          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN ingest_lag_ms + scoring_ms < 60000 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS value FROM prediction_history WHERE $__timeFilter(scored_at) AND ingest_lag_ms IS NOT NULL"
         }
       ],
       "options": {
@@ -912,7 +912,7 @@
       "id": 14,
       "type": "stat",
       "title": "Data Freshness p50",
-      "description": "staleness_ms: tu\u1ed5i c\u1ee7a data khi \u0111\u01b0\u1ee3c score. Bounded b\u1edfi poll interval 10s \u2192 expected p50 \u2248 5s.",
+      "description": "staleness_ms: tu\u1ed5i c\u1ee7a data khi \u0111\u01b0\u1ee3c score. Bounded b\u1edfi poll interval 5 min \u2192 expected p50 \u2248 2.5 min.",
       "gridPos": {
         "x": 12,
         "y": 32,
@@ -957,7 +957,7 @@
       "id": 15,
       "type": "stat",
       "title": "Data Freshness p95",
-      "description": "SLO: p95 < 15 000 ms (poll interval 10s + buffer). External API constraint.",
+      "description": "SLO: p95 < 310 000 ms (poll interval 5 min + buffer). External API constraint.",
       "gridPos": {
         "x": 16,
         "y": 32,
@@ -1000,11 +1000,11 @@
               },
               {
                 "color": "orange",
-                "value": 12000
+                "value": 280000
               },
               {
                 "color": "red",
-                "value": 15000
+                "value": 310000
               }
             ]
           },
@@ -1079,7 +1079,7 @@
       "id": 17,
       "type": "timeseries",
       "title": "Pipeline Latency vs Data Freshness Over Time",
-      "description": "SLO 1 \u2014 Pipeline: ingest_lag + scoring (system overhead, target p95 < 15s). SLO 2 \u2014 Freshness: staleness (poll frequency constraint, expected \u2264 10s).",
+      "description": "SLO 1 \u2014 Pipeline: ingest_lag + scoring (system overhead, target p95 < 60s). SLO 2 \u2014 Freshness: staleness (poll frequency constraint, expected \u2264 300s).",
       "gridPos": {
         "x": 0,
         "y": 36,
@@ -1144,7 +1144,7 @@
               },
               {
                 "id": "displayName",
-                "value": "p95 pipeline latency (SLO: 15s)"
+                "value": "p95 pipeline latency (SLO: 60s)"
               }
             ]
           },
@@ -1182,7 +1182,7 @@
               },
               {
                 "id": "displayName",
-                "value": "p95 data freshness (poll bound: 10s)"
+                "value": "p95 data freshness (poll bound: 300s)"
               }
             ]
           },

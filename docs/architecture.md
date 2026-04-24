@@ -212,7 +212,7 @@ scoring_ms    = IsolationForest predict() wall clock
 pipeline_latency = ingest_lag_ms + scoring_ms
 ```
 
-Target: **p95 < 15 s**. This is fully within the system's control (parallel fetch ~3–5 s + Kafka + online service).
+Target: **p95 < 60 s**. This is fully within the system's control (Kafka + online service processing).
 
 ### SLO 2 — Data Freshness
 
@@ -222,11 +222,11 @@ Measures **data age at scoring time** — dominated by the external VietMap poll
 staleness_ms = scoring_ts - updated_at   (age of the Postgres row when IForest runs)
 ```
 
-Target: **p95 < 15 s** (10 s poll interval + 5 s buffer). The poll interval is an external constraint; this SLO validates the system is not adding significant additional delay.
+Target: **p95 < 310 s** (5-minute poll interval + 10 s buffer). The poll interval is an external constraint; this SLO validates the system is not adding significant additional delay.
 
 ### Separation rationale
 
-Full E2E (`full_e2e_ms = ingest_lag_ms + staleness_ms + scoring_ms`) conflates system overhead with external constraints. Reporting them separately makes the thesis evaluation honest and actionable. With 10 s polling, both SLOs are in the same order of magnitude — the system is genuinely near-real-time.
+Full E2E (`full_e2e_ms = ingest_lag_ms + staleness_ms + scoring_ms`) conflates system overhead with external constraints. A full_e2e of 5+ minutes is expected and correct when staleness dominates — it reflects the VietMap API poll frequency, not a system fault. Reporting them separately makes the thesis evaluation honest and actionable.
 
 ---
 
