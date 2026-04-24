@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 
 import asyncpg
 from fastapi import FastAPI
@@ -27,6 +28,7 @@ async def _iforest_scorer_loop(pool: asyncpg.Pool) -> None:
         await asyncio.sleep(_SCORER_INTERVAL)
         try:
             async with pool.acquire() as conn:
+                fetch_ts = time.time()
                 rows = await conn.fetch(
                     """
                     SELECT DISTINCT ON (route_id)
@@ -35,7 +37,9 @@ async def _iforest_scorer_loop(pool: asyncpg.Pool) -> None:
                         COALESCE(mean_moderate_ratio, 0.0)  AS mean_moderate_ratio,
                         COALESCE(max_severe_segments, 0.0)  AS max_severe_segments,
                         duration_zscore,
-                        mean_duration_minutes
+                        mean_duration_minutes,
+                        last_ingest_lag_ms,
+                        updated_at
                     FROM online_route_features
                     ORDER BY route_id, updated_at DESC
                     """
@@ -44,17 +48,21 @@ async def _iforest_scorer_loop(pool: asyncpg.Pool) -> None:
                     continue
 
                 row_dicts = [dict(r) for r in rows]
+                t_score = time.monotonic()
                 try:
                     predictions = prediction_service.score_rows(row_dicts)
                 except Exception as exc:
                     logger.debug("background scorer: score_rows failed — %s", exc)
                     continue
+                scoring_ms = int((time.monotonic() - t_score) * 1000)
 
-                window_by_route    = {r["route_id"]: r["window_start"]          for r in row_dicts}
-                zscore_by_route    = {r["route_id"]: bool(r["is_anomaly"])       for r in row_dicts}
+                window_by_route     = {r["route_id"]: r["window_start"]          for r in row_dicts}
+                zscore_by_route     = {r["route_id"]: bool(r["is_anomaly"])       for r in row_dicts}
                 zscore_val_by_route = {r["route_id"]: r["duration_zscore"]       for r in row_dicts}
-                duration_by_route  = {r["route_id"]: r["mean_duration_minutes"]  for r in row_dicts}
-                heavy_by_route     = {r["route_id"]: r["mean_heavy_ratio"]       for r in row_dicts}
+                duration_by_route   = {r["route_id"]: r["mean_duration_minutes"]  for r in row_dicts}
+                heavy_by_route      = {r["route_id"]: r["mean_heavy_ratio"]       for r in row_dicts}
+                ingest_lag_by_route = {r["route_id"]: r["last_ingest_lag_ms"]    for r in row_dicts}
+                updated_at_by_route = {r["route_id"]: r["updated_at"]            for r in row_dicts}
 
                 scored = [p for p in predictions if p.route_id in window_by_route]
 
@@ -86,8 +94,13 @@ async def _iforest_scorer_loop(pool: asyncpg.Pool) -> None:
                     upsert_rows,
                 )
 
-                history_rows = [
-                    (
+                history_rows = []
+                for p in scored:
+                    ingest_lag = ingest_lag_by_route.get(p.route_id) or 0
+                    updated_at = updated_at_by_route.get(p.route_id)
+                    staleness_ms = int((fetch_ts - updated_at.timestamp()) * 1000) if updated_at else 0
+                    full_e2e_ms = ingest_lag + staleness_ms + scoring_ms
+                    history_rows.append((
                         p.route_id,
                         window_by_route[p.route_id],
                         p.iforest_score,
@@ -97,18 +110,29 @@ async def _iforest_scorer_loop(pool: asyncpg.Pool) -> None:
                         zscore_val_by_route.get(p.route_id),
                         duration_by_route.get(p.route_id),
                         heavy_by_route.get(p.route_id),
-                    )
-                    for p in scored
-                ]
+                        ingest_lag,
+                        staleness_ms,
+                        scoring_ms,
+                        full_e2e_ms,
+                    ))
+
                 await conn.executemany(
                     """
                     INSERT INTO prediction_history
                         (scored_at, route_id, window_start,
                          iforest_score, iforest_anomaly, zscore_anomaly, both_anomaly,
-                         duration_zscore, mean_duration_minutes, mean_heavy_ratio)
-                    VALUES (NOW(), $1, $2, $3, $4, $5, $6, $7, $8, $9)
+                         duration_zscore, mean_duration_minutes, mean_heavy_ratio,
+                         ingest_lag_ms, staleness_ms, scoring_ms, full_e2e_ms)
+                    VALUES (NOW(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                     """,
                     history_rows,
+                )
+
+                logger.info(
+                    "scorer: %d routes scored — scoring_ms=%d p50_e2e_ms=%d",
+                    len(scored),
+                    scoring_ms,
+                    sorted(r[12] for r in history_rows)[len(history_rows) // 2] if history_rows else 0,
                 )
         except asyncio.CancelledError:
             return
@@ -173,8 +197,17 @@ def create_app() -> FastAPI:
             both_anomaly          BOOLEAN          NOT NULL,
             duration_zscore       DOUBLE PRECISION,
             mean_duration_minutes DOUBLE PRECISION,
-            mean_heavy_ratio      DOUBLE PRECISION
+            mean_heavy_ratio      DOUBLE PRECISION,
+            ingest_lag_ms         BIGINT,
+            staleness_ms          BIGINT,
+            scoring_ms            BIGINT,
+            full_e2e_ms           BIGINT
         );
+        ALTER TABLE prediction_history
+            ADD COLUMN IF NOT EXISTS ingest_lag_ms  BIGINT,
+            ADD COLUMN IF NOT EXISTS staleness_ms   BIGINT,
+            ADD COLUMN IF NOT EXISTS scoring_ms     BIGINT,
+            ADD COLUMN IF NOT EXISTS full_e2e_ms    BIGINT;
         CREATE INDEX IF NOT EXISTS idx_ph_route_time
             ON prediction_history (route_id, scored_at DESC);
         CREATE INDEX IF NOT EXISTS idx_ph_time

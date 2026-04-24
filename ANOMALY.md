@@ -231,6 +231,30 @@ Kết quả tốt hơn plain LLM vì model có **evidence thực tế** (traffic
 
 ---
 
+## Conversational AI (/chat)
+
+Ngoài explain và rca (single-turn, route-specific), Urban Pulse còn cung cấp `/chat` — trợ lý AI conversational về toàn bộ hệ thống.
+
+**Khác biệt so với /explain:**
+
+| | `/explain` + `/rca` | `/chat` |
+|-|--------------------|---------|
+| Scope | Một route cụ thể | Toàn bộ hệ thống |
+| Context | RAG retrieval (ChromaDB) | Live system snapshot (Postgres query) |
+| Multi-turn | Không | Có — session history |
+| Ollama API | `/api/generate` (stateless) | `/api/chat` (multi-turn messages array) |
+
+**Session history:** Frontend gửi lịch sử cuộc trò chuyện (tối đa 10 tin nhắn gần nhất) trong mỗi request. Backend cap tại 10 để tránh overflow context window của qwen2.5:3b (32k tokens). Session scope là widget lifetime — không persist vào DB.
+
+**System snapshot:** Mỗi request `/chat` kéo live snapshot từ Postgres:
+- Top anomalous routes (is_anomaly = true)
+- Aggregate metrics (heavy ratio p95, anomaly count)
+- Live weather từ Open-Meteo (cache 15 min)
+
+Snapshot được inject vào system prompt trước khi call Ollama, đảm bảo câu trả lời dựa trên data thực tế chứ không phải parametric knowledge.
+
+---
+
 ## Known Issues & Mitigations
 
 ### Extreme z-score từ baseline xấu

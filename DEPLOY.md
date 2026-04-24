@@ -99,7 +99,7 @@ http:
 make prod-build
 ```
 
-This builds: `ingestion`, `streaming`, `online`, `batch`, `ml`, `serving`, `ui`.
+This builds: `traffic-ingestion`, `weather-ingestion`, `streaming`, `online`, `batch`, `ml`, `serving`, `ui`.
 
 ### Start stack
 
@@ -164,10 +164,16 @@ Subsequent runs happen automatically:
 ### Rebuild a single service after code change
 
 ```bash
-# Example: serving
+# Serving
 docker compose --env-file .env.prod -f infra/docker/docker-compose.prod.yaml build --no-cache serving
 docker compose --env-file .env.prod -f infra/docker/docker-compose.prod.yaml up -d serving
+
+# Traffic ingestion
+docker compose --env-file .env.prod -f infra/docker/docker-compose.prod.yaml build --no-cache traffic-ingestion
+docker compose --env-file .env.prod -f infra/docker/docker-compose.prod.yaml up -d traffic-ingestion
 ```
+
+> Service names in docker-compose: `traffic-ingestion`, `weather-ingestion`, `streaming`, `online`, `batch`, `ml`, `serving`, `ui`.
 
 ### Pull latest code and redeploy
 

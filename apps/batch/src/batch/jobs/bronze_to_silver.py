@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pyiceberg.catalog import Catalog
-from pyiceberg.exceptions import NoSuchNamespaceError, NoSuchTableError
+from pyiceberg.exceptions import CommitFailedException, NoSuchNamespaceError, NoSuchTableError
 from pyiceberg.partitioning import PartitionField, PartitionSpec
 from pyiceberg.schema import Schema
 from pyiceberg.table import Table
@@ -295,9 +295,32 @@ def bootstrap(catalog: Catalog | None = None) -> int:
         logger.info("bronze_to_silver bootstrap: no new rows to append")
         return 0
 
-    table.append(silver)
-    logger.info("bronze_to_silver bootstrap: appended %d rows → %s", row_count, _SILVER_TABLE)
-    return row_count
+    # Retry on commit conflict: microbatch may write a new snapshot between our
+    # dedup-scan and our append. Re-scan existing keys and retry up to 3 times.
+    all_bronze_keys = list(
+        zip(silver.column("route_id").to_pylist(), silver.column("timestamp_utc").to_pylist())
+    )
+    raw_silver = silver
+    for attempt in range(3):
+        try:
+            table.append(raw_silver)
+            logger.info("bronze_to_silver bootstrap: appended %d rows → %s", len(raw_silver), _SILVER_TABLE)
+            return len(raw_silver)
+        except CommitFailedException:
+            if attempt == 2:
+                raise
+            logger.warning("bootstrap: commit conflict (attempt %d/3) — re-scanning existing rows", attempt + 1)
+            existing = table.scan(selected_fields=("route_id", "timestamp_utc")).to_arrow()
+            existing_keys = set(
+                zip(existing.column("route_id").to_pylist(), existing.column("timestamp_utc").to_pylist())
+            )
+            mask = pa.array([k not in existing_keys for k in all_bronze_keys])
+            raw_silver = silver.filter(mask)
+            if len(raw_silver) == 0:
+                logger.info("bronze_to_silver bootstrap: no new rows after re-scan — already up to date")
+                return 0
+
+    return 0
 
 
 def backfill(

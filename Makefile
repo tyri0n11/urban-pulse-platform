@@ -1,4 +1,4 @@
-.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion bootstrap train pull-model \
+.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion build-serving bootstrap train pull-model \
         prod prod-down prod-logs prod-status prod-build prod-bootstrap prod-train prod-setup
 
 COMPOSE     = docker compose --env-file .env -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml
@@ -17,7 +17,7 @@ status:
 	$(COMPOSE) ps
 
 logs-ingestion:
-	$(COMPOSE) logs -f ingestion
+	$(COMPOSE) logs -f traffic-ingestion weather-ingestion
 
 shell-serving:
 	$(COMPOSE) exec serving /bin/bash
@@ -41,7 +41,7 @@ build:
 	$(COMPOSE) build
 
 build-ingestion:
-	$(COMPOSE) build ingestion
+	$(COMPOSE) build traffic-ingestion weather-ingestion
 
 build-serving:
 	$(COMPOSE) build serving

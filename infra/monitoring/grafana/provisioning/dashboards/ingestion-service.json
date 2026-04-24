@@ -10,29 +10,120 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Total Logs",
+      "title": "Cycles Completed",
+      "description": "Crawl cycles completed in time range",
       "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=\"ingestion-service\"}[$__range])"
+          "expr": "count_over_time({service=\"traffic-ingestion-service\"} |= \"Crawl cycle done\" [$__range])"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "fieldConfig": { "defaults": { "unit": "short" } }
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Errors",
+      "title": "Last Cycle Duration",
+      "description": "Duration of the most recent crawl cycle (seconds)",
       "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=\"ingestion-service\"} |= \"ERROR\" [$__range])"
+          "expr": "last_over_time({service=\"traffic-ingestion-service\"} |= \"Crawl cycle done in\" | pattern `<_> done in <dur>s (<_>` | unwrap dur | __error__=\"\" [$__range])"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red", "value": 70 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Routes Failed",
+      "description": "Routes that failed to fetch in time range",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "count_over_time({service=\"traffic-ingestion-service\"} |= \"Failed to fetch route\" [$__range])"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "429 Rate Limit Hits",
+      "description": "VietMap API 429 Too Many Requests errors",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "count_over_time({service=\"traffic-ingestion-service\"} |= \"429\" [$__range])"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Errors",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "count_over_time({service=\"traffic-ingestion-service\"} |= \"ERROR\" [$__range])"
         }
       ],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
@@ -50,26 +141,29 @@
       }
     },
     {
-      "id": 3,
+      "id": 6,
       "type": "stat",
-      "title": "Warnings",
-      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "title": "VietMap API Latency p95",
+      "description": "p95 of per-route API call duration over last 10 min",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "count_over_time({service=\"ingestion-service\"} |= \"WARNING\" [$__range])"
+          "expr": "quantile_over_time(0.95, {service=\"traffic-ingestion-service\"} |= \"latency_api_ms\" | pattern `<_> latency_api_ms=<lat>` | unwrap lat | __error__=\"\" [10m])"
         }
       ],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "fieldConfig": {
         "defaults": {
+          "unit": "ms",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 }
+              { "color": "yellow", "value": 500 },
+              { "color": "red", "value": 2000 }
             ]
           },
           "color": { "mode": "thresholds" }
@@ -77,99 +171,93 @@
       }
     },
     {
-      "id": 4,
+      "id": 7,
       "type": "timeseries",
-      "title": "Log Rate by Level",
-      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+      "title": "Crawl Cycle Duration",
+      "description": "Time to complete one full crawl of all 20 routes (seconds). ~43s expected at 2s inter-request delay.",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum by (level) (rate({service=\"ingestion-service\"}[1m]))",
-          "legendFormat": "{{level}}"
+          "expr": "last_over_time({service=\"traffic-ingestion-service\"} |= \"Crawl cycle done in\" | pattern `<_> done in <dur>s (<_>` | unwrap dur | __error__=\"\" [2m])",
+          "legendFormat": "cycle duration"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "ERROR" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "WARNING" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "INFO" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
-        ]
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red", "value": 70 }
+            ]
+          },
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        }
       }
-    },
-    {
-      "id": 5,
-      "type": "timeseries",
-      "title": "Messages Published to Kafka (rate)",
-      "description": "Counted from log lines containing 'Publishing to Kafka'",
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "rate({service=\"ingestion-service\"} |= \"Publishing to Kafka\" [1m])",
-          "legendFormat": "published/s"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "reqps" } }
-    },
-    {
-      "id": 6,
-      "type": "logs",
-      "title": "Error Logs",
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{service=\"ingestion-service\"} |= \"ERROR\""
-        }
-      ],
-      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" }
-    },
-    {
-      "id": 7,
-      "type": "logs",
-      "title": "Recent Logs",
-      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 10 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{service=\"ingestion-service\"}"
-        }
-      ],
-      "options": { "showTime": true, "wrapLogMessage": false, "sortOrder": "Descending", "enableLogDetails": true }
     },
     {
       "id": 8,
       "type": "timeseries",
-      "title": "API Latency P50 / P90 / P95",
-      "description": "VietMap API call duration per route fetch",
-      "gridPos": { "x": 0, "y": 30, "w": 24, "h": 8 },
+      "title": "Routes Fetched per Cycle",
+      "description": "How many routes succeeded each crawl cycle (out of 20)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "quantile_over_time(0.50, {service=\"ingestion-service\"} |= \"latency_api_ms\" | pattern `<_> latency_api_ms=<latency>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "expr": "last_over_time({service=\"traffic-ingestion-service\"} |= \"Crawl cycle done\" | pattern `<_> done in <_>s (<ok>/<_> routes)` | unwrap ok | __error__=\"\" [2m])",
+          "legendFormat": "routes ok"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 20,
+          "custom": { "lineWidth": 2 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 15 },
+              { "color": "green", "value": 20 }
+            ]
+          },
+          "color": { "mode": "fixed", "fixedColor": "green" }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "VietMap API Latency (per route)",
+      "description": "P50 / P90 / P95 of per-route API call duration",
+      "gridPos": { "x": 0, "y": 12, "w": 16, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "quantile_over_time(0.50, {service=\"traffic-ingestion-service\"} |= \"latency_api_ms\" | pattern `<_> latency_api_ms=<lat>` | unwrap lat | __error__=\"\" [2m])",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "quantile_over_time(0.90, {service=\"ingestion-service\"} |= \"latency_api_ms\" | pattern `<_> latency_api_ms=<latency>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "expr": "quantile_over_time(0.90, {service=\"traffic-ingestion-service\"} |= \"latency_api_ms\" | pattern `<_> latency_api_ms=<lat>` | unwrap lat | __error__=\"\" [2m])",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "quantile_over_time(0.95, {service=\"ingestion-service\"} |= \"latency_api_ms\" | pattern `<_> latency_api_ms=<latency>` | unwrap latency | __error__=\"\" [5m]) by (service)",
+          "expr": "quantile_over_time(0.95, {service=\"traffic-ingestion-service\"} |= \"latency_api_ms\" | pattern `<_> latency_api_ms=<lat>` | unwrap lat | __error__=\"\" [2m])",
           "legendFormat": "P95"
         }
       ],
@@ -181,6 +269,59 @@
           { "matcher": { "id": "byName", "options": "P95" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
         ]
       }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Log Rate by Level",
+      "gridPos": { "x": 16, "y": 12, "w": 8, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum by (level) (rate({service=\"traffic-ingestion-service\"}[1m]))",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "warning" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "info" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "type": "logs",
+      "title": "Error / Failed Route Logs",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service=\"traffic-ingestion-service\"} |~ \"ERROR|Failed to fetch|429\""
+        }
+      ],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" }
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "Recent Logs",
+      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service=\"traffic-ingestion-service\"}"
+        }
+      ],
+      "options": { "showTime": true, "wrapLogMessage": false, "sortOrder": "Descending", "enableLogDetails": true }
     }
   ]
 }
