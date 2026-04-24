@@ -9,11 +9,8 @@ from batch.jobs import (
     alerter,
     baseline_learning,
     bronze_to_silver,
-    bronze_to_silver_weather,
     rag_indexer,
     silver_to_gold,
-    silver_to_gold_weather,
-    weather_bootstrap,
 )
 
 _ML_SERVICE_URL = "http://ml-service:8000"
@@ -33,71 +30,6 @@ def task_microbatch_bronze_to_silver() -> int:
         return rows
     except Exception:
         log.exception("microbatch bronze→silver failed")
-        raise
-
-
-@task(name="microbatch-weather-bronze-to-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
-def task_microbatch_weather_bronze_to_silver() -> int:
-    log = get_run_logger()
-    try:
-        log.info("Starting microbatch: bronze → silver (weather)")
-        rows = bronze_to_silver_weather.microbatch()
-        log.info("microbatch weather bronze→silver done: %d rows", rows)
-        return rows
-    except Exception:
-        log.exception("microbatch weather bronze→silver failed")
-        raise
-
-
-@task(name="weather-silver-to-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
-def task_weather_silver_to_gold() -> int:
-    log = get_run_logger()
-    try:
-        log.info("Starting weather silver → gold aggregation")
-        rows = silver_to_gold_weather.run()
-        log.info("weather silver→gold done: %d rows", rows)
-        return rows
-    except Exception:
-        log.exception("weather silver→gold failed")
-        raise
-
-
-@task(name="bootstrap-weather-bronze", retries=2, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
-def task_bootstrap_weather_bronze(from_date: str, to_date: str) -> int:
-    log = get_run_logger()
-    try:
-        log.info("Starting weather bronze backfill: %s → %s", from_date, to_date)
-        rows = weather_bootstrap.backfill_to_bronze(from_date, to_date)
-        log.info("weather bronze backfill done: %d records written", rows)
-        return rows
-    except Exception:
-        log.exception("weather bronze backfill failed (from=%s to=%s)", from_date, to_date)
-        raise
-
-
-@task(name="bootstrap-weather-silver", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
-def task_bootstrap_weather_silver() -> int:
-    log = get_run_logger()
-    try:
-        log.info("Starting weather bootstrap: bronze → silver")
-        rows = bronze_to_silver_weather.bootstrap()
-        log.info("weather bootstrap bronze→silver done: %d rows", rows)
-        return rows
-    except Exception:
-        log.exception("weather bootstrap bronze→silver failed")
-        raise
-
-
-@task(name="bootstrap-weather-gold", retries=3, retry_delay_seconds=60)  # type: ignore[untyped-decorator]
-def task_bootstrap_weather_gold() -> int:
-    log = get_run_logger()
-    try:
-        log.info("Starting weather bootstrap: silver → gold")
-        rows = silver_to_gold_weather.bootstrap()
-        log.info("weather bootstrap silver→gold done: %d rows", rows)
-        return rows
-    except Exception:
-        log.exception("weather bootstrap silver→gold failed")
         raise
 
 
@@ -177,10 +109,9 @@ def microbatch() -> None:
     """Fast-path microbatch: promote new bronze records to silver.
 
     Runs every 5 min so the silver layer stays close to real-time
-    while keeping each DuckDB scan small. Processes both traffic and weather.
+    while keeping each DuckDB scan small.
     """
     task_microbatch_bronze_to_silver()
-    task_microbatch_weather_bronze_to_silver()
 
 
 @flow(name="hourly-gold", log_prints=True)  # type: ignore[untyped-decorator]
@@ -193,14 +124,13 @@ def hourly_gold() -> None:
     from urbanpulse_infra.iceberg import get_iceberg_catalog
     from urbanpulse_core.config import settings
     gold_rows = task_silver_to_gold()
-    weather_gold_rows = task_weather_silver_to_gold()
     catalog = get_iceberg_catalog(
         catalog_uri=settings.iceberg_catalog_uri,
         minio_endpoint=settings.minio_endpoint,
         access_key=settings.minio_access_key,
         secret_key=settings.minio_secret_key,
     )
-    task_index_rag(catalog, index_patterns=False, wait_for=[gold_rows, weather_gold_rows])
+    task_index_rag(catalog, index_patterns=False, wait_for=[gold_rows])
 
 
 @flow(name="retrain", log_prints=True)  # type: ignore[untyped-decorator]
@@ -298,7 +228,7 @@ def bootstrap_baseline_learning() -> int:
 
 @flow(name="bootstrap", log_prints=True)  # type: ignore[untyped-decorator]
 def bootstrap() -> None:
-    """Full medallion bootstrap: bronze → silver → gold → baseline (traffic + weather).
+    """Full medallion bootstrap: bronze → silver → gold → baseline.
 
     Runs each stage sequentially with explicit dependencies.
     """
@@ -308,31 +238,6 @@ def bootstrap() -> None:
     gold_rows = bootstrap_silver_to_gold(wait_for=[silver_rows])
     bootstrap_baseline_learning(wait_for=[gold_rows])
     log.info("Full medallion bootstrap complete")
-
-
-@flow(name="weather-bootstrap", log_prints=True)  # type: ignore[untyped-decorator]
-def weather_bootstrap_flow(
-    from_date: str = "2026-01-01",
-    to_date: str | None = None,
-) -> None:
-    """Backfill weather history: Open-Meteo archive → bronze → silver → gold.
-
-    Fetches hourly weather from the Open-Meteo archive API and writes it through
-    the full medallion pipeline. Safe to re-run — bronze writes are idempotent
-    (deterministic filenames) and silver deduplicates on (location_id, hour_utc).
-
-    Args:
-        from_date: ISO date string, e.g. "2026-01-01"
-        to_date:   ISO date string (defaults to today)
-    """
-    log = get_run_logger()
-    resolved_to = to_date or datetime.now(timezone.utc).date().isoformat()
-    log.info("Starting weather bootstrap: %s → %s", from_date, resolved_to)
-
-    bronze_rows = task_bootstrap_weather_bronze(from_date, resolved_to)
-    silver_rows = task_bootstrap_weather_silver(wait_for=[bronze_rows])
-    task_bootstrap_weather_gold(wait_for=[silver_rows])
-    log.info("Weather bootstrap complete")
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,6 @@ from batch.pipeline import (
     microbatch,
     rag_index,
     retrain,
-    weather_bootstrap_flow,
 )
 
 _LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -24,10 +23,7 @@ _STREAM_HANDLER.setFormatter(logging.Formatter(_LOG_FORMAT))
 # logging interception — Prefect overrides basicConfig in task workers.
 for _name in (
     "batch.jobs.bronze_to_silver",
-    "batch.jobs.bronze_to_silver_weather",
     "batch.jobs.silver_to_gold",
-    "batch.jobs.silver_to_gold_weather",
-    "batch.jobs.weather_bootstrap",
     "batch.jobs.baseline_learning",
     "batch.jobs.rag_indexer",
     "batch.jobs.alerter",
@@ -80,10 +76,6 @@ def main() -> None:
         rag_index.to_deployment(
             name="rag-index-deployment",
             tags=["rag", "manual"],
-        ),
-        weather_bootstrap_flow.to_deployment(
-            name="weather-bootstrap-deployment",
-            tags=["bootstrap", "weather"],
         ),
         limit=3,
     )
