@@ -247,9 +247,9 @@ Serving source: current `online_route_features` + `datetime.utcnow()` for time e
 
 | Collection | Docs | Metadata filters | Content | Refresh |
 |-----------|------|-----------------|---------|---------|
-| `anomaly_events` | 500+ | `route_id`, `hour`, `dow` | Lịch sử bất thường 7 ngày từ Postgres | Mỗi 1h |
-| `traffic_patterns` | 3360 | `route_id`, `hour`, `dow` | Baseline (route × dow × hour) từ gold | Mỗi 6h |
-| `external_context` | 192 | `hour`, `hour_ts`, `is_rain`, `is_storm`, `context_type` | Thời tiết HCMC 7 ngày + 1 ngày tương lai từ Open-Meteo | Mỗi 1h |
+| `anomaly_events` | 500+ | `route_id`, `hour`, `dow` | 7-day anomaly history from Postgres | Every 1h |
+| `traffic_patterns` | 3360 | `route_id`, `hour`, `dow` | Baseline (route × dow × hour) from gold | Every 6h |
+| `external_context` | 192 | `hour`, `hour_ts`, `is_rain`, `is_storm`, `context_type` | HCMC weather 7 days + 1 day forecast from Open-Meteo | Every 1h |
 
 Embedding model: `nomic-embed-text` via Ollama `/api/embed`. Space: cosine.
 

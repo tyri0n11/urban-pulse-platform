@@ -1,43 +1,43 @@
 # Urban Pulse — Anomaly Detection Design
 
-Hệ thống phát hiện bất thường dùng **dual-signal**: hai tầng độc lập với bài toán, dữ liệu, và tốc độ khác nhau. Kết quả chỉ đáng tin nhất khi cả hai đồng ý.
+The system detects anomalies using a **dual-signal** approach: two independent layers with different algorithms, data sources, and response speeds. Results are most reliable when both signals agree.
 
 ---
 
-## Tổng quan: Online vs Offline
+## Overview: Online vs Offline
 
-| Tiêu chí | Online (Z-Score) | Offline (IsolationForest) |
-|----------|-----------------|--------------------------|
-| **Câu hỏi** | "Duration route này ngay lúc này có bất thường không?" | "Tổ hợp features của route này có khác bình thường không?" |
-| **Tính khi nào** | Mỗi Kafka message (~5 phút/lần) | On-demand khi serving query (SSE mỗi 15s) |
-| **Nguồn dữ liệu** | Welford window hiện tại + gold baseline | 7 features (cyclical time + congestion) từ Postgres |
-| **Chiều dữ liệu** | 1 chiều (duration) | 7 chiều đồng thời |
-| **Điểm mạnh** | Real-time, interpretable | Bắt pattern phức tạp, context-aware theo giờ/ngày |
-| **Điểm yếu** | Bỏ sót pattern phức tạp | Không có baseline rõ ràng |
-| **Lưu ở đâu** | `online_route_features.is_anomaly` | `route_iforest_scores` (mỗi 15s qua SSE) |
-| **Latency** | < 20s từ ingestion | ~100ms per route khi query |
+| Criterion | Online (Z-Score) | Offline (IsolationForest) |
+|-----------|-----------------|--------------------------|
+| **Question** | "Is this route's duration abnormal right now?" | "Is this route's feature combination unusual?" |
+| **Computed** | Every Kafka message (~5 min interval) | On-demand when serving queries (SSE every 15s) |
+| **Data source** | Current Welford window + gold baseline | 7 features (cyclical time + congestion) from Postgres |
+| **Dimensionality** | 1D (duration) | 7D simultaneously |
+| **Strengths** | Real-time, interpretable | Catches complex patterns, context-aware by hour/day |
+| **Weaknesses** | Misses complex multi-dimensional patterns | No explicit baseline |
+| **Stored in** | `online_route_features.is_anomaly` | `route_iforest_scores` (every 15s via SSE) |
+| **Latency** | < 20s from ingestion | ~100ms per route at query time |
 
 ---
 
 ## Signal 1: Z-Score (Speed Layer)
 
-### Ý nghĩa
+### Meaning
 
-Z-score đo lường **số độ lệch chuẩn** so với lịch sử cùng thời điểm (giờ + ngày trong tuần):
+Z-score measures **number of standard deviations** from the historical baseline for the same time slot (hour + day of week):
 
 ```
-zscore = (mean_duration_hiện_tại - baseline_mean) / baseline_stddev
+zscore = (current_mean - baseline_mean) / baseline_stddev
 ```
 
-Ví dụ: Thứ 2 lúc 15h, route A thường mất 68 phút (±10 phút). Hôm nay 15h route A mất 95 phút → zscore = (95 - 68) / 10 = **+2.7** — gần ngưỡng cảnh báo.
+Example: On Monday at 3 PM, route A normally takes 68 minutes (±10 min). Today at 3 PM route A takes 95 minutes → zscore = (95 - 68) / 10 = **+2.7** — approaching the alert threshold.
 
-> **One-sided threshold**: Chỉ `zscore > 3.0` mới trigger anomaly — tắc nghẽn (duration cao hơn bình thường). Duration thấp hơn bình thường (zscore âm) không được coi là anomaly ở tầng này.
+> **One-sided threshold**: Only `zscore > 3.0` triggers an anomaly — congestion (duration higher than normal). Lower-than-normal duration (negative zscore) is not considered an anomaly at this layer.
 
-### Pipeline tính toán
+### Computation Pipeline
 
 ```
 Kafka message (duration_minutes)
-  └─► RouteWindow.update()          # Welford: cập nhật mean, M2
+  └─► RouteWindow.update()          # Welford: update mean, M2
         └─► zscore = (mean - baseline.mean) / baseline.stddev
               └─► is_anomaly = zscore > 3.0
                     └─► UPSERT → online_route_features
@@ -45,7 +45,7 @@ Kafka message (duration_minutes)
 
 ### Welford Online Algorithm
 
-Tính mean và stddev mà không cần lưu raw observations (constant memory):
+Computes mean and stddev per message without storing raw observations (constant memory):
 
 ```python
 delta  = x - mean
@@ -55,13 +55,13 @@ M2    += delta * delta2
 stddev = sqrt(M2 / (count - 1))   # Bessel's correction
 ```
 
-- Reset khi qua giờ UTC mới (`window_start_ts` thay đổi)
-- Cần ≥ 2 observations để có `stddev > 0`
-- Restart-safe: `M2` reconstruct từ Postgres khi startup (`M2 = stddev² × (count-1)`)
+- Resets when a new UTC hour begins (`window_start_ts` changes)
+- Requires ≥ 2 observations to produce `stddev > 0`
+- Restart-safe: `M2` is reconstructed from Postgres on startup (`M2 = stddev² × (count-1)`)
 
 ### Baseline (gold.traffic_baseline)
 
-Tính từ toàn bộ gold data, group by `(route_id, day_of_week, hour_of_day)`:
+Computed from all gold data, grouped by `(route_id, day_of_week, hour_of_day)`:
 
 ```sql
 SELECT
@@ -78,19 +78,19 @@ FROM gold.traffic_hourly
 GROUP BY route_id, day_of_week, hour_of_day
 ```
 
-**Load cycle:** Startup + tự refresh mỗi 6h.
+**Load cycle:** Startup + automatic refresh every 6h.
 
 ---
 
 ## Signal 2: IsolationForest (Batch Layer)
 
-### Ý nghĩa
+### Meaning
 
-IForest học **"vùng bình thường"** trong không gian 7 chiều từ lịch sử nhiều tuần. Điểm nằm ngoài vùng đó là anomaly — kể cả khi từng feature riêng lẻ trông ổn.
+IForest learns the **"normal region"** in 7-dimensional space from weeks of history. Points outside this region are anomalies — even if each individual feature looks fine on its own.
 
 ### Feature Vector — Cyclical Time Encoding
 
-7 features cố định (thứ tự quan trọng, phải match `_FEATURE_ORDER` trong serving):
+7 fixed features (order matters, must match `_FEATURE_ORDER` in serving):
 
 ```python
 FEATURE_COLUMNS = [
@@ -98,20 +98,20 @@ FEATURE_COLUMNS = [
     "cos_hour",           # 2 — cos(2π × hour / 24)
     "sin_dow",            # 3 — sin(2π × dow / 7)
     "cos_dow",            # 4 — cos(2π × dow / 7)
-    "mean_heavy_ratio",   # 5 — tỷ lệ xe nặng
-    "mean_moderate_ratio",# 6 — tỷ lệ xe tắc trung bình
-    "max_severe_segments",# 7 — số đoạn nghiêm trọng nhất
+    "mean_heavy_ratio",   # 5 — heavy vehicle ratio
+    "mean_moderate_ratio",# 6 — moderate congestion ratio
+    "max_severe_segments",# 7 — most severely congested segments count
 ]
 ```
 
-**Tại sao cyclical encoding?**
-Hour-of-day (0–23) và day-of-week (0–6) là circular. Encoding thẳng tạo khoảng cách giả tạo giữa `hour=23` và `hour=0` — thực ra 23h và 0h rất gần nhau. Sin/cos giữ tính liên tục:
+**Why cyclical encoding?**
+Hour-of-day (0–23) and day-of-week (0–6) are circular variables. Integer encoding creates artificial distance between `hour=23` and `hour=0` — but 11 PM and midnight are actually very close. Sin/cos preserves continuity:
 ```
 sin_hour = sin(2π × hour / 24)
 cos_hour = cos(2π × hour / 24)
 ```
 
-**Không dùng `duration_zscore` và `baseline` nữa** — loại bỏ dependency vào `gold.traffic_baseline` khi training, giúp model học trực tiếp từ pattern thực tế theo giờ/ngày.
+**`duration_zscore` and `baseline` are no longer used** — removing the dependency on `gold.traffic_baseline` at training time lets the model learn directly from real temporal patterns.
 
 ### Training Pipeline
 
@@ -121,9 +121,9 @@ gold.traffic_hourly ──► cyclical encoding ──► IsolationForest.fit()
                                          MLflow: traffic-anomaly-iforest@champion
 ```
 
-- Train per-route, cần ≥ 10 samples
-- `contamination=0.05` — model kỳ vọng 5% data là anomaly
-- Trigger: Prefect `retrain` flow mỗi 6h → `POST ml-service:8000/train`
+- Trained per-route, requires ≥ 10 samples
+- `contamination=0.05` — model expects 5% of training data to be anomalous
+- Trigger: Prefect `retrain` flow every 6h → `POST ml-service:8000/train`
 
 ### Scoring (On-demand)
 
@@ -139,55 +139,55 @@ X = np.array([[
     row["max_severe_segments"],
 ]])
 iforest_anomaly = model.predict(X)[0] == -1      # -1 = anomaly
-iforest_score   = model.decision_function(X)[0]  # âm hơn = bất thường hơn
+iforest_score   = model.decision_function(X)[0]  # more negative = more anomalous
 ```
 
-> **Score interpretation**: `decision_function` trả về giá trị **âm cho anomaly**, **dương cho normal**. Ngưỡng là `0`. Không phải `> 0.5` hay `> threshold` — giá trị âm = bất thường.
+> **Score interpretation**: `decision_function` returns **negative values for anomalies**, **positive for normal**. Threshold is `0`. Not `> 0.5` or `> threshold` — negative values mean anomalous.
 
-Model load lazy per-route, TTL = 1h. Fallback về zscore-only nếu không có model.
+Model is loaded lazily per-route with a 1-hour TTL. Falls back to zscore-only if no model is available.
 
 ### Persistence (route_iforest_scores)
 
-IForest kết quả được lưu vào `route_iforest_scores` mỗi 15s qua SSE loop. Table dùng **majority vote** để giảm noise:
+IForest results are written to `route_iforest_scores` every 15s via the SSE loop. The table uses **majority vote** to reduce noise:
 
 ```sql
--- Aggregate: anomalous nếu >= 50% lần score trong window là anomaly
+-- Aggregate: anomalous if >= 50% of scoring cycles in the window flagged it
 iforest_anomaly = anomaly_count::float / score_count >= 0.5
 both_anomaly    = both_count::float    / score_count >= 0.5
 ```
 
-Dùng cho: `/anomalies/history`, `/anomalies/summary`, `rag_indexer` (lấy anomaly events để index vào ChromaDB).
+Used by: `/anomalies/history`, `/anomalies/summary`, `rag_indexer` (reads anomaly events for ChromaDB indexing).
 
 ---
 
 ## Dual-Signal Merge
 
 ```python
-zscore_anomaly  = row["is_anomaly"]          # từ online_route_features
-iforest_anomaly = pred.iforest_anomaly       # from route_iforest_scores hoặc on-demand
+zscore_anomaly  = row["is_anomaly"]          # from online_route_features
+iforest_anomaly = pred.iforest_anomaly       # from route_iforest_scores or on-demand
 both_anomaly    = zscore_anomaly and iforest_anomaly
 ```
 
-### Ý nghĩa từng kết hợp
+### What each combination means
 
-| zscore | iforest | Signal | Ý nghĩa | Hành động |
-|--------|---------|--------|---------|-----------|
-| ✅ | ✅ | `BOTH` | Cả hai đồng ý — cảnh báo tin cậy nhất | Telegram alert |
-| ✅ | ❌ | `ZSCORE` | Duration tăng mạnh, pattern chưa lạ theo ML | Dashboard + log |
-| ❌ | ✅ | `IFOREST` | Pattern lạ nhiều chiều, duration chưa vượt ngưỡng | Dashboard + log |
-| ❌ | ❌ | — | Bình thường | — |
+| zscore | iforest | Signal | Meaning | Action |
+|--------|---------|--------|---------|--------|
+| ✅ | ✅ | `BOTH` | Both agree — most reliable alert | Telegram alert |
+| ✅ | ❌ | `ZSCORE` | Duration spiked, pattern not unusual per ML | Dashboard + log |
+| ❌ | ✅ | `IFOREST` | Multi-dimensional unusual pattern, duration not yet over threshold | Dashboard + log |
+| ❌ | ❌ | — | Normal | — |
 
 ---
 
 ## Telegram Alerting
 
-Prefect `alert` flow chạy **mỗi 5 phút**, chỉ alert khi có IForest-confirmed signal:
+Prefect `alert` flow runs **every 5 minutes**, alerts only on IForest-confirmed signals:
 
 ```python
-# Chỉ alert IFOREST hoặc BOTH — zscore-only quá nhiều false positive
+# Alert only on IFOREST or BOTH — zscore-only has too many false positives
 if row["iforest_anomaly"] or row["both_anomaly"]:
     if not recently_alerted(route_id, cooldown=30min):
-        analysis = ollama_generate(route_context)   # 1 câu tiếng Việt
+        analysis = ollama_generate(route_context)   # single-sentence summary
         send_telegram(alert_message)
         log_alert(route_id, signal, message)
 ```
@@ -196,95 +196,95 @@ Message format:
 ```
 🚨 Urban Pulse Alert [17:30 UTC]
 📍 Urban Core → Southern Port
-Tín hiệu: BOTH
+Signal: BOTH
 Heavy: 18.5% | Moderate: 32.1% | Severe segs: 3
 
-💡 Cao điểm chiều thứ 2, lượng xe tải từ khu công nghiệp...
+💡 Monday afternoon peak, heavy vehicles from industrial zone...
 ```
 
 ---
 
 ## RAG-Enhanced Explanation
 
-Khi user nhấn "Explain" hoặc dùng `/rca`, hệ thống:
+When a user clicks "Explain" or calls `/rca`, the system:
 
-1. **Fetch live weather** từ Open-Meteo API (cache 15 phút) → inject trực tiếp vào prompt
-2. **Embed câu hỏi** bằng `nomic-embed-text` (768-dim)
-3. **Retrieve** từ ChromaDB:
-   - `anomaly_events` — lịch sử bất thường 7 ngày, filter theo `route_id`
-   - `traffic_patterns` — baseline (route × dow × hour) từ gold layer
-   - `external_context` — thời tiết HCMC 7 ngày từ Open-Meteo, filter `hour_ts >= now-24h`
-4. **Inject context** vào prompt Ollama theo thứ tự: live weather → RAG chunks
-5. **Stream** response qua SSE
+1. **Fetches live weather** from Open-Meteo API (15-min cache) → injects directly into prompt
+2. **Embeds the query** using `nomic-embed-text` (768-dim)
+3. **Retrieves** from ChromaDB:
+   - `anomaly_events` — 7-day anomaly history, filtered by `route_id`
+   - `traffic_patterns` — baseline (route × dow × hour) from gold layer
+   - `external_context` — HCMC weather 7 days from Open-Meteo, filtered `hour_ts >= now-24h`
+4. **Injects context** into Ollama prompt in order: live weather → RAG chunks
+5. **Streams** response via SSE
 
 **Three-layer context:**
 
-| Layer | Nguồn | Latency | Mục đích |
-|-------|-------|---------|---------|
-| Live weather | Open-Meteo API (direct) | ~200ms | Điều kiện thời tiết ngay lúc này |
-| RAG weather | ChromaDB `external_context` | ~50ms | Pattern thời tiết 7 ngày gần nhất |
-| RAG traffic | ChromaDB `anomaly_events` + `traffic_patterns` | ~50ms | Lịch sử bất thường + baseline |
+| Layer | Source | Latency | Purpose |
+|-------|--------|---------|---------|
+| Live weather | Open-Meteo API (direct) | ~200ms | Current weather conditions |
+| RAG weather | ChromaDB `external_context` | ~50ms | 7-day weather patterns |
+| RAG traffic | ChromaDB `anomaly_events` + `traffic_patterns` | ~50ms | Anomaly history + baseline |
 
-LLM (qwen2.5:3b) được instruction rõ ràng: nếu đang mưa/giông → phân tích mối liên hệ với tắc nghẽn; nếu trời quang → loại trừ yếu tố thời tiết.
+The LLM (qwen2.5:3b) is explicitly instructed: if it's raining/stormy → analyze the link to congestion; if clear → rule out weather as a factor.
 
-Kết quả tốt hơn plain LLM vì model có **evidence thực tế** (traffic history + weather) thay vì chỉ dựa vào parametric knowledge.
+Results are better than plain LLM because the model has **real evidence** (traffic history + weather) rather than relying solely on parametric knowledge.
 
 ---
 
 ## Conversational AI (/chat)
 
-Ngoài explain và rca (single-turn, route-specific), Urban Pulse còn cung cấp `/chat` — trợ lý AI conversational về toàn bộ hệ thống.
+Beyond explain and rca (single-turn, route-specific), Urban Pulse provides `/chat` — a conversational AI assistant covering the entire system.
 
-**Khác biệt so với /explain:**
+**Difference from /explain:**
 
 | | `/explain` + `/rca` | `/chat` |
 |-|--------------------|---------|
-| Scope | Một route cụ thể | Toàn bộ hệ thống |
+| Scope | One specific route | Entire system |
 | Context | RAG retrieval (ChromaDB) | Live system snapshot (Postgres query) |
-| Multi-turn | Không | Có — session history |
+| Multi-turn | No | Yes — session history |
 | Ollama API | `/api/generate` (stateless) | `/api/chat` (multi-turn messages array) |
 
-**Session history:** Frontend gửi lịch sử cuộc trò chuyện (tối đa 10 tin nhắn gần nhất) trong mỗi request. Backend cap tại 10 để tránh overflow context window của qwen2.5:3b (32k tokens). Session scope là widget lifetime — không persist vào DB.
+**Session history:** Frontend sends conversation history (up to 10 most recent messages) in each request. Backend caps at 10 to avoid overflowing the context window of qwen2.5:3b (32k tokens). Session scope is widget lifetime — not persisted to DB.
 
-**System snapshot:** Mỗi request `/chat` kéo live snapshot từ Postgres:
+**System snapshot:** Each `/chat` request pulls a live snapshot from Postgres:
 - Top anomalous routes (is_anomaly = true)
 - Aggregate metrics (heavy ratio p95, anomaly count)
-- Live weather từ Open-Meteo (cache 15 min)
+- Live weather from Open-Meteo (cache 15 min)
 
-Snapshot được inject vào system prompt trước khi call Ollama, đảm bảo câu trả lời dựa trên data thực tế chứ không phải parametric knowledge.
+The snapshot is injected into the system prompt before calling Ollama, ensuring responses are grounded in real data rather than parametric knowledge.
 
 ---
 
 ## Known Issues & Mitigations
 
-### Extreme z-score từ baseline xấu
+### Extreme z-score from bad baseline
 
-**Nguyên nhân:** Bootstrap quá ít data → `STDDEV()` trả NULL → fallback `AVG * 0.1` cho stddev rất nhỏ.
+**Cause:** Bootstrap ran with too little data → `STDDEV()` returns NULL → fallback `AVG * 0.1` gives very small stddev.
 
-**Fix:** `GREATEST(..., 1.0)` trong `baseline_learning.py` — floor stddev tối thiểu 1 phút.
+**Fix:** `GREATEST(..., 1.0)` in `baseline_learning.py` — floor stddev at 1 minute minimum.
 
-### 40% IForest anomaly rate sau khi deploy cyclical encoding
+### 40% IForest anomaly rate after deploying cyclical encoding
 
-**Nguyên nhân:** Serving load model cũ (5 features), nhưng code mới build vector 7 features → dimension mismatch → mọi route bị flag.
+**Cause:** Serving loaded the old model (5 features), but new code builds a 7-feature vector → dimension mismatch → every route flagged.
 
-**Fix:** Restart serving container sau khi retrain xong với model mới.
+**Fix:** Restart serving container after retrain completes with the new model.
 
-### IForest score hiển thị sai threshold trên UI
+### IForest score displayed with wrong threshold in UI
 
-**Fix đã apply:** Label trên routes/[id] page: `anomaly if < 0` (thay vì `anomaly > 0.5`). Z-score threshold: `anomaly if > 3.0` (thay vì `±3.0`).
+**Fix applied:** Label on routes/[id] page: `anomaly if < 0` (not `anomaly > 0.5`). Z-score threshold: `anomaly if > 3.0` (not `±3.0`).
 
-### Window state mất khi restart online service
+### Window state lost on online service restart
 
-**Fix đã apply:** `_restore_windows()` — reconstruct `RouteWindow` từ Postgres khi startup.
+**Fix applied:** `_restore_windows()` — reconstructs `RouteWindow` from Postgres on startup.
 
 ---
 
 ## Data Quality Checklist
 
-Trước khi tin vào anomaly results:
+Before trusting anomaly results:
 
-- [ ] `gold.traffic_baseline` có rows cho tất cả 20 routes × 168 slots
-- [ ] `gold.traffic_hourly` có ≥ 10 rows per route (IForest training minimum)
+- [ ] `gold.traffic_baseline` has rows for all 20 routes × 168 time slots
+- [ ] `gold.traffic_hourly` has ≥ 10 rows per route (IForest training minimum)
 - [ ] Online service log: `baseline loaded — 20 entries`
-- [ ] Serving log: không có `no model for route` liên tục
-- [ ] `iforest_score` từ `/predict/anomalies/{route_id}` trả về giá trị trong range `[-0.5, 0.3]`
+- [ ] Serving log: no continuous `no model for route` messages
+- [ ] `iforest_score` from `/predict/anomalies/{route_id}` returns values in range `[-0.5, 0.3]`
