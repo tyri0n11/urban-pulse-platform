@@ -1,10 +1,8 @@
 """Explain controller — fetches route data, RAG context, and weather for LLM explanation."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
-
-_HCMC_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 import asyncpg
 from fastapi import HTTPException
@@ -12,6 +10,8 @@ from fastapi import HTTPException
 from serving.repo import online as online_repo
 from serving.services import prediction_service
 from serving.utils.routes import load_routes_coords
+
+_HCMC_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 async def fetch_route_data(route_id: str, conn: asyncpg.Connection) -> dict[str, Any]:
@@ -126,7 +126,7 @@ def build_explain_prompt(
 
     parts += [
         "",
-        f"Write exactly 3 sections using these ### headings in order:",
+        "Write exactly 3 sections using these ### headings in order:",
         f"{section_labels[0]} — what specifically is anomalous: signal type, numbers vs baseline, severity.",
         f"{section_labels[1]} — why this is happening: traffic patterns, time-of-day, HCMC geography, weather if relevant.",
         f"{section_labels[2]} — severity level and one concrete recommendation.",
