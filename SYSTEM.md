@@ -40,7 +40,7 @@ Real-time traffic anomaly detection platform for Ho Chi Minh City. Polls VietMap
 | **chromadb** | chromadb/chroma:latest | internal | Vector DB for RAG pipeline |
 | **ollama** | ollama/ollama:latest | internal | LLM + embedding inference |
 | **traffic-ingestion** | custom | internal | Polls VietMap API every 5 min → Kafka (sequential, 10s inter-request delay) |
-| **weather-ingestion** | custom | internal | Polls Open-Meteo API hourly → triggers batch weather pipeline |
+| **weather-ingestion** | custom | internal | Polls Open-Meteo API hourly → Kafka `weather-hcmc-bronze` → MinIO bronze (archive only) |
 | **streaming** | custom | internal | Kafka → MinIO bronze Parquet |
 | **online** | custom | internal | Kafka → Postgres real-time features |
 | **batch** | custom | internal | Prefect: medallion + retrain + RAG indexer + alerter |
@@ -64,13 +64,14 @@ VietMap API (every 5 min)
                       └─► online    ──► Postgres: online_route_features (Welford + z-score)
 
 Open-Meteo API (free, no key — HCMC lat/lon)
-  └─► batch (1 hr)   ──► ChromaDB: external_context (7-day rolling hourly weather)
-  └─► serving /chat  ──► live fetch (cache 15 min) ──► inject into LLM prompt
+  └─► weather-ingestion ──► Kafka: weather-hcmc-bronze ──► streaming ──► MinIO bronze (archive)
+  └─► rag_indexer (1 hr, direct API) ──► ChromaDB: external_context (7-day rolling)
+  └─► serving /chat & /explain & /rca ──► live fetch (cache 15 min) ──► inject into LLM prompt
 
-MinIO bronze
+MinIO bronze (traffic)
   └─► batch (5 min)  ──► Iceberg silver.traffic_route
   └─► batch (1 hr)   ──► Iceberg gold.traffic_hourly
-                           └─► RAG index: anomaly_events + external_context/weather (ChromaDB)
+                           └─► RAG index: anomaly_events (ChromaDB)
   └─► batch (6 hrs)  ──► POST ml-service:8000/train
                            └─► MLflow: traffic-anomaly-iforest@champion
                                  └─► serving loads on /predict (TTL 1h)
@@ -263,11 +264,11 @@ Embedding model: `nomic-embed-text` via Ollama `/api/embed`. Space: cosine.
 | Flow | Schedule | What it does |
 |------|----------|-------------|
 | `microbatch` | Every 5 min | Bronze → Silver (incremental) |
-| `hourly-gold` | Every 1 hr | Silver → Gold + RAG index (anomaly events + weather from Open-Meteo) |
+| `hourly-gold` | Every 1 hr | Silver → Gold; RAG index anomaly_events; fetches weather directly from Open-Meteo → external_context |
 | `retrain` | Every 6 hrs | Gold → baseline + POST /train + RAG index (traffic patterns full scan) |
 | `alert` | Every 5 min | Check active anomalies → Telegram (IForest-confirmed only) |
-| `rag-index` | Manual | Full re-index; `--param index_patterns=false` = weather + anomalies only (~60s) |
-| `bootstrap` | Manual | Full medallion rebuild from scratch |
+| `rag-index` | Manual | Full re-index; `--param index_patterns=false` = anomalies + weather only (~60s) |
+| `bootstrap` | Manual | Full medallion rebuild; pauses `microbatch` + `hourly-gold` deployments during run |
 | `backfill` | Manual | Time-range backfill for silver |
 
 ---

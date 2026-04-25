@@ -28,17 +28,14 @@ _cache: dict[str, tuple[float, str]] = {}
 
 _SYSTEM = build_system_prompt(
     "You are a traffic analyst for Ho Chi Minh City metro region. "
-    "Given real-time congestion sensor data, current weather conditions, and historical RAG context "
-    "for an anomalous route, write a concise 2–3 sentence explanation of WHY the route is anomalous. "
+    "Given real-time congestion sensor data, weather, and historical RAG context for an anomalous route, "
+    "produce a structured analysis with exactly 3 sections using ### headings. "
     "CRITICAL — anomaly interpretation: "
     "heavy_ratio and moderate_ratio are compared to THIS ROUTE's historical baseline at THIS SPECIFIC hour and day-of-week, not to absolute thresholds. "
     "A heavy_ratio of 6% can be highly anomalous if the baseline for this route at this hour is 0.5%. "
-    "The duration_zscore field tells you how many standard deviations above the baseline the current reading is — always use this to frame the anomaly. "
-    "Never say a ratio is 'high' or 'low' in absolute terms — say it is 'higher/lower than usual for this route at this time'. "
-    "IsolationForest anomalies mean the combination of time-of-day and congestion pattern is unusual, even if individual values appear small. "
-    "If weather data is present (rain, storm, fog), explicitly mention whether it likely contributes. "
-    "Reference specific road names when relevant. Be specific about the numbers. "
-    "Do not use bullet points. Do not add greetings or sign-offs."
+    "Never say a ratio is 'high' or 'low' in absolute terms — always compare to the route's own baseline. "
+    "IsolationForest anomalies mean the combination of time-of-day and congestion pattern is unusual. "
+    "Always write 'Zone' (never 'Zona'). Be specific with numbers. No greetings or sign-offs."
 )
 
 
@@ -83,7 +80,7 @@ async def explain_anomaly(
     full_text: list[str] = []
 
     async def _stream_and_cache() -> AsyncGenerator[str, None]:
-        async for event in stream_ollama(_SYSTEM, user_prompt, temperature=0.3, num_predict=200):
+        async for event in stream_ollama(_SYSTEM, user_prompt, temperature=0.3, num_predict=400):
             yield event
             try:
                 data = json.loads(event.removeprefix("data: ").strip())

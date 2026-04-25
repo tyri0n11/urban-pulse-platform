@@ -11,7 +11,7 @@ Complete technology inventory for Urban Pulse. Every component was selected to s
 | Traffic source | VietMap Traffic API | REST/JSON | Real-time congestion data for HCMC |
 | Weather source | Open-Meteo API | REST/JSON | Free, no-key HCMC hourly weather |
 | Traffic ingestion | Python (`traffic-ingestion`) | 3.12 | Polls VietMap every 5 min, sequential with 10s inter-request delay, publishes to Kafka |
-| Weather ingestion | Python (`weather-ingestion`) | 3.12 | Polls Open-Meteo hourly, triggers batch weather pipeline |
+| Weather ingestion | Python (`weather-ingestion`) | 3.12 | Polls Open-Meteo hourly, publishes to Kafka → MinIO bronze (archive) |
 | Message broker | Apache Kafka (Redpanda) | v25.3.10 | Durable, partitioned event log |
 | Schema validation | JSON Schema + Pydantic | — | Contract enforcement on Kafka messages |
 
@@ -42,12 +42,11 @@ Complete technology inventory for Urban Pulse. Every component was selected to s
 | Iceberg catalog | Project Nessie | 0.99.0 | Git-like version control for Iceberg tables |
 | SQL query engine | Dremio (OSS) | latest | Ad-hoc queries over Iceberg via Arrow Flight |
 | Baseline learning | DuckDB SQL | — | Aggregates gold layer → `gold.traffic_baseline` |
-| Weather pipeline | DuckDB + PyIceberg | — | Open-Meteo → Silver → Gold (hourly weather) |
 
 **Medallion layers:**
 - **Bronze**: Raw Parquet from streaming (schema-exact copy of Kafka messages)
 - **Silver**: Cleaned, typed, deduplicated Iceberg table (`silver.traffic_route`)
-- **Gold**: Hourly aggregations (`gold.traffic_hourly`), baselines (`gold.traffic_baseline`), weather (`gold.weather_hourly`)
+- **Gold**: Hourly aggregations (`gold.traffic_hourly`), baselines (`gold.traffic_baseline`)
 
 ---
 
@@ -88,9 +87,9 @@ Complete technology inventory for Urban Pulse. Every component was selected to s
 |-----------|-----------|---------|---------|
 | `anomaly_events` | ~500 | Every 1h | HCMC anomaly history (7 days) from Postgres |
 | `traffic_patterns` | ~3360 | Every 6h | Route × hour × DOW baseline from gold layer |
-| `external_context` | ~192 | Every 1h | HCMC weather history (7 days) from Open-Meteo |
+| `external_context` | ~192 | Every 1h | HCMC weather history (7 days) — fetched directly from Open-Meteo archive API by `rag_indexer` |
 
-**RAG retrieval strategy**: For `/explain` and `/rca`, the system performs three parallel lookups — live weather (direct API call, cached 15 min), recent traffic patterns (ChromaDB filter by `route_id`), and recent weather chunks (ChromaDB filter by `hour_ts >= now - 24h`). All context is injected into the prompt before streaming to Ollama.
+**RAG retrieval strategy**: For `/explain` and `/rca`, the system performs three parallel lookups — live weather (direct Open-Meteo API call, cached 15 min), recent traffic patterns (ChromaDB filter by `route_id`), and recent weather chunks (ChromaDB filter by `hour_ts >= now - 24h`). All context is injected into the prompt before streaming to Ollama. Weather for RAG is fetched directly from Open-Meteo by the `rag_indexer` — there is no intermediate Iceberg layer for weather.
 
 **Chat session context**: `/chat` uses Ollama `/api/chat` (multi-turn messages array) rather than `/api/generate` (stateless). The frontend sends the last 10 messages as history; the backend caps this to prevent context overflow in qwen2.5:3b's 32k token window.
 
