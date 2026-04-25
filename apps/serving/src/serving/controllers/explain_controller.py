@@ -2,6 +2,9 @@
 
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
+
+_HCMC_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 import asyncpg
 from fastapi import HTTPException
@@ -41,11 +44,11 @@ async def fetch_rag_context(
 
     window_start = row.get("updated_at")
     if window_start and hasattr(window_start, "astimezone"):
-        ts = window_start.astimezone(timezone.utc)
-        hour, dow = ts.hour, (ts.weekday() + 1) % 7
+        ts_local = window_start.astimezone(_HCMC_TZ)
+        hour, dow = ts_local.hour, (ts_local.weekday() + 1) % 7
     else:
-        now = datetime.now(timezone.utc)
-        hour, dow = now.hour, (now.weekday() + 1) % 7
+        now_local = datetime.now(_HCMC_TZ)
+        hour, dow = now_local.hour, (now_local.weekday() + 1) % 7
 
     try:
         chroma = get_chroma_client()
@@ -79,17 +82,29 @@ def build_explain_prompt(
     elif is_if:
         signal.append("IsolationForest (cấu trúc congestion bất thường đa chiều)")
 
-    lang_instruction = "Trả lời bằng tiếng Việt." if lang == "vi" else "Respond in English."
+    lang_note = (
+        "QUAN TRỌNG: Toàn bộ phân tích phải bằng tiếng Việt. Tuyệt đối không dùng tiếng Anh."
+        if lang == "vi"
+        else "IMPORTANT: Write the entire analysis in English."
+    )
+
+    section_labels = (
+        ("### Quan sát", "### Nguyên nhân", "### Đánh giá")
+        if lang == "vi"
+        else ("### Observation", "### Root Cause", "### Assessment")
+    )
 
     parts = [
-        f"=== DỮ LIỆU TẮC NGHẼN BẤT THƯỜNG ===\n"
-        f"Tuyến: {origin} → {dest}\n"
-        f"Tỉ lệ đoạn TẮC NẶNG (heavy_ratio): {heavy:.1%}\n"
-        f"Tỉ lệ đoạn CHẬM VỪA (moderate_ratio): {moderate:.1%}\n"
-        f"Tỉ lệ đoạn ÍT TẮC (low_ratio): {low:.1%}\n"
-        f"Đoạn NGHIÊM TRỌNG NHẤT (severe_segments): {severe}\n"
-        f"Số quan sát trong cửa sổ: {obs}\n"
-        f"Tín hiệu bất thường: {', '.join(signal) if signal else 'none'}"
+        lang_note,
+        "",
+        "=== ANOMALY DATA ===",
+        f"Route: {origin} → {dest}",
+        f"Heavy congestion ratio (heavy_ratio): {heavy:.1%}",
+        f"Moderate congestion ratio (moderate_ratio): {moderate:.1%}",
+        f"Low congestion ratio (low_ratio): {low:.1%}",
+        f"Max severe segments: {severe}",
+        f"Observations in window: {obs}",
+        f"Anomaly signal: {', '.join(signal) if signal else 'none'}",
     ]
 
     if weather:
@@ -97,21 +112,24 @@ def build_explain_prompt(
         rain = weather.get("rain_mm") or weather.get("precipitation_mm") or 0.0
         wind = weather.get("wind_speed_kmh")
         desc = weather.get("weather_desc", "")
-        parts.append(
-            f"\n=== THỜI TIẾT HIỆN TẠI TP.HCM (Open-Meteo) ===\n"
-            f"Điều kiện: {desc}"
+        parts += [
+            "",
+            "=== CURRENT WEATHER (HCMC) ===",
+            f"Condition: {desc}"
             + (f", {temp:.1f}°C" if temp is not None else "")
-            + (f", mưa {rain:.1f} mm" if float(rain) > 0 else ", không mưa")
-            + (f", gió {wind:.1f} km/h" if wind is not None else "")
-        )
+            + (f", rain {rain:.1f} mm" if float(rain) > 0 else ", no rain")
+            + (f", wind {wind:.1f} km/h" if wind is not None else ""),
+        ]
 
     if rag_context:
-        parts.append(f"\n{rag_context}")
+        parts += ["", rag_context]
 
-    parts.append(
-        f"\n{lang_instruction}\n"
-        f"Dựa vào dữ liệu tắc nghẽn, thời tiết hiện tại, mẫu giao thông lịch sử "
-        f"và context ở trên (nếu có), hãy giải thích trong 2–3 câu tại sao tuyến "
-        f"đường này đang bất thường — đề cập cụ thể đến thời tiết nếu có khả năng liên quan:"
-    )
+    parts += [
+        "",
+        f"Write exactly 3 sections using these ### headings in order:",
+        f"{section_labels[0]} — what specifically is anomalous: signal type, numbers vs baseline, severity.",
+        f"{section_labels[1]} — why this is happening: traffic patterns, time-of-day, HCMC geography, weather if relevant.",
+        f"{section_labels[2]} — severity level and one concrete recommendation.",
+        f"2–3 sentences per section. {lang_note}",
+    ]
     return "\n".join(parts)
