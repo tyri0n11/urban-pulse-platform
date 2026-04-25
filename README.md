@@ -3,7 +3,7 @@
 ![OVERVIEW](assets/urbanpulse.png)
 
 
-Real-time traffic anomaly detection platform cho Thành phố Hồ Chí Minh. Polls VietMap API mỗi 5 phút, xử lý qua medallion lakehouse, phát hiện bất thường bằng dual-signal (Z-Score + IsolationForest), stream kết quả lên dashboard Next.js qua SSE, và giải thích bằng LLM qua RAG pipeline với dữ liệu lịch sử + thời tiết thực (Open-Meteo).
+Real-time traffic anomaly detection platform for Ho Chi Minh City. Polls VietMap API every 5 minutes, processes data through a medallion lakehouse, detects anomalies via dual-signal (Z-Score + IsolationForest), streams results to a Next.js dashboard via SSE, and explains anomalies via LLM with RAG pipeline backed by historical traffic and live weather data (Open-Meteo).
 
 **Homelab deployment:** Intel i5-8th gen, 24 GB RAM · [tyr1on.io.vn](tyr1on.io.vn)
 
@@ -12,22 +12,22 @@ Real-time traffic anomaly detection platform cho Thành phố Hồ Chí Minh. Po
 ## Architecture
 
 ```
-VietMap API (mỗi 5 phút)
+VietMap API (every 5 min)
   └─► ingestion ──► Kafka: traffic-route-bronze
                       ├─► streaming ──► MinIO: bronze/year=Y/month=M/day=D/hour=H/*.parquet
                       └─► online    ──► Postgres: online_route_features (z-score, Welford)
 
 Open-Meteo API (free, no key)
-  └─► batch (mỗi 1 giờ) ──► ChromaDB: external_context (7-day rolling weather)
-  └─► serving /chat      ──► live fetch → inject vào LLM prompt trực tiếp (cache 15 phút)
+  └─► batch (every 1 hr) ──► ChromaDB: external_context (7-day rolling weather)
+  └─► serving /chat      ──► live fetch → inject directly into LLM prompt (cache 15 min)
 
 MinIO bronze
-  └─► batch (mỗi 5 phút) ──► Iceberg: silver.traffic_route
-  └─► batch (mỗi 1 giờ)  ──► Iceberg: gold.traffic_hourly
+  └─► batch (every 5 min) ──► Iceberg: silver.traffic_route
+  └─► batch (every 1 hr)  ──► Iceberg: gold.traffic_hourly
                                 └─► RAG index: anomaly_events + external_context (weather)
-  └─► batch (mỗi 6 giờ)  ──► POST /train → MLflow: iforest@champion
+  └─► batch (every 6 hrs) ──► POST /train → MLflow: iforest@champion
                                 └─► RAG index: traffic_patterns (full re-index)
-  └─► batch (mỗi 5 phút) ──► Anomaly alerter → Telegram (IForest-confirmed anomalies)
+  └─► batch (every 5 min) ──► Anomaly alerter → Telegram (IForest-confirmed anomalies)
 
 Postgres + ChromaDB (RAG)
   └─► serving /explain ──► RAG retrieval (anomaly history + patterns + weather) + Ollama → SSE
@@ -38,24 +38,24 @@ Postgres + ChromaDB (RAG)
 
 ### Dual-signal anomaly detection
 
-| Signal | Tầng | Threshold | Latency |
-|--------|------|-----------|---------|
+| Signal | Layer | Threshold | Latency |
+|--------|-------|-----------|---------|
 | **Z-Score** | Online (Kafka consumer) | `z > 3.0` | < 20s |
 | **IsolationForest** | Serving (on-demand) | `decision_function < 0` (7 cyclical features) | ~100ms |
 
-`both_anomaly = true` khi cả hai đồng ý → cảnh báo tin cậy nhất. Chi tiết: [ANOMALY.md](ANOMALY.md)
+`both_anomaly = true` when both agree → most reliable alert. Details: [ANOMALY.md](ANOMALY.md)
 
 ### RAG Pipeline (LLM Explain)
 
 ```
-ChromaDB collections (3 tầng context):
-  ├─ anomaly_events    (500+ docs) — lịch sử bất thường 7 ngày (Postgres)
-  ├─ traffic_patterns  (3360 docs) — baseline (route × dow × hour) từ gold
-  └─ external_context  (192 docs)  — thời tiết HCMC 7 ngày (Open-Meteo, rolling)
+ChromaDB collections (3 context layers):
+  ├─ anomaly_events    (500+ docs) — 7-day anomaly history from Postgres
+  ├─ traffic_patterns  (3360 docs) — baseline (route × dow × hour) from gold
+  └─ external_context  (192 docs)  — HCMC weather 7 days (Open-Meteo, rolling)
 
 Indexing schedule:
-  hourly-gold (mỗi 1h)  → anomaly_events + external_context (weather)
-  retrain (mỗi 6h)      → traffic_patterns (full gold scan)
+  hourly-gold (every 1h)  → anomaly_events + external_context (weather)
+  retrain (every 6h)      → traffic_patterns (full gold scan)
 
 serving /explain & /rca:
   Query → OllamaEmbedder (nomic-embed-text, 768-dim)
@@ -63,7 +63,7 @@ serving /explain & /rca:
          → Inject context → Ollama (qwen2.5:3b) → Stream SSE
 
 serving /chat:
-  Postgres snapshot (traffic) + Open-Meteo live fetch (cache 15 phút)
+  Postgres snapshot (traffic) + Open-Meteo live fetch (cache 15 min)
          → Inject → Ollama → Stream SSE
 ```
 
@@ -90,15 +90,15 @@ infra/
   docker/          # docker-compose.dev.yaml + docker-compose.prod.yaml
   monitoring/      # Prometheus, Grafana dashboards, Loki, Promtail
 
-platform/schemas/  # JSON Schema cho Kafka message formats
+platform/schemas/  # JSON Schema for Kafka message formats
 ```
 
 ---
 
 ## Services & Ports (Dev)
 
-| Service | Port | Mô tả |
-|---------|------|-------|
+| Service | Port | Description |
+|---------|------|-------------|
 | Redpanda (Kafka) | 19092 | External; internal: `redpanda:9092` |
 | Redpanda Console | 8080 | Kafka UI |
 | MinIO API | 9000 | Object storage |
@@ -116,7 +116,7 @@ platform/schemas/  # JSON Schema cho Kafka message formats
 | Loki | 3100 | Log aggregation |
 | Next.js UI | 3000 | Dashboard (sibling repo) |
 
-> **Dev**: Ollama chạy natively trên macOS (Metal GPU), không phải Docker container. Các services trỏ đến `host.docker.internal:11434`.
+> **Dev**: Ollama runs natively on macOS (Metal GPU), not in a Docker container. Services point to `host.docker.internal:11434`.
 
 ---
 
@@ -124,7 +124,7 @@ platform/schemas/  # JSON Schema cho Kafka message formats
 
 ### Prerequisites
 
-- Docker Desktop (Mac) hoặc Docker Engine + Compose (Linux)
+- Docker Desktop (Mac) or Docker Engine + Compose (Linux)
 - `uv` — Python package manager
 - Ollama (native, macOS): `brew install ollama`
 
@@ -136,27 +136,27 @@ cd urban-pulse-platform
 git clone git@github.com:tyri0n11/v0-urban-pulse-dashboard.git
 ```
 
-> UI repo phải nằm trong `urban-pulse-platform/` — docker-compose context path `../../v0-urban-pulse-dashboard`.
+> The UI repo must live inside `urban-pulse-platform/` — docker-compose context path is `../../v0-urban-pulse-dashboard`.
 
-### 2. Tạo `.env`
+### 2. Create `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Điền vào:
+Fill in:
 
 ```env
 VIETMAP_API_KEY=<your key>
 MINIO_ROOT_USER=<username>
-MINIO_ROOT_PASSWORD=<password, không dùng ký tự @>
+MINIO_ROOT_PASSWORD=<password, no @ symbol>
 NESSIE_S3_ACCESS_KEY=<same as MINIO_ROOT_USER>
 NESSIE_S3_SECRET_KEY=<same as MINIO_ROOT_PASSWORD>
 POSTGRES_USER=urbanpulse
-POSTGRES_PASSWORD=<password, không dùng ký tự @>
+POSTGRES_PASSWORD=<password, no @ symbol>
 ```
 
-> **Không dùng `@` trong password** — asyncpg parse DSN và `@` phá vỡ host separator.
+> **Do not use `@` in passwords** — asyncpg parses the DSN and `@` breaks the host separator.
 
 ### 3. Pull Ollama models
 
@@ -171,32 +171,32 @@ ollama pull nomic-embed-text
 make dev
 ```
 
-Đợi ~2 phút để các services healthy. Kiểm tra:
+Wait ~2 minutes for services to become healthy. Check:
 
 ```bash
 make status
 make logs
 ```
 
-### 5. Bootstrap (lần đầu)
+### 5. Bootstrap (first time)
 
 ```bash
-make bootstrap   # Tạo Iceberg tables, chạy medallion pipeline từ đầu
-make train       # Train IsolationForest, push lên MLflow
+make bootstrap   # Create Iceberg tables, run medallion pipeline from scratch
+make train       # Train IsolationForest, push to MLflow
 ```
 
-### 6. Khởi tạo RAG index (lần đầu)
+### 6. Initialize RAG index (first time)
 
 ```bash
-# Chỉ index weather + anomaly events (nhanh, ~60s)
+# Index weather + anomaly events only (fast, ~60s)
 docker exec batch-service .venv/bin/prefect deployment run rag-index/rag-index-deployment \
   --param index_patterns=false
 
-# Index đầy đủ bao gồm traffic patterns (chậm hơn ~5-10 phút do Ollama embedding)
+# Full index including traffic patterns (slower ~5-10 min due to Ollama embedding)
 docker exec batch-service .venv/bin/prefect deployment run rag-index/rag-index-deployment
 ```
 
-### 7. Mở UI
+### 7. Open UI
 
 ```
 http://localhost:3000        — Dashboard
@@ -214,19 +214,19 @@ http://localhost:8010        — ChromaDB (RAG vector store)
 
 ```bash
 # Stack
-make dev            # Start toàn bộ stack
-make down           # Stop tất cả containers
+make dev            # Start full stack
+make down           # Stop all containers
 make status         # docker ps
 make logs           # Tail logs
 
 # Build
-make build          # Rebuild tất cả images
+make build          # Rebuild all images
 make build-serving  # Rebuild serving only
 make build-ingestion
 
 # ML
-make train          # Trigger retrain thủ công
-make bootstrap      # Full medallion rebuild từ đầu
+make train          # Trigger retrain manually
+make bootstrap      # Full medallion rebuild from scratch
 
 # Code quality
 make lint           # ruff check
@@ -236,17 +236,17 @@ make test-unit
 make test-integration
 
 # Routes
-python routes_generator.py  # Tái tạo routes.json từ zones.json
+python routes_generator.py  # Regenerate routes.json from zones.json
 ```
 
-### Rebuild và restart 1 service
+### Rebuild and restart a single service
 
 ```bash
 docker compose --env-file .env -f infra/docker/docker-compose.dev.yaml build --no-cache serving
 docker compose --env-file .env -f infra/docker/docker-compose.dev.yaml up -d serving
 ```
 
-### Trigger Prefect flow thủ công
+### Trigger a Prefect flow manually
 
 ```bash
 docker exec batch-service .venv/bin/prefect deployment run microbatch/microbatch-deployment
@@ -264,13 +264,13 @@ Base URL (dev): `http://localhost:8001`
 GET  /online/features                    — Latest snapshot per route
 GET  /online/features/{route_id}         — Single route latest
 GET  /online/features/{route_id}/history — Per-hour windows, ?hours=24
-GET  /online/routes                      — Latest + static coords từ routes.json
+GET  /online/routes                      — Latest + static coords from routes.json
 GET  /online/lag                         — p50/p95/max ingest lag stats
 
-GET  /anomalies/current                  — Anomalous routes ngay lúc này
+GET  /anomalies/current                  — Anomalous routes right now
 GET  /anomalies/history                  — Anomaly events, ?hours=24
 GET  /anomalies/summary                  — Count per hour
-GET  /anomalies/{route_id}               — Full timeline 1 route
+GET  /anomalies/{route_id}               — Full timeline for one route
 GET  /anomalies/{route_id}/explain       — SSE: LLM explanation (RAG-enhanced)
 
 GET  /metrics/routes                     — Lightweight snapshot (all routes)
@@ -280,21 +280,21 @@ GET  /metrics/leaderboard                — Top N by |zscore|
 GET  /metrics/heatmap                    — Route × hour zscore matrix
 
 GET  /predict/anomalies                  — IForest score all routes
-GET  /predict/anomalies/{route_id}       — IForest score 1 route
+GET  /predict/anomalies/{route_id}       — IForest score one route
 GET  /predict/model/info                 — Cache age, loaded URI, next refresh
 
 POST /rca                                — RAG-powered Root Cause Analysis (SSE)
-POST /rca/feedback                       — Thumbs up/down cho fine-tuning
+POST /rca/feedback                       — Thumbs up/down for fine-tuning
 GET  /rca/logs                           — Recent interaction logs
 
-POST /chat                               — Conversational AI với live snapshot (SSE)
+POST /chat                               — Conversational AI with live snapshot (SSE)
 GET  /chat/context                       — Raw snapshot (debug)
 
 POST /telegram/webhook                   — Telegram bot webhook
 GET  /telegram/info                      — Bot info (verify token)
 GET  /telegram/set-webhook?url=...       — Register webhook URL
 
-GET  /events/traffic                     — SSE: traffic snapshot mỗi 15s
+GET  /events/traffic                     — SSE: traffic snapshot every 15s
 
 GET  /health/live
 GET  /health/ready
@@ -312,27 +312,27 @@ gold/     Iceberg (Nessie)     — Hourly aggregates + baseline stats
 
 ### Key tables
 
-| Table | Layer | Mô tả |
-|-------|-------|-------|
-| `silver.traffic_route` | Silver | Cleaned observations từ bronze |
+| Table | Layer | Description |
+|-------|-------|-------------|
+| `silver.traffic_route` | Silver | Cleaned observations from bronze |
 | `gold.traffic_hourly` | Gold | Aggregates per (route_id, hour_utc) |
-| `gold.traffic_baseline` | Gold | Stats per (route_id, dow, hour): mean, stddev cho z-score |
+| `gold.traffic_baseline` | Gold | Stats per (route_id, dow, hour): mean, stddev for z-score |
 | `online_route_features` | Postgres | Real-time Welford window + z-score |
-| `route_iforest_scores` | Postgres | IForest scores mỗi 15s (persistence, anomaly history) |
-| `anomaly_alert_log` | Postgres | Lịch sử Telegram alerts (dedup 30 phút) |
-| `rag_interaction_log` | Postgres | Lịch sử RCA queries cho fine-tuning |
+| `route_iforest_scores` | Postgres | IForest scores every 15s (persistence, anomaly history) |
+| `anomaly_alert_log` | Postgres | Telegram alert history (30-min dedup) |
+| `rag_interaction_log` | Postgres | RCA query history for fine-tuning |
 
 ### Batch flows (Prefect)
 
-| Flow | Schedule | Mô tả |
-|------|----------|-------|
-| `microbatch` | Mỗi 5 phút | Bronze → Silver (incremental) |
-| `hourly-gold` | Mỗi 1 giờ | Silver → Gold + RAG index (anomaly events + weather từ Open-Meteo) |
-| `retrain` | Mỗi 6 giờ | Gold → baseline + POST `/train` + RAG index (traffic patterns full scan) |
-| `alert` | Mỗi 5 phút | Check anomalies → Telegram alert (30-min cooldown per route) |
-| `rag-index` | Manual | Full RAG re-index; dùng `--param index_patterns=false` để chỉ index weather + anomalies |
-| `bootstrap` | Manual | Full rebuild từ đầu |
-| `backfill` | Manual | Time-range backfill cho silver |
+| Flow | Schedule | Description |
+|------|----------|-------------|
+| `microbatch` | Every 5 min | Bronze → Silver (incremental) |
+| `hourly-gold` | Every 1 hr | Silver → Gold + RAG index (anomaly events + weather from Open-Meteo) |
+| `retrain` | Every 6 hrs | Gold → baseline + POST `/train` + RAG index (traffic patterns full scan) |
+| `alert` | Every 5 min | Check anomalies → Telegram alert (30-min cooldown per route) |
+| `rag-index` | Manual | Full RAG re-index; use `--param index_patterns=false` for weather + anomalies only |
+| `bootstrap` | Manual | Full rebuild from scratch |
+| `backfill` | Manual | Time-range backfill for silver |
 
 ---
 
@@ -340,24 +340,24 @@ gold/     Iceberg (Nessie)     — Hourly aggregates + baseline stats
 
 ```
 zone{N}_{zone_name}_to_zone{M}_{zone_name}
-Ví dụ: zone1_urban_core_to_zone4_southern_port
+Example: zone1_urban_core_to_zone4_southern_port
 ```
 
 6 zones: `urban_core`, `eastern_innovation`, `northern_industrial`, `southern_port`, `western_periurban`, `southern_coastal`
 
-20 routes (không phải tất cả 30 cặp). `routes.json` là source of truth — tạo lại bằng `python routes_generator.py`.
+20 routes (not all 30 pairs). `routes.json` is the source of truth — regenerate with `python routes_generator.py`.
 
 ---
 
 ## Toolchain
 
-| Tool | Mục đích |
+| Tool | Purpose |
 |------|---------|
 | `uv` | Python package manager, workspace |
 | `hatchling` | Build backend |
 | `ruff` | Linter (line-length 100, target py312) |
 | `mypy --strict` | Type checker |
-| `pytest` | Tests với `unit` và `integration` markers |
+| `pytest` | Tests with `unit` and `integration` markers |
 | `confluent_kafka` | Kafka producer/consumer |
 | `pyiceberg` | Iceberg table read/write |
 | `duckdb` | In-process analytics (feature engineering) |
@@ -369,41 +369,41 @@ Ví dụ: zone1_urban_core_to_zone4_southern_port
 
 ## Key Design Decisions
 
-**Tại sao Welford thay vì buffer?**
-O(1) memory bất kể throughput. Restart-safe vì reconstruct từ `mean + stddev + count` đã lưu trong Postgres.
+**Why Welford instead of a buffer?**
+O(1) memory regardless of throughput. Restart-safe because the window is reconstructed from `mean + stddev + count` stored in Postgres.
 
-**Tại sao IForest per-route thay vì global?**
-Mỗi route có đặc trưng khác nhau (duration 15–90 phút). Global model sẽ bias về routes phổ biến.
+**Why per-route IForest instead of a global model?**
+Each route has different characteristics (duration 15–90 min). A global model would be biased toward the most common routes.
 
-**Tại sao cyclical time encoding (sin/cos)?**
-Day-of-week và hour-of-day là circular variables. Encoding thẳng (0–23, 0–6) tạo khoảng cách giả tạo giữa cuối và đầu chu kỳ. Sin/cos giữ tính liên tục: `hour=23` gần `hour=0`.
+**Why cyclical time encoding (sin/cos)?**
+Day-of-week and hour-of-day are circular variables. Integer encoding (0–23, 0–6) creates artificial distance between the end and start of a cycle. Sin/cos preserves continuity: `hour=23` is close to `hour=0`.
 
-**Tại sao RAG thay vì fine-tuning?**
-Fine-tuning cần nhiều labeled data và compute. RAG inject lịch sử thực tế vào context ngay lập tức — không cần retrain, luôn up-to-date với dữ liệu mới nhất.
+**Why RAG instead of fine-tuning?**
+Fine-tuning requires labeled data and compute. RAG injects real historical evidence into context immediately — no retraining needed, always up-to-date with the latest data.
 
-**Tại sao dual-signal thay vì chỉ 1?**
-Z-score nhanh và interpretable nhưng chỉ nhìn 1 chiều (duration). IForest bắt được pattern phức tạp đa chiều. `both_anomaly` giảm false positive.
+**Why dual-signal instead of one?**
+Z-score is fast and interpretable but only looks at one dimension (duration). IForest catches complex multi-dimensional patterns. `both_anomaly` reduces false positives.
 
-**Tại sao `mlflow < 2.22`?**
-Server chạy v2.21.3. Client mới hơn hit 404 trên changed endpoints. Pin version toàn workspace.
+**Why `mlflow < 2.22`?**
+Server runs v2.21.3. Newer clients hit 404s on changed endpoints. Version pinned across the entire workspace.
 
 ---
 
 ## Docs
 
-| File | Nội dung |
+| File | Contents |
 |------|---------|
 | [ANOMALY.md](ANOMALY.md) | Dual-signal design, z-score, IForest cyclical features |
-| [ML.md](ML.md) | Feature engineering chi tiết, Welford, RAG pipeline |
+| [ML.md](ML.md) | Feature engineering detail, Welford, RAG pipeline |
 | [SYSTEM.md](SYSTEM.md) | Infrastructure, ports, service URLs, schema tables |
 | [DEPLOY.md](DEPLOY.md) | Production deployment (Traefik + TLS + RAG setup) |
-| [CLAUDE.md](CLAUDE.md) | Hướng dẫn cho AI assistant |
+| [CLAUDE.md](CLAUDE.md) | Guidance for AI assistant |
 
 ---
 
 ## Production
 
-Deploy lên homelab qua Traefik + Let's Encrypt. Chi tiết: [DEPLOY.md](DEPLOY.md)
+Deployed on homelab via Traefik + Let's Encrypt. Details: [DEPLOY.md](DEPLOY.md)
 
 | URL | Service |
 |-----|---------|

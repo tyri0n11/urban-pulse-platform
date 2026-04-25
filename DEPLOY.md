@@ -137,12 +137,12 @@ docker exec ollama ollama pull nomic-embed-text
 ### Initialize RAG index (first time only)
 
 ```bash
-# Fast path — chỉ index weather (Open-Meteo 7 ngày) + anomaly events (~60s)
+# Fast path — index weather (Open-Meteo 7 days) + anomaly events only (~60s)
 docker exec batch-service .venv/bin/prefect deployment run rag-index/rag-index-deployment \
   --param index_patterns=false
 ```
 
-> **Không dùng `index_patterns=true` lần đầu** — phải embed ~3360 traffic pattern docs qua Ollama, mất 5–10 phút và có thể timeout. Traffic patterns sẽ tự được index ở lần `retrain` flow đầu tiên (chạy sau 6h).
+> **Do not use `index_patterns=true` on first run** — it must embed ~3360 traffic pattern docs via Ollama, taking 5–10 minutes and risking timeout. Traffic patterns will be indexed automatically on the first `retrain` flow run (after 6h).
 
 Subsequent runs happen automatically:
 - `hourly-gold` (every 1h) → re-index anomaly events + weather

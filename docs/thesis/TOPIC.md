@@ -4,8 +4,6 @@
 
 **Urban Pulse: A Real-Time Traffic Anomaly Detection Platform for Ho Chi Minh City**
 
-*(Hệ thống phát hiện bất thường giao thông thời gian thực cho Thành phố Hồ Chí Minh)*
-
 ---
 
 ## Problem Statement
