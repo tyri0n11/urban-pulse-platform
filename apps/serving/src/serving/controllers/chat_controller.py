@@ -31,7 +31,7 @@ async def fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
     iforest_by_route: dict[str, bool] = {}
     try:
         preds = prediction_service.score_rows(row_list)
-        iforest_by_route = {p.route_id: p.iforest_anomaly and p.iforest_score > 0 for p in preds}
+        iforest_by_route = {p.route_id: p.iforest_anomaly for p in preds}
     except Exception:
         pass
 

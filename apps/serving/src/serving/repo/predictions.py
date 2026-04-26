@@ -23,7 +23,7 @@ async def fetch_history_aggregated(conn: asyncpg.Connection, hours: int) -> list
             AVG(mean_duration_minutes)          AS avg_duration_minutes,
             AVG(mean_heavy_ratio)               AS avg_heavy_ratio
         FROM prediction_history
-        WHERE scored_at >= NOW() - ($1 * INTERVAL '1 hour') AND avg_iforest_score > 0
+        WHERE scored_at >= NOW() - ($1 * INTERVAL '1 hour')
         GROUP BY route_id, hour
         ORDER BY hour DESC, route_id
         """,

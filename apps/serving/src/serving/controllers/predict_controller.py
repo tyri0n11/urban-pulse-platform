@@ -17,9 +17,9 @@ async def predict_all(conn: asyncpg.Connection) -> list[dict[str, Any]]:
         {
             "route_id": r.route_id,
             "iforest_score": r.iforest_score,
-            "iforest_anomaly": r.iforest_anomaly and r.iforest_score > 0,
+            "iforest_anomaly": r.iforest_anomaly,
             "zscore_anomaly": r.zscore_anomaly,
-            "both_anomaly": r.both_anomaly and r.iforest_score > 0,
+            "both_anomaly": r.both_anomaly,
         }
         for r in results
     ]
