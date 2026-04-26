@@ -32,7 +32,7 @@ _HISTORY_SQL_HOURS = """
                  ELSE both_anomaly END    AS both_anomaly
         FROM route_iforest_scores
         WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-          AND iforest_score > 0
+          AND iforest_score IS NOT NULL
     ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
     WHERE o.is_anomaly = true OR i.iforest_anomaly = true
     ORDER BY o.window_start DESC, o.route_id
@@ -63,7 +63,7 @@ _HISTORY_SQL_RANGE = """
                  ELSE both_anomaly END    AS both_anomaly
         FROM route_iforest_scores
         WHERE window_start >= $1 AND window_start <= $2
-          AND iforest_score > 0
+          AND iforest_score IS NOT NULL
     ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
     WHERE o.is_anomaly = true OR i.iforest_anomaly = true
     ORDER BY o.window_start DESC, o.route_id
@@ -99,7 +99,7 @@ _SUMMARY_SQL_HOURS = """
             ) AS both_anomaly_count
         FROM route_iforest_scores
         WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-          AND iforest_score > 0
+          AND iforest_score IS NOT NULL
         GROUP BY 1
     ) i ON z.hour = i.hour
     ORDER BY 1
@@ -135,7 +135,7 @@ _SUMMARY_SQL_RANGE = """
             ) AS both_anomaly_count
         FROM route_iforest_scores
         WHERE window_start >= $1 AND window_start <= $2
-          AND iforest_score > 0
+          AND iforest_score IS NOT NULL
         GROUP BY 1
     ) i ON z.hour = i.hour
     ORDER BY 1
@@ -203,7 +203,7 @@ async def fetch_sse_anomalies(conn: asyncpg.Connection) -> list[dict[str, Any]]:
             SELECT iforest_anomaly, iforest_score, both_anomaly
             FROM route_iforest_scores
             WHERE route_id = orf.route_id AND window_start = orf.window_start
-              AND iforest_score > 0
+              AND iforest_score IS NOT NULL
             LIMIT 1
         ) rif ON true
         ORDER BY orf.route_id, orf.updated_at DESC
