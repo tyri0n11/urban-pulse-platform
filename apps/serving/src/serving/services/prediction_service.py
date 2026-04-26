@@ -188,8 +188,8 @@ def score_rows(rows: list[dict[str, Any]]) -> list[PredictionResult]:
                 _build_feature_vector(row).reshape(1, -1),
                 nan=0.0, posinf=0.0, neginf=0.0,
             )
-            iforest_anomaly = bool(cache_entry.model.predict(X)[0] == -1)
             iforest_score = float(cache_entry.model.decision_function(X)[0])
+            iforest_anomaly = iforest_score < 0
         except Exception:
             # No model for this route yet — fall back to zscore only
             iforest_anomaly = False

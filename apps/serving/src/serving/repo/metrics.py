@@ -30,7 +30,7 @@ _HEATMAP_SQL_HOURS = """
                  ELSE both_anomaly END    AS both_anomaly
         FROM route_iforest_scores
         WHERE window_start >= NOW() - ($1 * INTERVAL '1 hour')
-          AND iforest_score > 0
+          AND iforest_score IS NOT NULL
     ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
     ORDER BY o.route_id, o.window_start DESC
 """
@@ -58,7 +58,7 @@ _HEATMAP_SQL_RANGE = """
                  ELSE both_anomaly END    AS both_anomaly
         FROM route_iforest_scores
         WHERE window_start >= $1 AND window_start <= $2
-          AND iforest_score > 0
+          AND iforest_score IS NOT NULL
     ) i ON o.route_id = i.route_id AND o.window_start = i.window_start
     ORDER BY o.route_id, o.window_start DESC
 """

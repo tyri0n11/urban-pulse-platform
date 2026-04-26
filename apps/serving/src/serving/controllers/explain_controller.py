@@ -28,7 +28,7 @@ async def fetch_route_data(route_id: str, conn: asyncpg.Connection) -> dict[str,
     try:
         preds = prediction_service.score_rows([row])
         if preds:
-            row["iforest_anomaly"] = preds[0].iforest_anomaly and preds[0].iforest_score > 0
+            row["iforest_anomaly"] = preds[0].iforest_anomaly
     except Exception:
         row["iforest_anomaly"] = False
 
