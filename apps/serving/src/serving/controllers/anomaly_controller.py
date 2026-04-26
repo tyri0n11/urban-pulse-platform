@@ -26,12 +26,7 @@ async def get_current_anomalies(conn: asyncpg.Connection) -> list[dict[str, Any]
         pred = pred_by_route.get(rid)
         is_zscore = bool(row.get("is_anomaly", False))
         is_iforest = bool(pred.iforest_anomaly) if pred else False
-        zscore_val = float(row.get("duration_zscore") or 0)
 
-        # Skip iforest-only anomalies with negative z-score — route is flowing
-        # better than normal; IForest flags unusual patterns but it's not congestion.
-        if not is_zscore and is_iforest and zscore_val < 0:
-            continue
         if not (is_zscore or is_iforest):
             continue
 
