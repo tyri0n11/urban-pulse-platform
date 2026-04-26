@@ -45,6 +45,8 @@ Kafka message (duration_minutes)
 
 ### Welford Online Algorithm
 
+> Full implementation walkthrough: [docs/architecture/online-service-welford.md](docs/architecture/online-service-welford.md)
+
 Computes mean and stddev per message without storing raw observations (constant memory):
 
 ```python
