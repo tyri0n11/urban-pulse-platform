@@ -95,6 +95,9 @@ prod-down:
 prod-build:
 	$(COMPOSE_PROD) build
 
+prod-pull:
+	$(COMPOSE_PROD) pull traffic-ingestion weather-ingestion streaming online ml batch serving
+
 prod-update-ui:
 	cd v0-urban-pulse-dashboard && git pull origin main
 	$(COMPOSE_PROD) build --no-cache ui
