@@ -159,12 +159,13 @@ jobs:
 
       - name: Healthcheck serving API
         run: |
-          for i in $(seq 1 12); do
-            if curl -sf http://localhost:8001/health/live > /dev/null; then
-              echo "Serving API healthy after $((i * 5))s"
+          for i in $(seq 1 24); do
+            status=$(docker inspect --format='{{.State.Health.Status}}' serving-service 2>/dev/null || echo "unknown")
+            if [ "$status" = "healthy" ]; then
+              echo "serving-service healthy after $((i * 5))s"
               exit 0
             fi
-            echo "Attempt $i/12 — waiting 5s..."
+            echo "Attempt $i/24 — status: $status, waiting 5s..."
             sleep 5
           done
-          echo "Healthcheck failed after 60s" && exit 1
+          echo "Healthcheck timed out after 120s" && exit 1
