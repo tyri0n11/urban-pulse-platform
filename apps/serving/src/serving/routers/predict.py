@@ -1,5 +1,6 @@
 """Router: ML model prediction endpoints."""
 
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -62,10 +63,15 @@ async def prediction_history(
 @router.get("/history/{route_id}")
 async def route_prediction_history(
     route_id: str,
-    hours: int = Query(default=24, ge=1, le=168),
+    hours: int = Query(default=24, ge=1, le=720),
+    start: datetime | None = None,
+    end: datetime | None = None,
     conn: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    rows = await predictions_repo.fetch_route_ticks(conn, route_id, hours)
+    if start is not None and end is not None:
+        rows = await predictions_repo.fetch_route_history_aggregated_range(conn, route_id, start, end)
+    else:
+        rows = await predictions_repo.fetch_route_history_aggregated(conn, route_id, hours)
     if not rows:
         raise HTTPException(status_code=404, detail=f"No prediction history for route '{route_id}'")
     return rows

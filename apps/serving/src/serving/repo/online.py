@@ -1,5 +1,6 @@
 """DB access for online_route_features table."""
 
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -29,6 +30,20 @@ _FEATURE_HISTORY_SQL = """
     FROM online_route_features
     WHERE route_id = $1
       AND window_start >= NOW() - ($2 * INTERVAL '1 hour')
+    ORDER BY window_start DESC, updated_at DESC
+"""
+
+_FEATURE_HISTORY_RANGE_SQL = """
+    SELECT DISTINCT ON (window_start)
+        route_id, window_start, updated_at, observation_count,
+        mean_duration_minutes, stddev_duration_minutes, last_duration_minutes,
+        mean_heavy_ratio,
+        COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
+        COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
+        duration_zscore, is_anomaly, last_ingest_lag_ms
+    FROM online_route_features
+    WHERE route_id = $1
+      AND window_start >= $2 AND window_start <= $3
     ORDER BY window_start DESC, updated_at DESC
 """
 
@@ -132,6 +147,13 @@ async def fetch_feature_history(
     conn: asyncpg.Connection, route_id: str, hours: int
 ) -> list[dict[str, Any]]:
     rows = await conn.fetch(_FEATURE_HISTORY_SQL, route_id, hours)
+    return [row_to_dict(r) for r in rows]
+
+
+async def fetch_feature_history_range(
+    conn: asyncpg.Connection, route_id: str, start: datetime, end: datetime
+) -> list[dict[str, Any]]:
+    rows = await conn.fetch(_FEATURE_HISTORY_RANGE_SQL, route_id, start, end)
     return [row_to_dict(r) for r in rows]
 
 

@@ -1,5 +1,6 @@
 """Router: online feature endpoints."""
 
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -34,11 +35,16 @@ async def get_feature(
 async def get_feature_history(
     route_id: str,
     hours: int = 24,
+    start: datetime | None = None,
+    end: datetime | None = None,
     conn: asyncpg.Connection = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    if hours < 1 or hours > 168:
-        raise HTTPException(status_code=422, detail="hours must be between 1 and 168")
-    rows = await online_repo.fetch_feature_history(conn, route_id, hours)
+    if start is not None and end is not None:
+        rows = await online_repo.fetch_feature_history_range(conn, route_id, start, end)
+    else:
+        if hours < 1 or hours > 720:
+            raise HTTPException(status_code=422, detail="hours must be between 1 and 720")
+        rows = await online_repo.fetch_feature_history(conn, route_id, hours)
     if not rows:
         raise HTTPException(status_code=404, detail=f"No history found for route '{route_id}'")
     return rows
