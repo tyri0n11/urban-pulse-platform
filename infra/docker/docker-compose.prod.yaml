@@ -418,7 +418,7 @@ services:
   # ---------------------------------------------------------------------------
   traffic-ingestion:
     container_name: traffic-ingestion-service
-    image: ghcr.io/tyr1on/urban-pulse-traffic-ingestion:${IMAGE_TAG:-latest}
+    image: ghcr.io/tyri0n11/urban-pulse-traffic-ingestion:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/traffic-ingestion/Dockerfile
@@ -442,7 +442,7 @@ services:
 
   weather-ingestion:
     container_name: weather-ingestion-service
-    image: ghcr.io/tyr1on/urban-pulse-weather-ingestion:${IMAGE_TAG:-latest}
+    image: ghcr.io/tyri0n11/urban-pulse-weather-ingestion:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/weather-ingestion/Dockerfile
@@ -462,7 +462,7 @@ services:
 
   streaming:
     container_name: streaming-service
-    image: ghcr.io/tyr1on/urban-pulse-streaming:${IMAGE_TAG:-latest}
+    image: ghcr.io/tyri0n11/urban-pulse-streaming:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/streaming/Dockerfile
@@ -486,7 +486,7 @@ services:
 
   online:
     container_name: online-service
-    image: ghcr.io/tyr1on/urban-pulse-online:${IMAGE_TAG:-latest}
+    image: ghcr.io/tyri0n11/urban-pulse-online:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/online/Dockerfile
@@ -514,7 +514,7 @@ services:
 
   ml:
     container_name: ml-service
-    image: ghcr.io/tyr1on/urban-pulse-ml:${IMAGE_TAG:-latest}
+    image: ghcr.io/tyri0n11/urban-pulse-ml:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/ml/Dockerfile
@@ -550,7 +550,7 @@ services:
 
   batch:
     container_name: batch-service
-    image: ghcr.io/tyr1on/urban-pulse-batch:${IMAGE_TAG:-latest}
+    image: ghcr.io/tyri0n11/urban-pulse-batch:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/batch/Dockerfile
@@ -591,7 +591,7 @@ services:
 
   serving:
     container_name: serving-service
-    image: ghcr.io/tyr1on/urban-pulse-serving:${IMAGE_TAG:-latest}
+    image: ghcr.io/tyri0n11/urban-pulse-serving:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/serving/Dockerfile
