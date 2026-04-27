@@ -1,5 +1,6 @@
 """DB access for prediction_history table."""
 
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -50,4 +51,57 @@ async def fetch_route_ticks(
         route_id,
         hours,
     )
+    return [row_to_dict(r) for r in rows]
+
+
+_ROUTE_HISTORY_AGG_SQL = """
+    SELECT
+        route_id,
+        DATE_TRUNC('hour', scored_at)  AS hour,
+        COUNT(*)                        AS tick_count,
+        AVG(iforest_score)              AS avg_iforest_score,
+        AVG(iforest_anomaly::int)       AS iforest_anomaly_rate,
+        AVG(zscore_anomaly::int)        AS zscore_anomaly_rate,
+        AVG(both_anomaly::int)          AS both_anomaly_rate,
+        AVG(duration_zscore)            AS avg_duration_zscore,
+        AVG(mean_duration_minutes)      AS avg_duration_minutes,
+        AVG(mean_heavy_ratio)           AS avg_heavy_ratio
+    FROM prediction_history
+    WHERE route_id = $1
+      AND scored_at >= NOW() - ($2 * INTERVAL '1 hour')
+    GROUP BY route_id, hour
+    ORDER BY hour DESC
+"""
+
+_ROUTE_HISTORY_AGG_RANGE_SQL = """
+    SELECT
+        route_id,
+        DATE_TRUNC('hour', scored_at)  AS hour,
+        COUNT(*)                        AS tick_count,
+        AVG(iforest_score)              AS avg_iforest_score,
+        AVG(iforest_anomaly::int)       AS iforest_anomaly_rate,
+        AVG(zscore_anomaly::int)        AS zscore_anomaly_rate,
+        AVG(both_anomaly::int)          AS both_anomaly_rate,
+        AVG(duration_zscore)            AS avg_duration_zscore,
+        AVG(mean_duration_minutes)      AS avg_duration_minutes,
+        AVG(mean_heavy_ratio)           AS avg_heavy_ratio
+    FROM prediction_history
+    WHERE route_id = $1
+      AND scored_at >= $2 AND scored_at <= $3
+    GROUP BY route_id, hour
+    ORDER BY hour DESC
+"""
+
+
+async def fetch_route_history_aggregated(
+    conn: asyncpg.Connection, route_id: str, hours: int
+) -> list[dict[str, Any]]:
+    rows = await conn.fetch(_ROUTE_HISTORY_AGG_SQL, route_id, hours)
+    return [row_to_dict(r) for r in rows]
+
+
+async def fetch_route_history_aggregated_range(
+    conn: asyncpg.Connection, route_id: str, start: datetime, end: datetime
+) -> list[dict[str, Any]]:
+    rows = await conn.fetch(_ROUTE_HISTORY_AGG_RANGE_SQL, route_id, start, end)
     return [row_to_dict(r) for r in rows]
