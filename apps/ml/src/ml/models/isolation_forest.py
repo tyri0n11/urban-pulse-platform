@@ -16,8 +16,10 @@ from ml.features.traffic_features import FEATURE_COLUMNS
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONTAMINATION = 0.05
-DEFAULT_N_ESTIMATORS = 100
+DEFAULT_CONTAMINATION = 0.01
+DEFAULT_N_ESTIMATORS = 450
+DEFAULT_MAX_SAMPLES = 0.76
+DEFAULT_MAX_FEATURES = 0.73
 DEFAULT_RANDOM_STATE = 42
 
 
@@ -28,14 +30,20 @@ class IsolationForestDetector:
         self,
         contamination: float = DEFAULT_CONTAMINATION,
         n_estimators: int = DEFAULT_N_ESTIMATORS,
+        max_samples: float = DEFAULT_MAX_SAMPLES,
+        max_features: float = DEFAULT_MAX_FEATURES,
         random_state: int = DEFAULT_RANDOM_STATE,
     ) -> None:
         self.contamination = contamination
         self.n_estimators = n_estimators
+        self.max_samples = max_samples
+        self.max_features = max_features
         self.random_state = random_state
         self.model = IsolationForest(
             contamination=contamination,
             n_estimators=n_estimators,
+            max_samples=max_samples,
+            max_features=max_features,
             random_state=random_state,
         )
 
@@ -77,5 +85,7 @@ class IsolationForestDetector:
         return {
             "if_contamination": self.contamination,
             "if_n_estimators": self.n_estimators,
+            "if_max_samples": self.max_samples,
+            "if_max_features": self.max_features,
             "if_random_state": self.random_state,
         }
