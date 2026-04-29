@@ -27,7 +27,7 @@ from urbanpulse_infra.iceberg import get_iceberg_catalog
 from urbanpulse_infra.mlflow import configure_mlflow, get_or_create_experiment
 
 from ml.evaluation.metrics import compute_metrics
-from ml.features.traffic_features import FEATURE_COLUMNS, build_features, list_route_ids
+from ml.features.traffic_features import FEATURE_COLUMNS, build_features, list_route_ids, _TRAINING_CUTOFF
 from ml.models.isolation_forest import IsolationForestDetector
 
 logging.basicConfig(
@@ -172,7 +172,17 @@ def _train_single_route(
         X = np.nan_to_num(np.column_stack(arrays), nan=0.0, posinf=0.0, neginf=0.0)
 
         # Fit IsolationForest on cyclical time-encoded features
-        iforest_params = {"contamination": 0.05, "n_estimators": 100, "random_state": 42}
+        # Params from Optuna tuning (notebooks/01_optuna_tuning.ipynb):
+        # objective=anomaly_score_gap, 50 trials × 20 routes, pre-cutoff data only.
+        # contamination=0.01 reflects true anomaly rate in ratio feature space (~1%);
+        # n_estimators=450, max_samples=0.76, max_features=0.73 from TPE median.
+        iforest_params = {
+            "contamination": 0.01,
+            "n_estimators": 450,
+            "max_samples": 0.76,
+            "max_features": 0.73,
+            "random_state": 42,
+        }
         detector = IsolationForestDetector(**iforest_params)  # type: ignore[arg-type]
         mlflow.log_params({f"if_{k}": v for k, v in iforest_params.items()})
         detector.model.fit(X)
@@ -261,6 +271,7 @@ def run_training() -> TrainResult:
             "route_count": len(route_ids),
             "feature_columns": FEATURE_COLUMNS,
             "feature_count": len(FEATURE_COLUMNS),
+            "training_cutoff": _TRAINING_CUTOFF.date().isoformat(),
         })
 
         results = [

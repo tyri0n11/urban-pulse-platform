@@ -19,6 +19,7 @@ learns that "heavy traffic at 08:00 Mon" is normal while "heavy traffic at
 
 import logging
 import math
+from datetime import datetime, timezone
 
 import duckdb
 import pyarrow as pa
@@ -40,6 +41,13 @@ FEATURE_COLUMNS = [
     "dow_cos",
 ]
 
+# VietMap changed congestion classification semantics on ~2026-04-15:
+# low_ratio jumped to ~90% constant, moderate/heavy collapsed to near-zero.
+# Training on post-cutoff data would poison all ratio-based features.
+# Duration signal is preserved but the paper and online features are ratio-based,
+# so we train only on pre-cutoff data where the semantics are consistent.
+_TRAINING_CUTOFF: datetime = datetime(2026, 4, 15, tzinfo=timezone.utc)
+
 _FEATURE_SQL = """
     SELECT
         route_id,
@@ -54,6 +62,7 @@ _FEATURE_SQL = """
     FROM gold
     WHERE avg_heavy_ratio    IS NOT NULL
       AND avg_moderate_ratio IS NOT NULL
+      {cutoff_clause}
 """
 
 
@@ -66,11 +75,15 @@ def _scan_to_table(scan_result: object) -> pa.Table:
 def build_features(
     catalog: Catalog,
     route_id: str | None = None,
+    cutoff: datetime | None = _TRAINING_CUTOFF,
 ) -> pa.Table | None:
     """Build cyclical time-encoded feature table from gold hourly data.
 
     Returns Arrow table with columns: route_id, hour_utc, + FEATURE_COLUMNS.
     Returns None if the gold table is missing or empty.
+
+    cutoff: exclude rows with hour_utc >= this timestamp (default: _TRAINING_CUTOFF).
+            Pass None to use all available data.
     """
     try:
         gold_table = catalog.load_table(_GOLD_TABLE)
@@ -83,9 +96,17 @@ def build_features(
         logger.info("build_features: no gold data yet — skipping")
         return None
 
+    if cutoff is not None:
+        cutoff_clause = f"AND hour_utc < TIMESTAMPTZ '{cutoff.isoformat()}'"
+        logger.info("build_features: applying cutoff %s", cutoff.date())
+    else:
+        cutoff_clause = ""
+
+    sql = _FEATURE_SQL.format(cutoff_clause=cutoff_clause)
+
     con = duckdb.connect()
     con.register("gold", gold_arrow)
-    result = con.execute(_FEATURE_SQL).arrow()
+    result = con.execute(sql).arrow()
     if not isinstance(result, pa.Table):
         result = result.read_all()
 
