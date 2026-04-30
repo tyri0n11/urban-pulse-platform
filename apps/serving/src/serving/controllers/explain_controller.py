@@ -91,7 +91,7 @@ def build_explain_prompt(
     ts_raw = row.get("window_start") or row.get("updated_at")
     if ts_raw and hasattr(ts_raw, "astimezone"):
         ts_local = ts_raw.astimezone(_HCMC_TZ)
-        ts_str = ts_local.strftime("%H:%M %Z %A")
+        ts_str = ts_local.strftime("%H:%M (UTC+7 — Giờ TP.HCM) %A")
     else:
         ts_str = "unknown"
 
