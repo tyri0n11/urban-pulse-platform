@@ -106,12 +106,13 @@ _SNAPSHOT_FOR_CHAT_SQL = """
 
 _EXPLAIN_ROUTE_SQL = """
     SELECT DISTINCT ON (route_id)
-        route_id, is_anomaly,
+        route_id, window_start, updated_at, is_anomaly,
         mean_heavy_ratio,
         COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
         COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
         max_severe_segments,
-        observation_count, updated_at
+        duration_zscore,
+        observation_count
     FROM online_route_features
     WHERE route_id = $1
     ORDER BY route_id, updated_at DESC
