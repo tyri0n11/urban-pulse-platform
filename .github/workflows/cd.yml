@@ -1,75 +1,19 @@
-name: CI / CD
+name: CD
 
 on:
-  pull_request:
-    branches: [main, dev]
   push:
-    branches: [main, dev]
+    branches: [main]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: cd-production
+  cancel-in-progress: false
 
 jobs:
   # ---------------------------------------------------------------------------
-  # CI — three parallel jobs
-  # ---------------------------------------------------------------------------
-  lint:
-    name: Lint (ruff)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v4
-        with:
-          enable-caching: true
-          cache-dependency-glob: "**/pyproject.toml"
-      - run: uv sync --all-packages --all-extras --frozen
-      - run: make lint
-
-  typecheck:
-    name: Type check (mypy)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v4
-        with:
-          enable-caching: true
-          cache-dependency-glob: "**/pyproject.toml"
-      - run: uv sync --all-packages --all-extras --frozen
-      - run: make typecheck
-
-  test:
-    name: Unit tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v4
-        with:
-          enable-caching: true
-          cache-dependency-glob: "**/pyproject.toml"
-      - run: uv sync --all-packages --all-extras --frozen
-      - run: make test-unit
-
-  # ---------------------------------------------------------------------------
-  # Build & push — only on push to main, runs after CI passes
-  # Each service builds in parallel via matrix; BuildKit GHA cache per service.
+  # Build & push — parallel matrix per service; BuildKit GHA cache per service.
   # ---------------------------------------------------------------------------
   build-push:
     name: Build & push ${{ matrix.service }}
-    needs: [lint, typecheck, test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -117,7 +61,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
   # ---------------------------------------------------------------------------
-  # Deploy — pulls pre-built images, restarts app services only
+  # Deploy — pulls pre-built images, restarts app + monitoring services.
   # Infrastructure services (postgres, redpanda, minio, …) are left untouched.
   # ---------------------------------------------------------------------------
   deploy:

@@ -728,10 +728,15 @@ services:
     networks:
       - urban-pulse-platform
     volumes:
-      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
       - /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility]
 
   loki:
     image: grafana/loki:3.4.2
@@ -789,6 +794,7 @@ services:
       GF_SERVER_ROOT_URL: https://grafana.tyr1on.io.vn
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-urbanpulse}
     depends_on:
       loki:
         condition: service_healthy
