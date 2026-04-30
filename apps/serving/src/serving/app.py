@@ -50,7 +50,7 @@ async def _iforest_scorer_loop(pool: asyncpg.Pool) -> None:
                 row_dicts = [dict(r) for r in rows]
                 t_score = time.monotonic()
                 try:
-                    predictions = prediction_service.score_rows(row_dicts)
+                    predictions = await asyncio.to_thread(prediction_service.score_rows, row_dicts)
                 except Exception as exc:
                     logger.debug("background scorer: score_rows failed — %s", exc)
                     continue
