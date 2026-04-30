@@ -640,7 +640,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 2g
 
   # ---------------------------------------------------------------------------
   # Next.js UI

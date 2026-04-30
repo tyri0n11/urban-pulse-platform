@@ -16,6 +16,7 @@ features that the model was trained on (ml/features/traffic_features.py):
 
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -27,6 +28,10 @@ from serving.models.prediction import PredictionResult
 logger = logging.getLogger(__name__)
 
 MODEL_TTL = 3600.0  # seconds before reloading from MLflow
+# Limit concurrent MLflow downloads to avoid RAM spikes when many routes load simultaneously
+_LOAD_SEMAPHORE = threading.Semaphore(3)
+# On each scorer tick, load at most this many new models; uncached routes fall back to zscore-only
+_MAX_NEW_LOADS_PER_TICK = 5
 
 # Registered model name prefix — must match ml/train.py
 _MODEL_PREFIX = "iforest-"
@@ -74,28 +79,29 @@ def _load_route_model(route_id: str) -> tuple[Any, str]:
     import mlflow
     from mlflow.tracking import MlflowClient
 
-    mlflow.set_tracking_uri(_mlflow_tracking_uri())
-    client = MlflowClient()
-    registered_name = f"{_MODEL_PREFIX}{route_id}"
+    with _LOAD_SEMAPHORE:
+        mlflow.set_tracking_uri(_mlflow_tracking_uri())
+        client = MlflowClient()
+        registered_name = f"{_MODEL_PREFIX}{route_id}"
 
-    try:
-        mv = client.get_model_version_by_alias(registered_name, _MODEL_ALIAS)
-        version = mv.version
-        logger.info("prediction_service: %s@%s → version %s", registered_name, _MODEL_ALIAS, version)
-    except Exception:
-        versions = client.get_latest_versions(registered_name)
-        if not versions:
-            raise RuntimeError(f"No model found for route '{route_id}' (registered: {registered_name})")
-        version = versions[-1].version
-        logger.info("prediction_service: %s alias not set, using latest version %s", registered_name, version)
+        try:
+            mv = client.get_model_version_by_alias(registered_name, _MODEL_ALIAS)
+            version = mv.version
+            logger.info("prediction_service: %s@%s → version %s", registered_name, _MODEL_ALIAS, version)
+        except Exception:
+            versions = client.get_latest_versions(registered_name)
+            if not versions:
+                raise RuntimeError(f"No model found for route '{route_id}' (registered: {registered_name})")
+            version = versions[-1].version
+            logger.info("prediction_service: %s alias not set, using latest version %s", registered_name, version)
 
-    mv = client.get_model_version(registered_name, version)
-    artifact_uri = mv.source
+        mv = client.get_model_version(registered_name, version)
+        artifact_uri = mv.source
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        local_path = mlflow.artifacts.download_artifacts(artifact_uri=artifact_uri, dst_path=tmpdir)
-        pkl_path = os.path.join(local_path, "model.pkl")
-        model = joblib.load(pkl_path)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = mlflow.artifacts.download_artifacts(artifact_uri=artifact_uri, dst_path=tmpdir)
+            pkl_path = os.path.join(local_path, "model.pkl")
+            model = joblib.load(pkl_path)
 
     return model, artifact_uri
 
@@ -173,17 +179,39 @@ def score_rows(rows: list[dict[str, Any]]) -> list[PredictionResult]:
     """Score each row with its route-specific IsolationForest model.
 
     Routes with no trained model are scored as non-anomalous (safe default).
+    On each call, at most _MAX_NEW_LOADS_PER_TICK uncached models are loaded
+    to avoid memory spikes when the cache is cold; remaining routes fall back
+    to zscore-only until subsequent ticks warm them up.
     """
     if not rows:
         return []
 
     results: list[PredictionResult] = []
+    new_loads_this_tick = 0
+    now = time.monotonic()
+
     for row in rows:
         route_id = row["route_id"]
         zscore_anomaly = bool(row.get("is_anomaly", False))
 
+        entry = _cache.get(route_id)
+        needs_load = entry is None or entry.model is None or (now - entry.loaded_at) > MODEL_TTL
+
+        if needs_load and new_loads_this_tick >= _MAX_NEW_LOADS_PER_TICK:
+            # Defer load to the next tick; fall back to zscore signal only
+            results.append(PredictionResult(
+                route_id=route_id,
+                iforest_score=0.0,
+                iforest_anomaly=False,
+                zscore_anomaly=zscore_anomaly,
+                both_anomaly=False,
+            ))
+            continue
+
         try:
             cache_entry = _get_route_cache(route_id)
+            if needs_load:
+                new_loads_this_tick += 1
             X = np.nan_to_num(
                 _build_feature_vector(row).reshape(1, -1),
                 nan=0.0, posinf=0.0, neginf=0.0,
@@ -191,6 +219,8 @@ def score_rows(rows: list[dict[str, Any]]) -> list[PredictionResult]:
             iforest_score = float(cache_entry.model.decision_function(X)[0])
             iforest_anomaly = iforest_score < 0
         except Exception:
+            if needs_load:
+                new_loads_this_tick += 1
             # No model for this route yet — fall back to zscore only
             iforest_anomaly = False
             iforest_score = 0.0
@@ -206,8 +236,8 @@ def score_rows(rows: list[dict[str, Any]]) -> list[PredictionResult]:
     n_if = sum(1 for r in results if r.iforest_anomaly)
     n_both = sum(1 for r in results if r.both_anomaly)
     logger.info(
-        "prediction_service: scored %d routes — iforest=%d anomalies, both=%d",
-        len(results), n_if, n_both,
+        "prediction_service: scored %d routes — iforest=%d anomalies, both=%d (loaded %d new models this tick)",
+        len(results), n_if, n_both, new_loads_this_tick,
     )
     return results
 
