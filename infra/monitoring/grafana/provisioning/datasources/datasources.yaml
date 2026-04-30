@@ -28,7 +28,7 @@ datasources:
     secureJsonData:
       password: ${POSTGRES_PASSWORD}
     jsonData:
-      database: ${POSTGRES_DB}
+      database: urbanpulse
       sslmode: disable
       maxOpenConns: 10
       maxIdleConns: 5
