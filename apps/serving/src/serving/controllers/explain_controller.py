@@ -118,19 +118,21 @@ def build_explain_prompt(
         else ("### Observation", "### Root Cause", "### Assessment")
     )
 
-    direction_warning = (
-        "CRITICAL — ANOMALY DIRECTION: "
-        + (
-            f"direction={direction_tag}. {direction_desc}. "
-            f"heavy_ratio={heavy:.1%}, zscore={zscore:+.2f}. "
-            + (
-                "The route is LESS congested than normal — DO NOT describe this as congestion or traffic jam. "
-                "Describe it as unusually free-flowing or lighter-than-normal traffic."
-                if direction_tag == "LOWER_THAN_NORMAL"
-                else "The route is MORE congested than normal."
-            )
+    if direction_tag == "LOWER_THAN_NORMAL":
+        direction_warning = (
+            "CRITICAL — ANOMALY DIRECTION: LOWER_THAN_NORMAL.\n"
+            f"heavy_ratio={heavy:.1%} is BELOW the historical baseline (zscore={zscore:+.2f}).\n"
+            "This route is unusually FREE-FLOWING — traffic is lighter than normal.\n"
+            "DO NOT use words like: tắc nghẽn, ùn tắc, congestion, traffic jam, bottleneck.\n"
+            "DO NOT say traffic exceeds normal or is higher than usual.\n"
+            "ONLY describe this as: thông thoáng bất thường, lưu thông nhẹ hơn bình thường, free-flowing."
         )
-    )
+    else:
+        direction_warning = (
+            "CRITICAL — ANOMALY DIRECTION: HIGHER_THAN_NORMAL.\n"
+            f"heavy_ratio={heavy:.1%} is ABOVE the historical baseline (zscore={zscore:+.2f}).\n"
+            "This route has MORE congestion than normal."
+        )
 
     parts = [
         lang_note,
@@ -167,18 +169,56 @@ def build_explain_prompt(
     if rag_context:
         parts += ["", rag_context]
 
-    obs_instruction = (
-        f"{section_labels[0]} — state the anomaly direction explicitly "
-        f"({'route is unusually FREE-FLOWING, lighter traffic than normal' if direction_tag == 'LOWER_THAN_NORMAL' else 'route has HIGHER congestion than normal'}). "
-        "Report exact numbers and compare to baseline from RAG context if available."
-    )
+    # Repeat direction lock right before generation instructions (small LLMs lose context mid-prompt)
+    if direction_tag == "LOWER_THAN_NORMAL":
+        direction_lock = (
+            f"REMEMBER: direction=LOWER_THAN_NORMAL. heavy_ratio={heavy:.1%} is below baseline. "
+            "Do NOT write about congestion or heavy traffic in any section. "
+            "The metric 'heavy_ratio' is just a field name — do NOT translate it as 'tắc nghẽn nặng'. "
+            "Call it 'tỷ lệ heavy_ratio' or 'chỉ số lưu lượng nặng'."
+        )
+        obs_content = (
+            f"Describe that tỷ lệ heavy_ratio={heavy:.1%} và zscore={zscore:+.2f} "
+            "cho thấy tuyến đường thông thoáng bất thường, nhẹ hơn mức bình thường lịch sử. "
+            "Only cite numbers from the data above."
+        )
+        cause_content = (
+            "Explain why traffic is lighter than usual: "
+            "time-of-day, day-of-week, weather, HCMC geography. "
+            "Do NOT say traffic is heavy."
+        )
+        assess_content = (
+            "State this is low-severity (free-flowing is positive). "
+            "One brief observation or recommendation."
+        )
+    else:
+        direction_lock = (
+            f"REMEMBER: direction=HIGHER_THAN_NORMAL. heavy_ratio={heavy:.1%} is above baseline (zscore={zscore:+.2f}). "
+            "The metric 'heavy_ratio' is just a field name — do NOT translate it as 'tắc nghẽn nặng'; call it 'tỷ lệ heavy_ratio'."
+        )
+        obs_content = (
+            f"Describe that tỷ lệ heavy_ratio={heavy:.1%} và zscore={zscore:+.2f} "
+            "cho thấy lưu lượng nặng cao hơn mức bình thường. Only cite numbers from the data above."
+        )
+        cause_content = (
+            "Explain why traffic is heavier than usual: "
+            "traffic patterns, time-of-day, HCMC geography, weather if relevant."
+        )
+        assess_content = "Severity level and one concrete recommendation."
 
+    h0, h1, h2 = section_labels
     parts += [
         "",
-        "Write exactly 3 sections using these ### headings in order:",
-        obs_instruction,
-        f"{section_labels[1]} — why this is happening: traffic patterns, time-of-day, HCMC geography, weather if relevant.",
-        f"{section_labels[2]} — severity level and one concrete recommendation.",
+        direction_lock,
+        "",
+        f"Write exactly 3 sections. Use ONLY these headings (no extra text after the heading):",
+        f"{h0}",
+        f"{h1}",
+        f"{h2}",
+        "",
+        f"Content guide for {h0}: {obs_content}",
+        f"Content guide for {h1}: {cause_content}",
+        f"Content guide for {h2}: {assess_content}",
         f"2–3 sentences per section. {lang_note}",
     ]
     return "\n".join(parts)
