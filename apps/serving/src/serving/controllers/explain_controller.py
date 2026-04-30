@@ -211,7 +211,7 @@ def build_explain_prompt(
         "",
         direction_lock,
         "",
-        f"Write exactly 3 sections. Use ONLY these headings (no extra text after the heading):",
+        "Write exactly 3 sections. Use ONLY these headings (no extra text after the heading):",
         f"{h0}",
         f"{h1}",
         f"{h2}",
