@@ -23,25 +23,27 @@ The system detects anomalies using a **dual-signal** approach: two independent l
 
 ### Meaning
 
-Z-score measures **number of standard deviations** from the historical baseline for the same time slot (hour + day of week):
+Z-score measures **number of standard deviations** from the historical heavy-ratio baseline for the same time slot (hour + day of week):
 
 ```
-zscore = (current_mean - baseline_mean) / baseline_stddev
+zscore = (current_mean_heavy_ratio - baseline_heavy_ratio_mean) / baseline_heavy_ratio_stddev
 ```
 
-Example: On Monday at 3 PM, route A normally takes 68 minutes (±10 min). Today at 3 PM route A takes 95 minutes → zscore = (95 - 68) / 10 = **+2.7** — approaching the alert threshold.
+Example: On Monday at 3 PM, route A normally has a 5% heavy ratio (±2%). Today at 3 PM the online window has 11% heavy ratio → zscore = (0.11 - 0.05) / 0.02 = **+3.0**.
 
-> **One-sided threshold**: Only `zscore > 3.0` triggers an anomaly — congestion (duration higher than normal). Lower-than-normal duration (negative zscore) is not considered an anomaly at this layer.
+> **One-sided threshold**: Only `zscore > baseline.zscore_threshold` triggers an anomaly — higher heavy ratio indicates congestion. The threshold is dynamic per route from `gold.traffic_baseline.zscore_p99` (fallback `2.0`, floor `1.5`). Lower-than-normal heavy ratio is not considered an anomaly at this layer.
 
 ### Computation Pipeline
 
 ```
-Kafka message (duration_minutes)
-  └─► RouteWindow.update()          # Welford: update mean, M2
-        └─► zscore = (mean - baseline.mean) / baseline.stddev
-              └─► is_anomaly = zscore > 3.0
+Kafka message (duration_minutes + congestion ratios)
+  └─► RouteWindow.update()          # duration Welford + running congestion ratios
+        └─► zscore = (mean_heavy_ratio - baseline.heavy_ratio_mean) / baseline.heavy_ratio_stddev
+              └─► is_anomaly = zscore > baseline.zscore_threshold
                     └─► UPSERT → online_route_features
 ```
+
+`online_route_features.duration_zscore` is a legacy column name; the stored value is the heavy-ratio z-score.
 
 ### Welford Online Algorithm
 
@@ -73,10 +75,16 @@ SELECT
         COALESCE(STDDEV(avg_duration_minutes), AVG(avg_duration_minutes) * 0.1),
         1.0
     )                           AS baseline_duration_stddev,
-    AVG(avg_heavy_ratio)        AS baseline_heavy_ratio_mean
+    AVG(avg_heavy_ratio)        AS baseline_heavy_ratio_mean,
+    GREATEST(
+        COALESCE(STDDEV(avg_heavy_ratio), AVG(avg_heavy_ratio) * 0.2),
+        0.01
+    )                           AS baseline_heavy_ratio_stddev
 FROM gold.traffic_hourly
 GROUP BY route_id, day_of_week, hour_of_day
 ```
+
+The batch job also computes route-level `zscore_p95` and `zscore_p99` from heavy-ratio z-scores; online uses `zscore_p99` as the dynamic threshold.
 
 **Load cycle:** Startup + automatic refresh every 6h.
 
@@ -111,7 +119,7 @@ sin_hour = sin(2π × hour / 24)
 cos_hour = cos(2π × hour / 24)
 ```
 
-**`duration_zscore` and `baseline` are no longer used** — removing the dependency on `gold.traffic_baseline` at training time lets the model learn directly from real temporal patterns.
+**`duration_zscore` and `gold.traffic_baseline` are not used by IsolationForest training** — the model learns directly from real temporal patterns. They are still used by the online z-score signal.
 
 ### Training Pipeline
 
@@ -271,7 +279,7 @@ The snapshot is injected into the system prompt before calling Ollama, ensuring 
 
 ### IForest score displayed with wrong threshold in UI
 
-**Fix applied:** Label on routes/[id] page: `anomaly if < 0` (not `anomaly > 0.5`). Z-score threshold: `anomaly if > 3.0` (not `±3.0`).
+**Fix applied:** Label on routes/[id] page: `anomaly if < 0` (not `anomaly > 0.5`). Z-score threshold: `anomaly if > route threshold` (not `±3.0`; online uses route `zscore_p99`, fallback `2.0`, floor `1.5`).
 
 ### Window state lost on online service restart
 

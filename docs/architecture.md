@@ -88,7 +88,7 @@ Uses manual offset commits (commits only after successful MinIO flush). Buffers 
 
 Second Kafka consumer of the same topic. For each incoming message it:
 1. Updates a per-route `RouteWindow` using Welford's online algorithm (running mean + M₂ accumulator)
-2. Computes z-score against the cached gold baseline for the current `(route_id, day_of_week, hour_of_day)` slot
+2. Computes heavy-ratio z-score against the cached gold baseline for the current `(route_id, day_of_week, hour_of_day)` slot
 3. Upserts into `online_route_features` — the real-time feature store
 
 Baseline is loaded from `gold.traffic_baseline` at startup and refreshed every 6 hours. Window state is reconstructed from Postgres on restart (`_restore_windows()`).
@@ -154,7 +154,7 @@ warehouse/ (Dremio warehouse)
 |-------|-------|-------------|
 | `silver.traffic_route` | Silver | `route_id`, `timestamp_utc`, `duration_minutes`, `congestion_*` |
 | `gold.traffic_hourly` | Gold | `route_id`, `hour_utc`, `avg_duration_minutes`, `avg_heavy_ratio`, `max_severe_segments` |
-| `gold.traffic_baseline` | Gold | `route_id`, `day_of_week`, `hour_of_day`, `baseline_duration_mean`, `baseline_duration_stddev` |
+| `gold.traffic_baseline` | Gold | `route_id`, `day_of_week`, `hour_of_day`, heavy-ratio baseline stats, `zscore_p99` |
 
 ### PostgreSQL (Online Feature Store)
 
@@ -165,8 +165,8 @@ Primary tables:
 route_id, window_start (PK) — current UTC hour bucket
 mean_duration_minutes, stddev_duration_minutes — Welford running stats
 mean_heavy_ratio, mean_moderate_ratio, max_severe_segments — congestion metrics
-duration_zscore — (mean_duration - baseline_mean) / baseline_stddev
-is_anomaly — zscore > threshold (one-sided)
+duration_zscore — heavy-ratio z-score vs baseline (legacy column name)
+is_anomaly — zscore > route threshold (one-sided; zscore_p99 fallback 2.0, floor 1.5)
 last_ingest_lag_ms — ingest_ts header to Postgres write latency
 updated_at — precise timestamp of last write
 ```
@@ -182,7 +182,7 @@ score_count, anomaly_count, both_count — aggregation for majority vote
 ```
 scored_at, route_id, window_start
 iforest_score, iforest_anomaly, zscore_anomaly, both_anomaly
-duration_zscore, mean_duration_minutes, mean_heavy_ratio
+duration_zscore (heavy-ratio z-score), mean_duration_minutes, mean_heavy_ratio
 ingest_lag_ms — poll → Postgres write (system: VietMap + Kafka + online service)
 staleness_ms — Postgres write → IForest score (data age at scoring time)
 scoring_ms — IForest predict() wall clock

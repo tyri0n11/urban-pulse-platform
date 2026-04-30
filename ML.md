@@ -4,32 +4,33 @@
 
 ### How it's computed
 
-Z-score measures "number of standard deviations from the historical baseline":
+Z-score measures how far the current **heavy vehicle ratio** is from the historical heavy-ratio baseline for the same route/time slot:
 
 ```
-zscore = (current_mean - baseline_mean) / baseline_stddev
+zscore = (current_mean_heavy_ratio - baseline_heavy_ratio_mean) / baseline_heavy_ratio_stddev
 ```
 
 | Variable | Source | Description |
 |----------|--------|-------------|
-| `current_mean` | `online_route_features.mean_duration_minutes` | Welford running mean for the current UTC window (resets every hour) |
-| `baseline_mean` | `gold.traffic_baseline.baseline_duration_mean` | Historical mean for route × (day_of_week, hour_of_day) |
-| `baseline_stddev` | `gold.traffic_baseline.baseline_duration_stddev` | Historical stddev; fallback = `0.1 × mean` if only 1 sample |
+| `current_mean_heavy_ratio` | `online_route_features.mean_heavy_ratio` | Running mean heavy ratio for the current UTC window (resets every hour) |
+| `baseline_heavy_ratio_mean` | `gold.traffic_baseline.baseline_heavy_ratio_mean` | Historical heavy-ratio mean for route × (day_of_week, hour_of_day) |
+| `baseline_heavy_ratio_stddev` | `gold.traffic_baseline.baseline_heavy_ratio_stddev` | Historical heavy-ratio stddev; floor = `0.01` |
+| `baseline.zscore_threshold` | `gold.traffic_baseline.zscore_p99` | Dynamic per-route threshold; fallback = `2.0`, floor = `1.5` |
 
 ```python
 # online/app.py
-if baseline and baseline.stddev > 0:
-    zscore = (window.mean_duration - baseline.mean) / baseline.stddev
-    is_anomaly = zscore > 3.0   # one-sided: only high duration (congestion) is flagged
+if baseline and baseline.heavy_ratio_stddev > 0:
+    zscore = (window.mean_heavy_ratio - baseline.heavy_ratio_mean) / baseline.heavy_ratio_stddev
+    is_anomaly = zscore > baseline.zscore_threshold  # one-sided: only high heavy_ratio is flagged
 ```
 
-**Threshold:** `zscore > 3.0` → `is_anomaly = True` (one-sided — low duration / fast traffic is not an anomaly)
+**Threshold:** `zscore > baseline.zscore_threshold` → `is_anomaly = True` (one-sided — lower-than-normal heavy ratio is not an anomaly). The value is stored in `online_route_features.duration_zscore` for historical naming reasons, but it is a heavy-ratio z-score.
 
 ### When zscore is NULL
 
 - `gold.traffic_baseline` is empty (bootstrap hasn't run yet)
 - No baseline entry for the current (day_of_week, hour_of_day) slot
-- `baseline.stddev = 0` (filtered before computation)
+- `baseline.heavy_ratio_stddev = 0` (filtered before computation)
 
 ---
 
@@ -65,11 +66,17 @@ SELECT
     EXTRACT(DOW  FROM hour_utc) AS day_of_week,   -- 0=Sun, 6=Sat
     EXTRACT(HOUR FROM hour_utc) AS hour_of_day,
     AVG(avg_duration_minutes)   AS baseline_duration_mean,
-    COALESCE(
-        STDDEV(avg_duration_minutes),
-        AVG(avg_duration_minutes) * 0.1            -- fallback if only 1 sample
+    GREATEST(
+        COALESCE(STDDEV(avg_duration_minutes), AVG(avg_duration_minutes) * 0.1),
+        1.0
     )                           AS baseline_duration_stddev,
     AVG(avg_heavy_ratio)        AS baseline_heavy_ratio_mean,
+    GREATEST(
+        COALESCE(STDDEV(avg_heavy_ratio), AVG(avg_heavy_ratio) * 0.2),
+        0.01
+    )                           AS baseline_heavy_ratio_stddev,
+    -- zscore_p95 / zscore_p99 are computed from heavy-ratio z-scores per route,
+    -- then replicated onto each slot row for O(1) online lookup.
     COUNT(*)                    AS sample_count
 FROM gold.traffic_hourly
 GROUP BY route_id, day_of_week, hour_of_day
@@ -184,7 +191,7 @@ iforest_score   = model.decision_function(X)[0]  # more negative = more anomalou
 
 | Signal | Computed | Threshold | Field |
 |--------|----------|-----------|-------|
-| Z-Score | Every Kafka message (online) | `\|z\| > 3.0` | `is_anomaly` |
+| Z-Score | Every Kafka message (online) | `z > baseline.zscore_threshold` (`zscore_p99`, fallback `2.0`, floor `1.5`) | `is_anomaly` |
 | IsolationForest | On-demand when serving queries (SSE every 15s) | `predict == -1` | `iforest_anomaly` |
 
 ```python
@@ -227,6 +234,9 @@ gold.traffic_baseline    — historical stats per (route_id, day_of_week, hour_o
     baseline_duration_mean    DOUBLE
     baseline_duration_stddev  DOUBLE    fallback = mean * 0.1 if only 1 sample
     baseline_heavy_ratio_mean DOUBLE
+    baseline_heavy_ratio_stddev DOUBLE   fallback = mean * 0.2, floor = 0.01
+    zscore_p95              DOUBLE
+    zscore_p99              DOUBLE      online threshold source; fallback = 2.0, floor = 1.5
     sample_count          INT
 ```
 
