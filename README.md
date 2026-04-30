@@ -40,7 +40,7 @@ Postgres + ChromaDB (RAG)
 
 | Signal | Layer | Threshold | Latency |
 |--------|-------|-----------|---------|
-| **Z-Score** | Online (Kafka consumer) | `z > 3.0` | < 20s |
+| **Z-Score** | Online (Kafka consumer) | `heavy_ratio_zscore > route_threshold` (`zscore_p99`, fallback `2.0`, floor `1.5`) | < 20s |
 | **IsolationForest** | Serving (on-demand) | `decision_function < 0` (7 cyclical features) | ~100ms |
 
 `both_anomaly = true` when both agree → most reliable alert. Details: [ANOMALY.md](ANOMALY.md)

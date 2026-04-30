@@ -154,8 +154,8 @@ Real-time Welford window + z-score, written by `online` service:
 | `mean_heavy_ratio` | DOUBLE | Running mean heavy vehicle ratio |
 | `mean_moderate_ratio` | DOUBLE | Running mean moderate ratio |
 | `max_severe_segments` | DOUBLE | Max severe segments in window |
-| `duration_zscore` | DOUBLE | `(mean - baseline.mean) / baseline.stddev` |
-| `is_anomaly` | BOOLEAN | `zscore > 3.0` |
+| `duration_zscore` | DOUBLE | Heavy-ratio z-score vs baseline; legacy column name |
+| `is_anomaly` | BOOLEAN | `duration_zscore > baseline.zscore_threshold` (`zscore_p99`, fallback `2.0`, floor `1.5`) |
 | `last_ingest_lag_ms` | BIGINT | E2E Kafka→Postgres latency |
 
 ### route_iforest_scores
@@ -199,7 +199,7 @@ Per-tick IForest scoring results + full E2E latency breakdown (one row per 15s s
 | `iforest_anomaly` | BOOLEAN | `predict() == -1` |
 | `zscore_anomaly` | BOOLEAN | `is_anomaly` from `online_route_features` |
 | `both_anomaly` | BOOLEAN | Both signals agree |
-| `duration_zscore` | DOUBLE | Z-score value at time of scoring |
+| `duration_zscore` | DOUBLE | Heavy-ratio z-score value at time of scoring; legacy column name |
 | `mean_duration_minutes` | DOUBLE | |
 | `mean_heavy_ratio` | DOUBLE | |
 | `ingest_lag_ms` | BIGINT | VietMap poll → Postgres write (pipeline input latency) |
