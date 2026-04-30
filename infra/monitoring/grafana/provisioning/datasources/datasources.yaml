@@ -10,6 +10,15 @@ datasources:
     jsonData:
       maxLines: 1000
 
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    url: http://prometheus:9090
+    access: proxy
+    isDefault: false
+    jsonData:
+      timeInterval: 15s
+
   - name: PostgreSQL
     type: postgres
     uid: postgres
