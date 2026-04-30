@@ -1,13 +1,17 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS builder
 WORKDIR /app
 RUN pip install uv
 
-# Copy workspace files needed for dependency resolution
 COPY pyproject.toml uv.lock ./
 COPY packages/ packages/
 COPY apps/weather-ingestion/ apps/weather-ingestion/
 
-# Sync only weather-ingestion package and its dependencies into .venv
-RUN uv sync --package weather-ingestion --no-dev
+RUN uv sync --package weather-ingestion --no-dev --no-editable
+
+FROM python:3.12-slim
+WORKDIR /app
+
+COPY --from=builder /app/.venv .venv
+COPY --from=builder /app/apps/weather-ingestion /app/apps/weather-ingestion
 
 CMD [".venv/bin/python", "-m", "weather_ingestion.main"]
