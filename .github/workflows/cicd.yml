@@ -157,6 +157,14 @@ jobs:
             up -d --no-deps \
             traffic-ingestion weather-ingestion streaming online ml batch serving
 
+      - name: Start monitoring exporters (idempotent)
+        run: |
+          docker compose \
+            --env-file ~/deployment/urban-pulse-platform/.env.prod \
+            -f infra/docker/docker-compose.prod.yaml \
+            up -d --no-deps \
+            prometheus node-exporter cadvisor nvidia-gpu-exporter
+
       - name: Healthcheck serving API
         run: |
           for i in $(seq 1 24); do
