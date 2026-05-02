@@ -56,7 +56,8 @@ class TestProcessBuffering:
         msg = MagicMock()
         msg.value.return_value = b"not-json"
         msg.headers.return_value = []
-        proc.process(msg)  # must not raise
+        with pytest.raises(ValueError):
+            proc.process(msg)
 
     def test_missing_ingest_ts_header_defaults_to_zero_lag(self, sample_obs):
         proc, _ = _make_processor()

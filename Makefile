@@ -1,4 +1,4 @@
-.PHONY: dev down logs status lint typecheck test test-unit test-integration build build-ingestion build-serving bootstrap train pull-model \
+.PHONY: dev dev-% down logs status lint typecheck test test-unit test-integration build build-ingestion build-serving bootstrap train pull-model \
         prod prod-down prod-logs prod-status prod-build prod-bootstrap prod-train prod-setup
 
 COMPOSE     = docker compose --env-file .env -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml
@@ -6,6 +6,10 @@ COMPOSE_PROD = docker compose --env-file .env.prod -f infra/docker/docker-compos
 
 dev:
 	$(COMPOSE) up -d
+
+dev-%:
+	$(COMPOSE) build --no-cache $*
+	$(COMPOSE) up -d --force-recreate $*
 
 down:
 	$(COMPOSE) down
@@ -38,7 +42,7 @@ test-integration:
 	uv run pytest -m integration
 
 build:
-	$(COMPOSE) build
+	$(COMPOSE) build --no-cache
 
 build-ingestion:
 	$(COMPOSE) build traffic-ingestion weather-ingestion

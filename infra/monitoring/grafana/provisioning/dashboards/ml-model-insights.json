@@ -1,11 +1,11 @@
 {
   "uid": "ml-model-insights",
-  "title": "ML Model Insights",
+  "title": "13 ML - Model Insights",
   "tags": [
+    "urban-pulse",
     "ml",
     "anomaly",
-    "urban-pulse",
-    "thesis"
+    "model"
   ],
   "timezone": "browser",
   "refresh": "5m",
@@ -37,7 +37,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"Per-route training complete\" | pattern `<_>\u2014 <trained>/<_> routes trained<_>` | unwrap trained | __error__=\"\" [$__range])"
+          "expr": "max_over_time({service=\"ml-service\"} |= \"Per-route training complete\" | pattern `<_>— <trained>/<_> routes trained<_>` | unwrap trained | __error__=\"\" [$__range]) or vector(0)"
         }
       ],
       "options": {
@@ -97,7 +97,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "last_over_time({service=\"ml-service\"} |= \"Per-route training complete\" | pattern `<_> routes trained, <samples> total samples` | unwrap samples | __error__=\"\" [$__range])"
+          "expr": "max_over_time({service=\"ml-service\"} |= \"Per-route training complete\" | pattern `<_> routes trained, <samples> total samples` | unwrap samples | __error__=\"\" [$__range]) or vector(0)"
         }
       ],
       "options": {
@@ -141,7 +141,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "avg_over_time({service=\"ml-service\"} |= \"iforest=\" |= \"anomalies\" | pattern `<_>iforest=<n> anomalies<_>` | unwrap n | __error__=\"\" [$__range])"
+          "expr": "avg(avg_over_time({service=\"ml-service\"} |= \"iforest=\" |= \"anomalies\" | pattern `<_>iforest=<n> anomalies<_>` | unwrap n | __error__=\"\" [$__range])) or vector(0)"
         }
       ],
       "options": {
@@ -202,7 +202,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "avg_over_time({service=\"ml-service\"} |= \"agreement=\" | pattern `<_>agreement=<a>` | unwrap a | __error__=\"\" [$__range])"
+          "expr": "avg(avg_over_time({service=\"ml-service\"} |= \"agreement=\" | pattern `<_>agreement=<a>` | unwrap a | __error__=\"\" [$__range])) or vector(0)"
         }
       ],
       "options": {
@@ -263,7 +263,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum_over_time({service=\"ml-service\"} |= \"iforest=\" |= \"anomalies\" | pattern `<_>iforest=<n> anomalies<_>` | unwrap n | __error__=\"\" [$__interval])",
+          "expr": "sum(sum_over_time({service=\"ml-service\"} |= \"iforest=\" |= \"anomalies\" | pattern `<_>iforest=<n> anomalies<_>` | unwrap n | __error__=\"\" [$__interval]))",
           "legendFormat": "IForest Anomalies (all routes)"
         }
       ],
@@ -301,7 +301,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "avg_over_time({service=\"ml-service\"} |= \"agreement=\" | pattern `<_>agreement=<a>` | unwrap a | __error__=\"\" [$__interval])",
+          "expr": "avg(avg_over_time({service=\"ml-service\"} |= \"agreement=\" | pattern `<_>agreement=<a>` | unwrap a | __error__=\"\" [$__interval]))",
           "legendFormat": "Avg Agreement"
         }
       ],

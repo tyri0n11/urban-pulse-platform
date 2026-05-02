@@ -24,6 +24,7 @@ def _make_api_response(
             }
         ]
     }
+    mock_resp.content = b'{"paths":[]}'
     return mock_resp
 
 
@@ -102,8 +103,9 @@ class TestFetchRoute:
             duration_ms=900000.0,
             congestion_segs=[{"value": "heavy"}, {"value": "low"}],
         )
-        obs = self._fetch(resp)
+        obs, raw = self._fetch(resp)
         assert isinstance(obs, TrafficRouteObservation)
+        assert isinstance(raw, (bytes, bytearray))
         assert obs.route_id == "zone1_to_zone4"
         assert obs.distance_meters == 12500.0
         assert obs.duration_minutes == pytest.approx(15.0)
@@ -111,13 +113,13 @@ class TestFetchRoute:
     def test_congestion_populated_when_segments_present(self):
         segs = [{"value": "heavy"}, {"value": "moderate"}, {"value": "low"}]
         resp = _make_api_response(congestion_segs=segs)
-        obs = self._fetch(resp)
+        obs, _ = self._fetch(resp)
         assert obs.congestion is not None
         assert obs.congestion.total_segments == 3
 
     def test_congestion_is_none_when_no_segments(self):
         resp = _make_api_response(congestion_segs=[])
-        obs = self._fetch(resp)
+        obs, _ = self._fetch(resp)
         assert obs.congestion is None
 
     def test_raises_on_http_error(self):
@@ -161,7 +163,7 @@ class TestFetchRoute:
 
     def test_duration_minutes_derived_from_ms(self):
         resp = _make_api_response(duration_ms=600000.0)  # 10 minutes
-        obs = self._fetch(resp)
+        obs, _ = self._fetch(resp)
         assert obs.duration_minutes == pytest.approx(10.0)
         assert obs.duration_ms == 600000.0
 
@@ -169,5 +171,5 @@ class TestFetchRoute:
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"paths": []}
-        obs = self._fetch(mock_resp)
+        obs, _ = self._fetch(mock_resp)
         assert obs.distance_meters == 0.0

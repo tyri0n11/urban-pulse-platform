@@ -7,8 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from urbanpulse_core.config import settings
+from urbanpulse_infra.kafka import KafkaProducer
 from traffic_ingestion.publishers import Publisher
 from traffic_ingestion.sources.vietmap import fetch_route
+
+_RAW_TOPIC = "vietmap-raw"
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,7 @@ def run(publisher: Publisher, api_key: str) -> None:
     """Fetch all routes sequentially (10 s delay between calls) and publish each."""
     routes = _load_routes()
     total = len(routes)
+    raw_producer = KafkaProducer(settings.kafka_bootstrap_servers)
     logger.info(
         "Starting crawl cycle: %d routes, %ds inter-request delay",
         total,
@@ -34,7 +38,7 @@ def run(publisher: Publisher, api_key: str) -> None:
         try:
             poll_ts_ms = int(time.time() * 1000)
             t0 = time.monotonic()
-            obs = fetch_route(
+            obs, raw_bytes = fetch_route(
                 route_id=route["route_id"],
                 origin=route["origin"],
                 destination=route["destination"],
@@ -44,6 +48,12 @@ def run(publisher: Publisher, api_key: str) -> None:
             )
             latency_api_ms = int((time.monotonic() - t0) * 1000)
             publisher.publish(obs, poll_ts_ms=poll_ts_ms)
+            raw_producer.produce(
+                _RAW_TOPIC,
+                key=route["route_id"],
+                value=raw_bytes,
+                headers={"ingest_ts": str(poll_ts_ms).encode()},
+            )
             logger.info(
                 "[%d/%d] %s → %s  dist=%.1f km  dur=%.1f min  latency_api_ms=%d",
                 i + 1,
@@ -59,3 +69,5 @@ def run(publisher: Publisher, api_key: str) -> None:
 
         if i < total - 1:
             time.sleep(_INTER_REQUEST_DELAY_S)
+
+    raw_producer.flush()

@@ -1,193 +1,339 @@
 {
   "uid": "anomaly-detection",
-  "title": "Anomaly Detection — Traffic Signals",
-  "tags": ["anomaly", "urban-pulse", "traffic"],
+  "title": "09 Traffic - Anomaly Signals",
+  "tags": [
+    "urban-pulse",
+    "traffic",
+    "anomaly",
+    "signals"
+  ],
   "timezone": "browser",
   "refresh": "30s",
-  "time": { "from": "now-6h", "to": "now" },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "schemaVersion": 39,
   "panels": [
     {
       "id": 1,
       "type": "stat",
-      "title": "Anomalous Routes Now",
-      "description": "Routes with is_anomaly=true (z-score signal) in last 15 minutes",
-      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
+      "title": "Both Signals Now",
+      "description": "Routes anomalous by both z-score and IsolationForest in latest window",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
           "format": "table",
-          "rawSql": "SELECT COUNT(*) AS value FROM (SELECT DISTINCT ON (route_id) route_id, is_anomaly, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE is_anomaly = true AND updated_at > NOW() - INTERVAL '15 minutes'"
+          "rawSql": "SELECT COUNT(*) AS value FROM (SELECT DISTINCT ON (o.route_id) o.route_id, o.updated_at, o.is_anomaly AS zscore_anomaly, COALESCE(CASE WHEN i.score_count > 0 THEN i.anomaly_count::float / i.score_count >= 0.5 ELSE i.iforest_anomaly END, false) AS iforest_anomaly FROM online_route_features o LEFT JOIN route_iforest_scores i ON i.route_id = o.route_id AND i.window_start = o.window_start AND i.iforest_score IS NOT NULL ORDER BY o.route_id, o.updated_at DESC) t WHERE t.updated_at > NOW() - INTERVAL '15 minutes' AND t.zscore_anomaly = true AND t.iforest_anomaly = true"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 5 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           },
-          "color": { "mode": "thresholds" }
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "% Routes Anomalous",
-      "description": "Percentage of active routes currently flagged as anomalous",
-      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
+      "title": "Z-Score Only Now",
+      "description": "Routes flagged by z-score only (not confirmed by IsolationForest)",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
           "format": "table",
-          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS value FROM (SELECT DISTINCT ON (route_id) route_id, is_anomaly, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '15 minutes'"
+          "rawSql": "SELECT COUNT(*) AS value FROM (SELECT DISTINCT ON (o.route_id) o.route_id, o.updated_at, o.is_anomaly AS zscore_anomaly, COALESCE(CASE WHEN i.score_count > 0 THEN i.anomaly_count::float / i.score_count >= 0.5 ELSE i.iforest_anomaly END, false) AS iforest_anomaly FROM online_route_features o LEFT JOIN route_iforest_scores i ON i.route_id = o.route_id AND i.window_start = o.window_start AND i.iforest_score IS NOT NULL ORDER BY o.route_id, o.updated_at DESC) t WHERE t.updated_at > NOW() - INTERVAL '15 minutes' AND t.zscore_anomaly = true AND t.iforest_anomaly = false"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 20 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           },
-          "color": { "mode": "thresholds" }
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Max |Z-Score| Now",
-      "description": "Highest absolute z-score across all routes right now",
-      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
+      "title": "IForest Only Now",
+      "description": "Routes flagged by IsolationForest only (z-score is normal)",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
           "format": "table",
-          "rawSql": "SELECT ROUND(MAX(ABS(duration_zscore))::numeric, 2) AS value FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '15 minutes' AND duration_zscore IS NOT NULL"
+          "rawSql": "SELECT COUNT(*) AS value FROM (SELECT DISTINCT ON (o.route_id) o.route_id, o.updated_at, o.is_anomaly AS zscore_anomaly, COALESCE(CASE WHEN i.score_count > 0 THEN i.anomaly_count::float / i.score_count >= 0.5 ELSE i.iforest_anomaly END, false) AS iforest_anomaly FROM online_route_features o LEFT JOIN route_iforest_scores i ON i.route_id = o.route_id AND i.window_start = o.window_start AND i.iforest_score IS NOT NULL ORDER BY o.route_id, o.updated_at DESC) t WHERE t.updated_at > NOW() - INTERVAL '15 minutes' AND t.zscore_anomaly = false AND t.iforest_anomaly = true"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
       "fieldConfig": {
         "defaults": {
-          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 2 },
-              { "color": "orange", "value": 3 },
-              { "color": "red", "value": 4 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           },
-          "color": { "mode": "thresholds" }
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "Avg |Z-Score| Now",
-      "description": "Average absolute z-score — baseline drift indicator",
-      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
+      "title": "Any Signal Now",
+      "description": "Routes flagged by at least one anomaly signal in latest window",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
           "format": "table",
-          "rawSql": "SELECT ROUND(AVG(ABS(duration_zscore))::numeric, 2) AS value FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '15 minutes' AND duration_zscore IS NOT NULL"
+          "rawSql": "SELECT COUNT(*) AS value FROM (SELECT DISTINCT ON (o.route_id) o.route_id, o.updated_at, o.is_anomaly AS zscore_anomaly, COALESCE(CASE WHEN i.score_count > 0 THEN i.anomaly_count::float / i.score_count >= 0.5 ELSE i.iforest_anomaly END, false) AS iforest_anomaly FROM online_route_features o LEFT JOIN route_iforest_scores i ON i.route_id = o.route_id AND i.window_start = o.window_start AND i.iforest_score IS NOT NULL ORDER BY o.route_id, o.updated_at DESC) t WHERE t.updated_at > NOW() - INTERVAL '15 minutes' AND (t.zscore_anomaly = true OR t.iforest_anomaly = true)"
         }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
       "fieldConfig": {
         "defaults": {
-          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "orange", "value": 2 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 8
+              }
             ]
           },
-          "color": { "mode": "thresholds" }
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Anomalous Route Count Over Time",
-      "description": "Number of routes with is_anomaly=true per 5-minute window",
-      "gridPos": { "x": 0, "y": 4, "w": 14, "h": 8 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
+      "title": "Tier Breakdown Over Time",
+      "description": "5-minute buckets split by both signals, z-score only, and IForest only",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
           "format": "time_series",
-          "rawSql": "SELECT date_trunc('hour', window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM window_start) / 5.0) AS time, COUNT(DISTINCT route_id) FILTER (WHERE is_anomaly = true) AS \"Anomalous Routes\", COUNT(DISTINCT route_id) AS \"Total Active Routes\" FROM online_route_features WHERE $__timeFilter(window_start) GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT bucket AS time, COUNT(*) FILTER (WHERE zscore_anomaly = true AND iforest_anomaly = true) AS both_signals, COUNT(*) FILTER (WHERE zscore_anomaly = true AND iforest_anomaly = false) AS zscore_only, COUNT(*) FILTER (WHERE zscore_anomaly = false AND iforest_anomaly = true) AS iforest_only FROM (SELECT date_trunc('hour', o.window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM o.window_start) / 5.0) AS bucket, o.route_id, o.is_anomaly AS zscore_anomaly, COALESCE(CASE WHEN i.score_count > 0 THEN i.anomaly_count::float / i.score_count >= 0.5 ELSE i.iforest_anomaly END, false) AS iforest_anomaly FROM (SELECT DISTINCT ON (route_id, window_start) route_id, window_start, is_anomaly, updated_at FROM online_route_features WHERE $__timeFilter(window_start) ORDER BY route_id, window_start, updated_at DESC) o LEFT JOIN route_iforest_scores i ON i.route_id = o.route_id AND i.window_start = o.window_start AND i.iforest_score IS NOT NULL) t GROUP BY 1 ORDER BY 1"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 15 } },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "Anomalous Routes" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Total Active Routes" },
-            "properties": [
-              { "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } },
-              { "id": "custom.lineStyle", "value": { "dash": [4, 4], "fill": "dash" } }
-            ]
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 14
           }
-        ]
-      }
-    },
-    {
-      "id": 6,
-      "type": "timeseries",
-      "title": "Z-Score Intensity Over Time",
-      "description": "Max and avg absolute z-score across all routes — spike = widespread anomaly",
-      "gridPos": { "x": 14, "y": 4, "w": 10, "h": 8 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
-          "format": "time_series",
-          "rawSql": "SELECT date_trunc('hour', window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM window_start) / 5.0) AS time, MAX(ABS(duration_zscore)) AS \"Max |z-score|\", AVG(ABS(duration_zscore)) AS \"Avg |z-score|\" FROM online_route_features WHERE $__timeFilter(window_start) AND duration_zscore IS NOT NULL GROUP BY 1 ORDER BY 1"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": { "unit": "short", "decimals": 2, "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Max |z-score|" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "both_signals"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "Avg |z-score|" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "zscore_only"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "iforest_only"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
           }
         ]
       }
@@ -195,196 +341,79 @@
     {
       "id": 7,
       "type": "table",
-      "title": "Currently Anomalous Routes",
-      "description": "Routes with is_anomaly=true right now, ranked by |z-score|",
-      "gridPos": { "x": 0, "y": 12, "w": 14, "h": 8 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
+      "title": "Current Tiered Anomalies",
+      "description": "Latest per-route anomalies classified by signal tier",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
           "format": "table",
-          "rawSql": "SELECT route_id AS \"Route\", ROUND(duration_zscore::numeric, 2) AS \"Z-Score\", ROUND(mean_duration_minutes::numeric, 1) AS \"Mean Duration (min)\", ROUND(last_duration_minutes::numeric, 1) AS \"Last Duration (min)\", TO_CHAR(updated_at, 'HH24:MI:SS') AS \"Updated At\" FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, mean_duration_minutes, last_duration_minutes, updated_at, is_anomaly FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE is_anomaly = true AND updated_at > NOW() - INTERVAL '15 minutes' ORDER BY ABS(duration_zscore) DESC NULLS LAST"
+          "rawSql": "SELECT t.route_id AS \"Route\", CASE WHEN t.zscore_anomaly = true AND t.iforest_anomaly = true THEN 'both_signals' WHEN t.zscore_anomaly = true THEN 'zscore_only' ELSE 'iforest_only' END AS \"Tier\", ROUND(t.duration_zscore::numeric, 2) AS \"Z-Score\", ROUND(t.iforest_score::numeric, 4) AS \"IForest Score\", ROUND(t.mean_duration_minutes::numeric, 1) AS \"Mean Duration (min)\", ROUND(t.last_duration_minutes::numeric, 1) AS \"Last Duration (min)\", TO_CHAR(t.updated_at, 'HH24:MI:SS') AS \"Updated At\" FROM (SELECT DISTINCT ON (o.route_id) o.route_id, o.updated_at, o.is_anomaly AS zscore_anomaly, o.duration_zscore, o.mean_duration_minutes, o.last_duration_minutes, COALESCE(CASE WHEN i.score_count > 0 THEN i.anomaly_count::float / i.score_count >= 0.5 ELSE i.iforest_anomaly END, false) AS iforest_anomaly, i.iforest_score FROM online_route_features o LEFT JOIN route_iforest_scores i ON i.route_id = o.route_id AND i.window_start = o.window_start AND i.iforest_score IS NOT NULL ORDER BY o.route_id, o.updated_at DESC) t WHERE t.updated_at > NOW() - INTERVAL '15 minutes' AND (t.zscore_anomaly = true OR t.iforest_anomaly = true) ORDER BY CASE WHEN t.zscore_anomaly = true AND t.iforest_anomaly = true THEN 0 WHEN t.zscore_anomaly = true THEN 1 ELSE 2 END, ABS(COALESCE(t.duration_zscore, 0)) DESC, t.iforest_score DESC NULLS LAST"
         }
       ],
-      "options": { "sortBy": [{ "desc": true, "displayName": "Z-Score" }] },
+      "options": {
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Tier"
+          }
+        ]
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Z-Score" },
+            "matcher": {
+              "id": "byName",
+              "options": "Z-Score"
+            },
             "properties": [
-              { "id": "custom.displayMode", "value": "color-background" },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
               {
                 "id": "thresholds",
                 "value": {
                   "mode": "absolute",
                   "steps": [
-                    { "color": "yellow", "value": null },
-                    { "color": "orange", "value": 3 },
-                    { "color": "red", "value": 4 }
+                    {
+                      "color": "yellow",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 3
+                    },
+                    {
+                      "color": "red",
+                      "value": 4
+                    }
                   ]
                 }
               },
-              { "id": "color", "value": { "mode": "thresholds" } }
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
             ]
           }
         ]
-      }
-    },
-    {
-      "id": 8,
-      "type": "timeseries",
-      "title": "Per-Route Z-Score Over Time",
-      "description": "Individual route z-scores — hover to identify which route spiked",
-      "gridPos": { "x": 14, "y": 12, "w": 10, "h": 8 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
-          "format": "time_series",
-          "rawSql": "SELECT date_trunc('hour', window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM window_start) / 5.0) AS time, route_id AS metric, AVG(duration_zscore) AS value FROM online_route_features WHERE $__timeFilter(window_start) AND duration_zscore IS NOT NULL GROUP BY 1, 2 ORDER BY 1"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 2,
-          "custom": { "lineWidth": 1, "fillOpacity": 0 }
-        }
-      }
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Ingest Lag Over Time (p50 / p95)",
-      "description": "End-to-end latency from VietMap API to Postgres — SLO: p95 < 30s",
-      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
-          "format": "time_series",
-          "rawSql": "SELECT date_trunc('hour', window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM window_start) / 5.0) AS time, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY last_ingest_lag_ms) / 1000.0 AS \"p50 lag (s)\", PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY last_ingest_lag_ms) / 1000.0 AS \"p95 lag (s)\" FROM online_route_features WHERE $__timeFilter(window_start) AND last_ingest_lag_ms IS NOT NULL GROUP BY 1 ORDER BY 1"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": { "lineWidth": 2, "fillOpacity": 10 },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 15 },
-              { "color": "red", "value": 30 }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "p95 lag (s)" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
-          },
-          {
-            "matcher": { "id": "byName", "options": "p50 lag (s)" },
-            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
-          }
-        ]
-      }
-    },
-    {
-      "id": 10,
-      "type": "stat",
-      "title": "SLO Met (p95 < 30s)",
-      "description": "Percentage of 5-min windows where p95 lag was under 30s",
-      "gridPos": { "x": 12, "y": 20, "w": 6, "h": 4 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
-          "format": "table",
-          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN p95_ms < 30000 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS value FROM (SELECT date_trunc('hour', window_start) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM window_start) / 5.0) AS bucket, PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p95_ms FROM online_route_features WHERE $__timeFilter(window_start) AND last_ingest_lag_ms IS NOT NULL GROUP BY 1) t"
-        }
-      ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 90 },
-              { "color": "green", "value": 99 }
-            ]
-          },
-          "color": { "mode": "thresholds" }
-        }
-      }
-    },
-    {
-      "id": 11,
-      "type": "stat",
-      "title": "Routes With Z-Score Null",
-      "description": "Routes with no baseline yet (stddev=0 or baseline missing) — fallback mode",
-      "gridPos": { "x": 18, "y": 20, "w": 6, "h": 4 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
-          "format": "table",
-          "rawSql": "SELECT COUNT(*) AS value FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE duration_zscore IS NULL AND updated_at > NOW() - INTERVAL '15 minutes'"
-        }
-      ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 10 }
-            ]
-          },
-          "color": { "mode": "thresholds" }
-        }
-      }
-    },
-    {
-      "id": 12,
-      "type": "stat",
-      "title": "Baseline Coverage",
-      "description": "% of active routes with valid z-score (has baseline)",
-      "gridPos": { "x": 12, "y": 24, "w": 6, "h": 4 },
-      "datasource": { "type": "postgres", "uid": "postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres" },
-          "format": "table",
-          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN duration_zscore IS NOT NULL THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS value FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '15 minutes'"
-        }
-      ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 50 },
-              { "color": "green", "value": 90 }
-            ]
-          },
-          "color": { "mode": "thresholds" }
-        }
       }
     }
   ]

@@ -1,0 +1,395 @@
+{
+  "uid": "online-metrics",
+  "title": "11 Online - Metrics",
+  "tags": [
+    "urban-pulse",
+    "online",
+    "metrics",
+    "latency"
+  ],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Active Routes",
+      "description": "Routes with an online feature update in the last 10 minutes",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT COUNT(DISTINCT route_id) AS value FROM (SELECT DISTINCT ON (route_id) route_id, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '10 minutes'",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Anomalous Routes Now",
+      "description": "Latest routes flagged by z-score in the last 10 minutes",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT COUNT(*) AS value FROM (SELECT DISTINCT ON (route_id) route_id, is_anomaly, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '10 minutes' AND is_anomaly = true",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Raw to Feature p95",
+      "description": "p95 full pipeline latency from poll to online features write",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS value FROM (SELECT DISTINCT ON (route_id) last_ingest_lag_ms FROM online_route_features WHERE updated_at > NOW() - INTERVAL '10 minutes' AND last_ingest_lag_ms IS NOT NULL ORDER BY route_id, updated_at DESC) t",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10000
+              },
+              {
+                "color": "red",
+                "value": 20000
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Raw to Feature p99",
+      "description": "p99 full pipeline latency",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS value FROM (SELECT DISTINCT ON (route_id) last_ingest_lag_ms FROM online_route_features WHERE updated_at > NOW() - INTERVAL '10 minutes' AND last_ingest_lag_ms IS NOT NULL ORDER BY route_id, updated_at DESC) t",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 15000
+              },
+              {
+                "color": "red",
+                "value": 30000
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Raw to Feature p50",
+      "description": "Median full pipeline latency",
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS value FROM (SELECT DISTINCT ON (route_id) last_ingest_lag_ms FROM online_route_features WHERE updated_at > NOW() - INTERVAL '10 minutes' AND last_ingest_lag_ms IS NOT NULL ORDER BY route_id, updated_at DESC) t",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Total Observations",
+      "description": "Sum of latest observation_count across all routes",
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT SUM(observation_count) AS value FROM (SELECT DISTINCT ON (route_id) observation_count FROM online_route_features ORDER BY route_id, updated_at DESC) t",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Raw to Feature Latency Over Time",
+      "description": "p50, p95, p99 of full pipeline latency",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 14,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT DATE_TRUNC('minute', updated_at) AS time, PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p50_ms, PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p95_ms, PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p99_ms FROM online_route_features WHERE $__timeFilter(updated_at) AND last_ingest_lag_ms IS NOT NULL GROUP BY 1 ORDER BY 1",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Anomalous Routes Over Time",
+      "description": "Anomalous and normal route count per minute",
+      "gridPos": {
+        "x": 14,
+        "y": 4,
+        "w": 10,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT DATE_TRUNC('minute', updated_at) AS time, COUNT(*) FILTER (WHERE is_anomaly = true) AS anomalous, COUNT(*) FILTER (WHERE is_anomaly = false) AS normal FROM (SELECT DISTINCT ON (route_id, DATE_TRUNC('minute', updated_at)) route_id, updated_at, is_anomaly FROM online_route_features WHERE $__timeFilter(updated_at) ORDER BY route_id, DATE_TRUNC('minute', updated_at), updated_at DESC) t GROUP BY 1 ORDER BY 1",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Pipeline Latency and Data Freshness",
+      "description": "Prediction-stage performance from prediction_history",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT DATE_TRUNC('minute', scored_at) AS time, PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ingest_lag_ms + scoring_ms) AS p50_pipeline_ms, PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ingest_lag_ms + scoring_ms) AS p95_pipeline_ms, PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY staleness_ms) AS p50_freshness_ms, PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY staleness_ms) AS p95_freshness_ms, MAX(scoring_ms) AS scoring_ms FROM prediction_history WHERE $__timeFilter(scored_at) AND ingest_lag_ms IS NOT NULL GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}

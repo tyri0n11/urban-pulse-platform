@@ -43,8 +43,11 @@ def fetch_route(
     origin_anchor: list[float],
     destination_anchor: list[float],
     api_key: str,
-) -> TrafficRouteObservation:
-    """Fetch a single route from the VietMap API and return a typed observation."""
+) -> tuple[TrafficRouteObservation, bytes]:
+    """Fetch a single route from the VietMap API.
+
+    Returns the parsed observation and the raw API response bytes.
+    """
     url = (
         f"{_BASE_URL}"
         f"?apikey={api_key}"
@@ -55,13 +58,14 @@ def fetch_route(
     timestamp_utc = datetime.now(timezone.utc)
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
+    raw_bytes = resp.content
     data = resp.json()
 
     first = (data.get("paths") or [{}])[0]
     congestion_segs: list[dict[str, object]] = first.get("annotations", {}).get("congestion", [])
     duration_ms: float = first.get("time", 0.0)
 
-    return TrafficRouteObservation(
+    observation = TrafficRouteObservation(
         route_id=route_id,
         origin=origin,
         destination=destination,
@@ -71,3 +75,4 @@ def fetch_route(
         congestion=_calc_congestion(congestion_segs) if congestion_segs else None,
         timestamp_utc=timestamp_utc,
     )
+    return observation, raw_bytes
