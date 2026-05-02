@@ -1,11 +1,11 @@
 {
   "uid": "online-features",
-  "title": "Online Features \u2014 Real-Time Traffic",
+  "title": "10 Online - Features",
   "tags": [
+    "urban-pulse",
     "online",
-    "streaming",
-    "thesis",
-    "urban-pulse"
+    "features",
+    "realtime"
   ],
   "timezone": "browser",
   "refresh": "10s",
@@ -19,11 +19,11 @@
       "id": 1,
       "type": "stat",
       "title": "Active Routes",
-      "description": "Routes with an online feature update in the last 10 minutes",
+      "description": "Routes with updates in last 10 minutes",
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 4,
+        "w": 6,
         "h": 4
       },
       "datasource": {
@@ -49,26 +49,17 @@
         },
         "colorMode": "value",
         "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          }
-        }
       }
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Anomalous Routes Now",
-      "description": "Routes flagged is_anomaly = true in their latest window",
+      "title": "Baseline Coverage",
+      "description": "Active routes with non-null z-score",
       "gridPos": {
-        "x": 4,
+        "x": 6,
         "y": 0,
-        "w": 4,
+        "w": 6,
         "h": 4
       },
       "datasource": {
@@ -82,7 +73,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT COUNT(*) AS value FROM (SELECT DISTINCT ON (route_id) route_id, is_anomaly, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '10 minutes' AND is_anomaly = true",
+          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN duration_zscore IS NOT NULL THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS value FROM (SELECT DISTINCT ON (route_id) route_id, duration_zscore, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '10 minutes'",
           "format": "table"
         }
       ],
@@ -97,21 +88,21 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "percent",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
                 "color": "yellow",
-                "value": 1
+                "value": 70
               },
               {
-                "color": "red",
-                "value": 5
+                "color": "green",
+                "value": 90
               }
             ]
           },
@@ -124,73 +115,12 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Raw\u2192Feature p95",
-      "description": "p95 full pipeline: VietMap API poll \u2192 Postgres write (poll_ts in Kafka header). SLO: < 20 000 ms",
-      "gridPos": {
-        "x": 8,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "rawSql": "SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS value FROM (SELECT DISTINCT ON (route_id) last_ingest_lag_ms FROM online_route_features WHERE updated_at > NOW() - INTERVAL '10 minutes' AND last_ingest_lag_ms IS NOT NULL ORDER BY route_id, updated_at DESC) t",
-          "format": "table"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 10000
-              },
-              {
-                "color": "red",
-                "value": 20000
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        }
-      }
-    },
-    {
-      "id": 4,
-      "type": "stat",
-      "title": "Raw\u2192Feature p99",
-      "description": "p99 full pipeline latency: VietMap API poll \u2192 Postgres write",
+      "title": "Mean Heavy Ratio",
+      "description": "Average of latest mean_heavy_ratio per route",
       "gridPos": {
         "x": 12,
         "y": 0,
-        "w": 4,
+        "w": 6,
         "h": 4
       },
       "datasource": {
@@ -204,68 +134,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS value FROM (SELECT DISTINCT ON (route_id) last_ingest_lag_ms FROM online_route_features WHERE updated_at > NOW() - INTERVAL '10 minutes' AND last_ingest_lag_ms IS NOT NULL ORDER BY route_id, updated_at DESC) t",
-          "format": "table"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 15000
-              },
-              {
-                "color": "red",
-                "value": 30000
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        }
-      }
-    },
-    {
-      "id": 10,
-      "type": "stat",
-      "title": "Raw\u2192Feature p50",
-      "description": "Median full pipeline latency",
-      "gridPos": {
-        "x": 16,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "rawSql": "SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS value FROM (SELECT DISTINCT ON (route_id) last_ingest_lag_ms FROM online_route_features WHERE updated_at > NOW() - INTERVAL '10 minutes' AND last_ingest_lag_ms IS NOT NULL ORDER BY route_id, updated_at DESC) t",
+          "rawSql": "SELECT ROUND(AVG(mean_heavy_ratio)::numeric, 4) AS value FROM (SELECT DISTINCT ON (route_id) route_id, mean_heavy_ratio, updated_at FROM online_route_features ORDER BY route_id, updated_at DESC) t WHERE updated_at > NOW() - INTERVAL '10 minutes'",
           "format": "table"
         }
       ],
@@ -277,22 +146,13 @@
         },
         "colorMode": "value",
         "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          }
-        }
       }
     },
     {
-      "id": 5,
+      "id": 4,
       "type": "stat",
-      "title": "Total Observations (current hour)",
-      "description": "Sum of observation_count across all routes in current window",
+      "title": "Total Observations",
+      "description": "Sum of latest observation_count across routes",
       "gridPos": {
         "x": 18,
         "y": 0,
@@ -310,7 +170,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT SUM(observation_count) AS value FROM (SELECT DISTINCT ON (route_id) observation_count FROM online_route_features ORDER BY route_id, updated_at DESC) t",
+          "rawSql": "SELECT SUM(observation_count) AS value FROM (SELECT DISTINCT ON (route_id) route_id, observation_count FROM online_route_features ORDER BY route_id, updated_at DESC) t",
           "format": "table"
         }
       ],
@@ -322,26 +182,44 @@
         },
         "colorMode": "value",
         "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "purple"
-          }
-        }
       }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Heavy Ratio Trend",
+      "description": "p50 and p95 of mean_heavy_ratio over time",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "rawSql": "SELECT DATE_TRUNC('minute', updated_at) AS time, PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY mean_heavy_ratio) AS p50_heavy_ratio, PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY mean_heavy_ratio) AS p95_heavy_ratio FROM online_route_features WHERE $__timeFilter(updated_at) GROUP BY 1 ORDER BY 1",
+          "format": "time_series"
+        }
+      ]
     },
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Raw\u2192Feature Latency Over Time (p50 / p95 / p99)",
-      "description": "Full pipeline: VietMap API poll \u2192 Postgres write. p95 SLO = 20 000 ms.",
+      "title": "Observation Count Trend",
+      "description": "Total observations and active route count over time",
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 4,
-        "w": 14,
+        "w": 12,
         "h": 8
       },
       "datasource": {
@@ -355,161 +233,16 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT\n  DATE_TRUNC('minute', updated_at) AS time,\n  PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p50_ms,\n  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p95_ms,\n  PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY last_ingest_lag_ms) AS p99_ms\nFROM online_route_features\nWHERE $__timeFilter(updated_at)\n  AND last_ingest_lag_ms IS NOT NULL\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT DATE_TRUNC('minute', updated_at) AS time, SUM(observation_count) AS total_observations, COUNT(DISTINCT route_id) AS active_routes FROM (SELECT DISTINCT ON (route_id, DATE_TRUNC('minute', updated_at)) route_id, updated_at, observation_count FROM online_route_features WHERE $__timeFilter(updated_at) ORDER BY route_id, DATE_TRUNC('minute', updated_at), updated_at DESC) t GROUP BY 1 ORDER BY 1",
           "format": "time_series"
         }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 8
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p50_ms"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "p50"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p95_ms"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "orange",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "p95 (SLO: 20 000 ms)"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p99_ms"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "red",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "p99"
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
+      ]
     },
     {
       "id": 7,
-      "type": "timeseries",
-      "title": "Anomalous Routes Over Time",
-      "description": "Number of routes with is_anomaly=true per minute",
-      "gridPos": {
-        "x": 14,
-        "y": 4,
-        "w": 10,
-        "h": 8
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "rawSql": "SELECT\n  DATE_TRUNC('minute', updated_at) AS time,\n  COUNT(*) FILTER (WHERE is_anomaly = true)  AS anomalous,\n  COUNT(*) FILTER (WHERE is_anomaly = false) AS normal\nFROM (\n  SELECT DISTINCT ON (route_id, DATE_TRUNC('minute', updated_at))\n    route_id, updated_at, is_anomaly\n  FROM online_route_features\n  WHERE $__timeFilter(updated_at)\n  ORDER BY route_id, DATE_TRUNC('minute', updated_at), updated_at DESC\n) t\nGROUP BY 1\nORDER BY 1",
-          "format": "time_series"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 10
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "anomalous"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "red",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "normal"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": 8,
       "type": "table",
-      "title": "Current Online Features \u2014 All Routes",
-      "description": "Latest feature window per route. Auto-refreshes every 10s. Red rows = anomaly detected by Faust z-score.",
+      "title": "Current Online Features",
+      "description": "Latest feature snapshot per route",
       "gridPos": {
         "x": 0,
         "y": 12,
@@ -527,7 +260,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT\n  route_id,\n  window_start AT TIME ZONE 'UTC' AS window_start,\n  updated_at   AT TIME ZONE 'UTC' AS last_updated,\n  observation_count,\n  ROUND(mean_duration_minutes::numeric, 2)   AS mean_duration_min,\n  ROUND(stddev_duration_minutes::numeric, 2) AS stddev_duration_min,\n  ROUND(last_duration_minutes::numeric, 2)   AS last_duration_min,\n  ROUND(mean_heavy_ratio::numeric, 4)        AS mean_heavy_ratio,\n  ROUND(duration_zscore::numeric, 3)         AS zscore,\n  is_anomaly,\n  last_ingest_lag_ms                         AS lag_ms\nFROM (\n  SELECT DISTINCT ON (route_id) *\n  FROM online_route_features\n  ORDER BY route_id, updated_at DESC\n) t\nORDER BY ABS(COALESCE(duration_zscore, 0)) DESC",
+          "rawSql": "SELECT route_id, window_start AT TIME ZONE 'UTC' AS window_start, updated_at AT TIME ZONE 'UTC' AS last_updated, observation_count, ROUND(mean_duration_minutes::numeric, 2) AS mean_duration_min, ROUND(stddev_duration_minutes::numeric, 2) AS stddev_duration_min, ROUND(last_duration_minutes::numeric, 2) AS last_duration_min, ROUND(mean_heavy_ratio::numeric, 4) AS mean_heavy_ratio, ROUND(duration_zscore::numeric, 3) AS zscore, is_anomaly, last_ingest_lag_ms AS lag_ms FROM (SELECT DISTINCT ON (route_id) * FROM online_route_features ORDER BY route_id, updated_at DESC) t ORDER BY ABS(COALESCE(duration_zscore, 0)) DESC",
           "format": "table"
         }
       ],
@@ -537,10 +270,7 @@
             "displayName": "zscore",
             "desc": true
           }
-        ],
-        "footer": {
-          "show": false
-        }
+        ]
       },
       "fieldConfig": {
         "defaults": {
@@ -556,10 +286,6 @@
               "options": "zscore"
             },
             "properties": [
-              {
-                "id": "unit",
-                "value": "none"
-              },
               {
                 "id": "thresholds",
                 "value": {
@@ -593,29 +319,6 @@
             },
             "properties": [
               {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "true": {
-                        "text": "ANOMALY",
-                        "color": "red"
-                      }
-                    }
-                  },
-                  {
-                    "type": "value",
-                    "options": {
-                      "false": {
-                        "text": "normal",
-                        "color": "green"
-                      }
-                    }
-                  }
-                ]
-              },
-              {
                 "id": "custom.displayMode",
                 "value": "color-background"
               }
@@ -630,591 +333,10 @@
               {
                 "id": "unit",
                 "value": "ms"
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": null
-                    },
-                    {
-                      "color": "yellow",
-                      "value": 10000
-                    },
-                    {
-                      "color": "red",
-                      "value": 20000
-                    }
-                  ]
-                }
-              },
-              {
-                "id": "custom.displayMode",
-                "value": "color-background"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "mean_duration_min"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "m"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "last_duration_min"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "m"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "stddev_duration_min"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "m"
               }
             ]
           }
         ]
-      }
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Z-Score Distribution Over Time (top anomalous routes)",
-      "description": "Tracks duration z-score for routes with |zscore| > 2 in the last hour. Crossing \u00b13 triggers is_anomaly.",
-      "gridPos": {
-        "x": 0,
-        "y": 24,
-        "w": 24,
-        "h": 8
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "rawSql": "SELECT\n  updated_at AS time,\n  route_id,\n  duration_zscore\nFROM online_route_features\nWHERE $__timeFilter(updated_at)\n  AND ABS(duration_zscore) > 2\nORDER BY updated_at",
-          "format": "time_series"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 0
-          }
-        }
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi"
-        },
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      }
-    },
-    {
-      "id": 11,
-      "type": "stat",
-      "title": "Pipeline Latency p50",
-      "description": "ingest_lag_ms + scoring_ms. Th\u1eddi gian h\u1ec7 th\u1ed1ng x\u1eed l\u00fd t\u1eeb khi c\u00f3 data \u0111\u1ebfn predict xong.",
-      "gridPos": {
-        "x": 0,
-        "y": 32,
-        "w": 4,
-        "h": 4
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ingest_lag_ms + scoring_ms) AS value FROM prediction_history WHERE scored_at > NOW() - INTERVAL '10 minutes' AND ingest_lag_ms IS NOT NULL"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value",
-        "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          }
-        }
-      }
-    },
-    {
-      "id": 12,
-      "type": "stat",
-      "title": "Pipeline Latency p95",
-      "description": "SLO: p95 < 60 000 ms. System overhead: Kafka + online service processing.",
-      "gridPos": {
-        "x": 4,
-        "y": 32,
-        "w": 4,
-        "h": 4
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ingest_lag_ms + scoring_ms) AS value FROM prediction_history WHERE scored_at > NOW() - INTERVAL '10 minutes' AND ingest_lag_ms IS NOT NULL"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value",
-        "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 45000
-              },
-              {
-                "color": "red",
-                "value": 60000
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        }
-      }
-    },
-    {
-      "id": 13,
-      "type": "stat",
-      "title": "Pipeline Latency SLO compliance",
-      "description": "% windows where pipeline latency (ingest_lag + scoring) < 60 000 ms",
-      "gridPos": {
-        "x": 8,
-        "y": 32,
-        "w": 4,
-        "h": 4
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN ingest_lag_ms + scoring_ms < 60000 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS value FROM prediction_history WHERE $__timeFilter(scored_at) AND ingest_lag_ms IS NOT NULL"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value",
-        "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 90
-              },
-              {
-                "color": "green",
-                "value": 99
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        }
-      }
-    },
-    {
-      "id": 14,
-      "type": "stat",
-      "title": "Data Freshness p50",
-      "description": "staleness_ms: tu\u1ed5i c\u1ee7a data khi \u0111\u01b0\u1ee3c score. Bounded b\u1edfi poll interval 5 min \u2192 expected p50 \u2248 2.5 min.",
-      "gridPos": {
-        "x": 12,
-        "y": 32,
-        "w": 4,
-        "h": 4
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY staleness_ms) AS value FROM prediction_history WHERE scored_at > NOW() - INTERVAL '10 minutes' AND staleness_ms IS NOT NULL"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value",
-        "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "yellow"
-          }
-        }
-      }
-    },
-    {
-      "id": 15,
-      "type": "stat",
-      "title": "Data Freshness p95",
-      "description": "SLO: p95 < 310 000 ms (poll interval 5 min + buffer). External API constraint.",
-      "gridPos": {
-        "x": 16,
-        "y": 32,
-        "w": 4,
-        "h": 4
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY staleness_ms) AS value FROM prediction_history WHERE scored_at > NOW() - INTERVAL '10 minutes' AND staleness_ms IS NOT NULL"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value",
-        "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 280000
-              },
-              {
-                "color": "red",
-                "value": 310000
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        }
-      }
-    },
-    {
-      "id": 16,
-      "type": "stat",
-      "title": "IForest Scoring p95",
-      "description": "Th\u1eddi gian ch\u1ea1y .predict() cho t\u1ea5t c\u1ea3 routes. N\u00ean < 500 ms.",
-      "gridPos": {
-        "x": 20,
-        "y": 32,
-        "w": 4,
-        "h": 4
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "table",
-          "rawSql": "SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY scoring_ms) AS value FROM prediction_history WHERE scored_at > NOW() - INTERVAL '10 minutes' AND scoring_ms IS NOT NULL"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value",
-        "graphMode": "none"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 500
-              },
-              {
-                "color": "red",
-                "value": 2000
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        }
-      }
-    },
-    {
-      "id": 17,
-      "type": "timeseries",
-      "title": "Pipeline Latency vs Data Freshness Over Time",
-      "description": "SLO 1 \u2014 Pipeline: ingest_lag + scoring (system overhead, target p95 < 60s). SLO 2 \u2014 Freshness: staleness (poll frequency constraint, expected \u2264 300s).",
-      "gridPos": {
-        "x": 0,
-        "y": 36,
-        "w": 24,
-        "h": 9
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "postgres"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "postgres",
-            "uid": "postgres"
-          },
-          "format": "time_series",
-          "rawSql": "SELECT\n  DATE_TRUNC('minute', scored_at) AS time,\n  PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ingest_lag_ms + scoring_ms) AS p50_pipeline_ms,\n  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ingest_lag_ms + scoring_ms) AS p95_pipeline_ms,\n  PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY staleness_ms)             AS p50_freshness_ms,\n  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY staleness_ms)             AS p95_freshness_ms,\n  MAX(scoring_ms)                                                         AS scoring_ms\nFROM prediction_history\nWHERE $__timeFilter(scored_at) AND ingest_lag_ms IS NOT NULL\nGROUP BY 1 ORDER BY 1"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 6
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p50_pipeline_ms"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "p50 pipeline latency"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p95_pipeline_ms"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "orange",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "p95 pipeline latency (SLO: 60s)"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p50_freshness_ms"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "yellow",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "p50 data freshness"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p95_freshness_ms"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "red",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "p95 data freshness (poll bound: 300s)"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "scoring_ms"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "purple",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "IForest scoring time"
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
       }
     }
   ]
