@@ -2,6 +2,7 @@
 import io
 import json
 import time
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from confluent_kafka import Message
@@ -21,14 +22,14 @@ class VietmapRawProcessor(BaseProcessor):
     def __init__(self, minio: MinioClient) -> None:
         self.minio = minio
         self.logger = Logger("processor.vietmap_raw")
-        self._buffer: list[bytes] = []
+        self._buffer: list[tuple[bytes, int]] = []
         self.last_flush_time: float = time.monotonic()
 
     def process(self, message: Message) -> bool:
         raw: bytes = message.value()
         route_id = message.key().decode() if message.key() else "unknown"
 
-        ingest_ts: int | None = None
+        ingest_ts: int = int(time.time() * 1000)
         headers = message.headers()
         if headers:
             for key, val in headers:
@@ -40,7 +41,7 @@ class VietmapRawProcessor(BaseProcessor):
             {"route_id": route_id, "ingest_ts": ingest_ts, "raw": json.loads(raw)},
             ensure_ascii=False,
         ).encode()
-        self._buffer.append(record)
+        self._buffer.append((record, ingest_ts))
 
         if len(self._buffer) >= BUFFER_SIZE:
             return self.flush()
@@ -58,19 +59,19 @@ class VietmapRawProcessor(BaseProcessor):
 
         t_start = time.monotonic()
         batch = self._buffer
-        now = time.gmtime()
+        # Use ingest_ts of first message for event-time partitioning
+        ts = datetime.fromtimestamp(batch[0][1] / 1000, tz=timezone.utc)
         object_name = (
             f"bronze/{_TOPIC}/"
-            f"year={now.tm_year:04d}/"
-            f"month={now.tm_mon:02d}/"
-            f"day={now.tm_mday:02d}/"
-            f"hour={now.tm_hour:02d}/"
+            f"year={ts.year:04d}/"
+            f"month={ts.month:02d}/"
+            f"day={ts.day:02d}/"
+            f"hour={ts.hour:02d}/"
             f"{uuid4()}.ndjson"
         )
 
-        ndjson_bytes = b"\n".join(batch)
-        buf = io.BytesIO(ndjson_bytes)
-        self.minio.upload_bytes(_BUCKET, object_name, buf.getvalue())
+        ndjson_bytes = b"\n".join(record for record, _ in batch)
+        self.minio.upload_bytes(_BUCKET, object_name, ndjson_bytes)
 
         self._buffer = []
         latency_flush_ms = int((time.monotonic() - t_start) * 1000)
