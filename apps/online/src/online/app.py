@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import psycopg2
 import psycopg2.extras
-from confluent_kafka import Consumer, KafkaError, KafkaException, Message
+from confluent_kafka import Consumer, KafkaError, KafkaException, Message, Producer
 from urbanpulse_core.config import settings
 from urbanpulse_core.models.traffic import TrafficRouteObservation
 
@@ -196,11 +196,7 @@ class OnlineFeatureProcessor:
             self._refresh_baseline()
 
         raw: bytes = msg.value()  # type: ignore[assignment]
-        try:
-            obs = TrafficRouteObservation.model_validate(json.loads(raw))
-        except Exception as exc:
-            logger.warning("online-features: parse error — %s", exc)
-            return
+        obs = TrafficRouteObservation.model_validate(json.loads(raw))
 
         # E2E ingestion lag
         lag_ms = 0
@@ -316,6 +312,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
 
     processor = OnlineFeatureProcessor(pg_dsn=settings.postgres_dsn)
+    dlq_producer = Producer({"bootstrap.servers": settings.kafka_bootstrap_servers})
 
     consumer = Consumer({
         "bootstrap.servers": settings.kafka_bootstrap_servers,
@@ -336,9 +333,23 @@ def main() -> None:
                 if err is not None and err.code() == KafkaError._PARTITION_EOF:
                     continue
                 raise KafkaException(msg.error())
-            processor.process(msg)
+            try:
+                processor.process(msg)
+            except Exception as exc:
+                logger.warning("online-features: failed to process message, routing to DLQ — %s", exc)
+                try:
+                    dlq_producer.produce(
+                        topic=TOPIC + "-dlq",
+                        key=msg.key(),
+                        value=msg.value(),
+                        headers={"error": str(exc).encode()},
+                    )
+                    dlq_producer.poll(0)
+                except Exception as dlq_err:
+                    logger.error("online-features: failed to publish to DLQ — %s", dlq_err)
             consumer.commit(asynchronous=False)
     finally:
+        dlq_producer.flush()
         consumer.close()
         processor.close()
         logger.info("online-features: stopped cleanly")
