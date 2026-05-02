@@ -1,15 +1,16 @@
 """Stream processor for raw VietMap API responses."""
-import io
+
 import json
 import time
 from datetime import datetime, timezone
+from typing import cast
 from uuid import uuid4
 
 from confluent_kafka import Message
 
 from logger import Logger
-from processors.base import BaseProcessor
-from sinks.minio import MinioClient
+from streaming.processors.base import BaseProcessor
+from streaming.sinks.minio import MinioClient
 
 BUFFER_SIZE = 500
 FLUSH_INTERVAL_S = 30
@@ -26,19 +27,29 @@ class VietmapRawProcessor(BaseProcessor):
         self.last_flush_time: float = time.monotonic()
 
     def process(self, message: Message) -> bool:
-        raw: bytes = message.value()
-        route_id = message.key().decode() if message.key() else "unknown"
+        raw_value = message.value()
+        if raw_value is None:
+            self.logger.warning("Skipping message with empty value")
+            return False
+
+        route_id = "unknown"
+        raw_key = message.key()
+        if raw_key is not None:
+            route_id = raw_key.decode()
 
         ingest_ts: int = int(time.time() * 1000)
-        headers = message.headers()
+        headers = cast(list[tuple[str, bytes | str | None]] | None, message.headers())
         if headers:
             for key, val in headers:
                 if key == "ingest_ts" and val is not None:
-                    ingest_ts = int(val.decode())
+                    if isinstance(val, bytes):
+                        ingest_ts = int(val.decode())
+                    else:
+                        ingest_ts = int(val)
                     break
 
         record = json.dumps(
-            {"route_id": route_id, "ingest_ts": ingest_ts, "raw": json.loads(raw)},
+            {"route_id": route_id, "ingest_ts": ingest_ts, "raw": json.loads(raw_value)},
             ensure_ascii=False,
         ).encode()
         self._buffer.append((record, ingest_ts))
