@@ -1,9 +1,9 @@
-"""Online feature consumer: streams traffic-route-bronze → Postgres.
+"""Online feature consumer: streams vietmap-raw → Postgres.
 
 Uses the same confluent_kafka pattern as streaming-service (proven, no
-compatibility issues). Computes per-route rolling stats using Welford's
-online algorithm and writes to Postgres on every message, achieving
-p95 ingestion-to-feature latency < 20 s.
+compatibility issues). Parses raw VietMap envelopes, computes per-route
+rolling stats using Welford's online algorithm and writes to Postgres on
+every message, achieving p95 ingestion-to-feature latency < 20 s.
 """
 
 import json
@@ -16,14 +16,14 @@ import psycopg2
 import psycopg2.extras
 from confluent_kafka import Consumer, KafkaError, KafkaException, Message, Producer
 from urbanpulse_core.config import settings
-from urbanpulse_core.models.traffic import TrafficRouteObservation
+from urbanpulse_core.models.traffic import VietmapRawEnvelope, parse_vietmap_response
 
 from online.baseline import load_baseline, BaselineEntry
 from online.models import RouteWindow
 
 logger = logging.getLogger(__name__)
 
-TOPIC = "traffic-route-bronze"
+TOPIC = "vietmap-raw"
 GROUP_ID = "online-features-group"
 
 _CREATE_TABLE_SQL = """
@@ -196,7 +196,12 @@ class OnlineFeatureProcessor:
             self._refresh_baseline()
 
         raw: bytes = msg.value()  # type: ignore[assignment]
-        obs = TrafficRouteObservation.model_validate(json.loads(raw))
+        try:
+            envelope = VietmapRawEnvelope.model_validate(json.loads(raw))
+            obs = parse_vietmap_response(envelope)
+        except Exception as exc:
+            logger.warning("online-features: parse error — %s", exc)
+            return
 
         # E2E ingestion lag
         lag_ms = 0

@@ -26,7 +26,7 @@ from urbanpulse_infra.iceberg import get_iceberg_catalog
 
 logger = logging.getLogger(__name__)
 
-_BRONZE_BASE = "s3://urban-pulse/bronze/traffic-route-bronze"
+_BRONZE_BASE = "s3://urban-pulse/bronze/vietmap-raw"
 _BRONZE_PATH = f"{_BRONZE_BASE}/year=*/month=*/day=*/hour=*/*.parquet"
 
 _SILVER_NS = "silver"
@@ -99,69 +99,97 @@ def _ensure_table(catalog: Catalog) -> Table:
         return table
 
 
-_BRONZE_TO_SILVER_RENAME: dict[str, str] = {
-    "heavy_ratio": "congestion_heavy_ratio",
-    "moderate_ratio": "congestion_moderate_ratio",
-    "low_ratio": "congestion_low_ratio",
-    "severe_segments": "congestion_severe_segments",
-    "total_segments": "congestion_total_segments",
-}
+def _parse_raw_response(raw_json: str | None) -> tuple[float, float, list[dict[str, object]]]:
+    """Extract distance, duration_ms, and congestion segments from a raw VietMap JSON string."""
+    import json as _json
 
-_FALLBACK_VALUES: dict[str, float | int] = {
-    "congestion_heavy_ratio": 0.0,
-    "congestion_moderate_ratio": 0.0,
-    "congestion_low_ratio": 0.0,
-    "congestion_severe_segments": 0,
-    "congestion_total_segments": 0,
-}
+    if not raw_json:
+        return 0.0, 0.0, []
+    try:
+        data: dict[str, object] = _json.loads(raw_json)
+    except (ValueError, TypeError):
+        return 0.0, 0.0, []
+    first: dict[str, object] = (data.get("paths") or [{}])[0]  # type: ignore[assignment]
+    distance = float(first.get("distance", 0.0))  # type: ignore[arg-type]
+    duration_ms = float(first.get("time", 0.0))  # type: ignore[arg-type]
+    congestion_segs: list[dict[str, object]] = (
+        first.get("annotations", {}).get("congestion", [])  # type: ignore[union-attr]
+    )
+    return distance, duration_ms, congestion_segs
+
+
+def _calc_congestion_row(
+    segs: list[dict[str, object]],
+) -> tuple[float, float, float, int, int]:
+    """Return (heavy, moderate, low ratios, severe_segments, total_segments)."""
+    if not segs:
+        return 0.0, 0.0, 0.0, 0, 0
+    total = len(segs)
+    counts: dict[str, int] = {"heavy": 0, "moderate": 0, "low": 0, "severe": 0}
+    for seg in segs:
+        v = seg.get("value", "")
+        if isinstance(v, str) and v in counts:
+            counts[v] += 1
+    return (
+        round(counts["heavy"] / total, 3),
+        round(counts["moderate"] / total, 3),
+        round(counts["low"] / total, 3),
+        counts["severe"],
+        total,
+    )
 
 
 def _cast_to_arrow_schema(raw: pa.Table) -> pa.Table:
-    """Cast a single bronze parquet table to the silver Arrow schema.
+    """Parse raw bronze Parquet (vietmap-raw format) and promote to Silver Arrow schema."""
+    route_ids = raw.column("route_id").to_pylist()
+    origins = raw.column("origin").to_pylist()
+    destinations = raw.column("destination").to_pylist()
+    raw_responses = raw.column("raw_response").to_pylist()
 
-    Handles mixed types across files (e.g. string vs timestamp, int64 vs double),
-    bronze→silver column renaming, and null fallbacks for congestion fields.
-    """
-    # Rename bronze columns to silver names
-    rename_map = {}
-    for old, new in _BRONZE_TO_SILVER_RENAME.items():
-        if old in raw.schema.names and new not in raw.schema.names:
-            rename_map[old] = new
-    if rename_map:
-        raw = raw.rename_columns(
-            [rename_map.get(name, name) for name in raw.schema.names]
-        )
+    # Normalize timestamp column
+    ts_col = raw.column("timestamp_utc")
+    if pa.types.is_string(ts_col.type):
+        ts_col = ts_col.cast(pa.timestamp("us", tz="UTC"))
+    elif pa.types.is_timestamp(ts_col.type) and ts_col.type.tz is None:
+        ts_col = pa.compute.assume_timezone(ts_col, timezone="UTC")
+    if ts_col.type != pa.timestamp("us", tz="UTC"):
+        ts_col = ts_col.cast(pa.timestamp("us", tz="UTC"))
 
-    columns: dict[str, pa.Array] = {}
-    for field in _ARROW_SCHEMA:
-        if field.name not in raw.schema.names:
-            # Missing column → use fallback if available, otherwise nulls
-            if field.name in _FALLBACK_VALUES:
-                columns[field.name] = pa.array(
-                    [_FALLBACK_VALUES[field.name]] * len(raw), type=field.type
-                )
-            else:
-                columns[field.name] = pa.nulls(len(raw), type=field.type)
-            continue
-        col = raw.column(field.name)
-        # Normalize timestamps → pa.timestamp("us", tz="UTC")
-        if pa.types.is_timestamp(field.type):
-            if pa.types.is_string(col.type):
-                # Old bronze data: ISO 8601 strings like "2026-01-26T18:06:14+00"
-                col = col.cast(pa.timestamp("us", tz="UTC"))
-            elif pa.types.is_timestamp(col.type) and col.type.tz is None:
-                # Tz-naive timestamp: assume UTC
-                col = pa.compute.assume_timezone(col, timezone="UTC")
-            if col.type != field.type:
-                col = col.cast(field.type)
-        elif col.type != field.type:
-            col = col.cast(field.type)
-        # Fill nulls with fallback values
-        if field.name in _FALLBACK_VALUES:
-            scalar = pa.scalar(_FALLBACK_VALUES[field.name], type=field.type)
-            col = pa.compute.if_else(pa.compute.is_null(col), scalar, col)
-        columns[field.name] = col
-    return pa.table(columns, schema=_ARROW_SCHEMA)
+    distance_meters_list, duration_ms_list, duration_minutes_list = [], [], []
+    heavy_ratios, moderate_ratios, low_ratios = [], [], []
+    severe_segs_list, total_segs_list = [], []
+
+    for raw_json in raw_responses:
+        distance, duration_ms, cong_segs = _parse_raw_response(raw_json)
+        heavy, moderate, low, severe, total = _calc_congestion_row(cong_segs)
+        distance_meters_list.append(distance)
+        duration_ms_list.append(duration_ms)
+        duration_minutes_list.append(round(duration_ms / 60000, 1))
+        heavy_ratios.append(heavy)
+        moderate_ratios.append(moderate)
+        low_ratios.append(low)
+        severe_segs_list.append(severe)
+        total_segs_list.append(total)
+
+    n = len(route_ids)
+    return pa.table(
+        {
+            "route_id": pa.array(route_ids, type=pa.string()),
+            "origin": pa.array(origins, type=pa.string()),
+            "destination": pa.array(destinations, type=pa.string()),
+            "distance_meters": pa.array(distance_meters_list, type=pa.float64()),
+            "duration_ms": pa.array(duration_ms_list, type=pa.float64()),
+            "duration_minutes": pa.array(duration_minutes_list, type=pa.float64()),
+            "congestion_heavy_ratio": pa.array(heavy_ratios, type=pa.float64()),
+            "congestion_moderate_ratio": pa.array(moderate_ratios, type=pa.float64()),
+            "congestion_low_ratio": pa.array(low_ratios, type=pa.float64()),
+            "congestion_severe_segments": pa.array(severe_segs_list, type=pa.int32()),
+            "congestion_total_segments": pa.array(total_segs_list, type=pa.int32()),
+            "timestamp_utc": ts_col,
+            "source": pa.array(["ingestion.vietmap"] * n, type=pa.string()),
+        },
+        schema=_ARROW_SCHEMA,
+    )
 
 
 def _get_s3fs() -> "s3fs.S3FileSystem":  # type: ignore[name-defined]  # noqa: F821

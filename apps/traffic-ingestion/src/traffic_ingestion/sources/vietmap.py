@@ -4,49 +4,30 @@ Response shape (relevant parts):
   paths[n].annotations.congestion → [{value: "low"|"moderate"|"heavy"|"severe"|"unknown", first, last}]
 """
 
+import time
 from datetime import datetime, timezone
 
 import requests
 
-from urbanpulse_core.models.traffic import (
-    CongestionMetrics,
-    TrafficRouteObservation,
-)
+from urbanpulse_core.models.traffic import VietmapRawEnvelope
 
 _BASE_URL = "https://maps.vietmap.vn/api/route/v3"
 _VEHICLE = "car"
 _ANNOTATIONS = "congestion"
 
 
-def _calc_congestion(segments: list[dict[str, object]]) -> CongestionMetrics:
-    if not segments:
-        return CongestionMetrics()
-    total = len(segments)
-    counts: dict[str, int] = {"heavy": 0, "moderate": 0, "low": 0, "severe": 0}
-    for seg in segments:
-        v = seg.get("value", "")
-        if v in counts:
-            counts[v] += 1
-    return CongestionMetrics(
-        heavy_ratio=round(counts["heavy"] / total, 3),
-        moderate_ratio=round(counts["moderate"] / total, 3),
-        low_ratio=round(counts["low"] / total, 3),
-        severe_segments=counts["severe"],
-        total_segments=total,
-    )
-
-
-def fetch_route(
+def fetch_route_raw(
     route_id: str,
     origin: str,
     destination: str,
     origin_anchor: list[float],
     destination_anchor: list[float],
     api_key: str,
-) -> tuple[TrafficRouteObservation, bytes]:
-    """Fetch a single route from the VietMap API.
+) -> tuple[VietmapRawEnvelope, int]:
+    """Fetch a single route and return the raw API response envelope + poll timestamp.
 
-    Returns the parsed observation and the raw API response bytes.
+    Returns (envelope, polled_at_ms) where polled_at_ms is recorded before the
+    HTTP call so downstream consumers can measure true end-to-end pipeline latency.
     """
     url = (
         f"{_BASE_URL}"
@@ -55,24 +36,16 @@ def fetch_route(
         f"&point={destination_anchor[0]},{destination_anchor[1]}"
         f"&points_encoded=false&vehicle={_VEHICLE}&annotations={_ANNOTATIONS}"
     )
+    polled_at_ms = int(time.time() * 1000)
     timestamp_utc = datetime.now(timezone.utc)
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
-    raw_bytes = resp.content
-    data = resp.json()
 
-    first = (data.get("paths") or [{}])[0]
-    congestion_segs: list[dict[str, object]] = first.get("annotations", {}).get("congestion", [])
-    duration_ms: float = first.get("time", 0.0)
-
-    observation = TrafficRouteObservation(
+    return VietmapRawEnvelope(
         route_id=route_id,
         origin=origin,
         destination=destination,
-        distance_meters=first.get("distance", 0.0),
-        duration_ms=duration_ms,
-        duration_minutes=round(duration_ms / 60000, 1),
-        congestion=_calc_congestion(congestion_segs) if congestion_segs else None,
+        polled_at_ms=polled_at_ms,
         timestamp_utc=timestamp_utc,
-    )
-    return observation, raw_bytes
+        raw_response=resp.json(),
+    ), polled_at_ms

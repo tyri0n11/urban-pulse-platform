@@ -3,26 +3,33 @@ from datetime import datetime, timezone
 
 import pytest
 
-from urbanpulse_core.models.traffic import CongestionMetrics, TrafficRouteObservation
+from urbanpulse_core.models.traffic import VietmapRawEnvelope
+
+_SAMPLE_RAW_RESPONSE = {
+    "paths": [{
+        "distance": 12500.0,
+        "time": 900000.0,
+        "annotations": {
+            "congestion": [
+                {"value": "heavy"}, {"value": "heavy"},
+                {"value": "moderate"}, {"value": "moderate"}, {"value": "moderate"},
+                {"value": "low"}, {"value": "low"}, {"value": "low"},
+                {"value": "low"}, {"value": "low"},
+            ]
+        },
+    }]
+}
 
 
 @pytest.fixture
-def sample_observation() -> TrafficRouteObservation:
-    return TrafficRouteObservation(
+def sample_envelope() -> VietmapRawEnvelope:
+    return VietmapRawEnvelope(
         route_id="zone1_urban_core_to_zone4_southern_port",
         origin="Urban Core",
         destination="Southern Port",
-        distance_meters=12500.0,
-        duration_ms=900000.0,
-        duration_minutes=15.0,
-        congestion=CongestionMetrics(
-            heavy_ratio=0.2,
-            moderate_ratio=0.3,
-            low_ratio=0.5,
-            severe_segments=2,
-            total_segments=10,
-        ),
+        polled_at_ms=999888777,
         timestamp_utc=datetime(2026, 4, 10, 8, 0, 0, tzinfo=timezone.utc),
+        raw_response=_SAMPLE_RAW_RESPONSE,
     )
 
 

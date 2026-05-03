@@ -3,25 +3,25 @@
 import json
 from typing import Protocol
 
-from urbanpulse_core.models.traffic import TrafficRouteObservation
+from urbanpulse_core.models.traffic import VietmapRawEnvelope
 
-TRAFFIC_TOPIC = "traffic-route-bronze"
+TRAFFIC_TOPIC = "vietmap-raw"
 
 
 class Publisher(Protocol):
-    def publish(self, observation: TrafficRouteObservation, poll_ts_ms: int | None = None) -> None: ...
+    def publish(self, envelope: VietmapRawEnvelope) -> None: ...
     def close(self) -> None: ...
 
 
 class StdoutPublisher:
     """DRY_RUN publisher — emits newline-delimited JSON to stdout. No Kafka required."""
 
-    def publish(self, observation: TrafficRouteObservation, poll_ts_ms: int | None = None) -> None:
+    def publish(self, envelope: VietmapRawEnvelope) -> None:
         line = json.dumps(
             {
                 "topic": TRAFFIC_TOPIC,
-                "key": observation.route_id,
-                "value": json.loads(observation.model_dump_json()),
+                "key": envelope.route_id,
+                "value": json.loads(envelope.model_dump_json()),
             },
             ensure_ascii=False,
         )

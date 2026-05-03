@@ -1,13 +1,15 @@
 """Tests for TrafficProcessor and _to_parquet."""
 import io
+import json
 import time
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from urbanpulse_core.models.traffic import CongestionMetrics, TrafficRouteObservation
+from urbanpulse_core.models.traffic import VietmapRawEnvelope
 
 # Bare imports work because conftest.py adds src/streaming to sys.path
 from processors.traffic import (
@@ -17,37 +19,41 @@ from processors.traffic import (
     _to_parquet,
 )
 
+_SAMPLE_RAW_RESPONSE = {
+    "paths": [{
+        "distance": 5000.0,
+        "time": 300000.0,
+        "annotations": {
+            "congestion": [
+                {"value": "heavy", "first": 0, "last": 1},
+                {"value": "moderate", "first": 1, "last": 2},
+                {"value": "low", "first": 2, "last": 3},
+            ]
+        },
+    }]
+}
 
-# ── helpers ───────────────────────────────────────────────────────────────────
 
-def make_observation(
+def make_envelope(
     route_id: str = "zone1_urban_core_to_zone4_southern_port",
     ts: datetime | None = None,
-) -> TrafficRouteObservation:
-    return TrafficRouteObservation(
+) -> VietmapRawEnvelope:
+    return VietmapRawEnvelope(
         route_id=route_id,
         origin="Urban Core",
         destination="Southern Port",
-        distance_meters=5000.0,
-        duration_ms=300000.0,
-        duration_minutes=5.0,
-        congestion=CongestionMetrics(
-            heavy_ratio=0.1,
-            moderate_ratio=0.3,
-            low_ratio=0.6,
-            severe_segments=0,
-            total_segments=10,
-        ),
+        polled_at_ms=1744272000000,
         timestamp_utc=ts or datetime(2026, 4, 10, 8, 0, 0, tzinfo=timezone.utc),
+        raw_response=_SAMPLE_RAW_RESPONSE,
     )
 
 
 def make_kafka_message(
-    obs: TrafficRouteObservation,
+    envelope: VietmapRawEnvelope,
     ingest_ts_ms: int | None = None,
 ) -> MagicMock:
     msg = MagicMock()
-    msg.value.return_value = obs.model_dump_json().encode()
+    msg.value.return_value = envelope.model_dump_json().encode()
     if ingest_ts_ms is not None:
         msg.headers.return_value = [("ingest_ts", str(ingest_ts_ms).encode())]
     else:
@@ -71,48 +77,40 @@ def processor(minio: MagicMock) -> TrafficProcessor:
 @pytest.mark.unit
 class TestProcess:
     def test_single_message_buffered_no_flush(self, processor, minio):
-        obs = make_observation()
-        result = processor.process(make_kafka_message(obs))
+        result = processor.process(make_kafka_message(make_envelope()))
         assert result is False
         assert len(processor._buffer) == 1
         minio.upload_bytes.assert_not_called()
 
     def test_message_stored_correctly_in_buffer(self, processor):
-        obs = make_observation("zone2_eastern_to_zone5_western")
-        processor.process(make_kafka_message(obs))
+        env = make_envelope("zone2_eastern_to_zone5_western")
+        processor.process(make_kafka_message(env))
         assert processor._buffer[0].route_id == "zone2_eastern_to_zone5_western"
 
     def test_flush_triggered_exactly_at_capacity(self, processor, minio):
-        obs = make_observation()
         result = None
         for _ in range(BUFFER_SIZE):
-            result = processor.process(make_kafka_message(obs))
+            result = processor.process(make_kafka_message(make_envelope()))
         assert result is True
         minio.upload_bytes.assert_called_once()
 
     def test_no_flush_one_below_capacity(self, processor, minio):
-        obs = make_observation()
         for _ in range(BUFFER_SIZE - 1):
-            processor.process(make_kafka_message(obs))
+            processor.process(make_kafka_message(make_envelope()))
         minio.upload_bytes.assert_not_called()
 
     def test_buffer_cleared_after_capacity_flush(self, processor):
-        obs = make_observation()
         for _ in range(BUFFER_SIZE):
-            processor.process(make_kafka_message(obs))
+            processor.process(make_kafka_message(make_envelope()))
         assert processor._buffer == []
 
     def test_ingest_ts_header_parsed_without_error(self, processor):
-        obs = make_observation()
         ingest_ts = int(time.time() * 1000) - 500
-        msg = make_kafka_message(obs, ingest_ts_ms=ingest_ts)
-        processor.process(msg)  # must not raise
+        processor.process(make_kafka_message(make_envelope(), ingest_ts_ms=ingest_ts))
         assert len(processor._buffer) == 1
 
     def test_missing_ingest_ts_header_handled_gracefully(self, processor):
-        obs = make_observation()
-        msg = make_kafka_message(obs, ingest_ts_ms=None)
-        processor.process(msg)
+        processor.process(make_kafka_message(make_envelope(), ingest_ts_ms=None))
         assert len(processor._buffer) == 1
 
 
@@ -125,21 +123,21 @@ class TestFlush:
         minio.upload_bytes.assert_not_called()
 
     def test_flush_non_empty_returns_true(self, processor):
-        processor._buffer.append(make_observation())
+        processor._buffer.append(make_envelope())
         assert processor.flush() is True
 
     def test_flush_uploads_to_correct_bucket(self, processor, minio):
-        processor._buffer.append(make_observation())
+        processor._buffer.append(make_envelope())
         processor.flush()
         bucket = minio.upload_bytes.call_args[0][0]
         assert bucket == "urban-pulse"
 
     def test_flush_object_path_is_partitioned_by_date(self, processor, minio):
         # timestamp_utc = 2026-04-10 08:00 UTC
-        processor._buffer.append(make_observation())
+        processor._buffer.append(make_envelope())
         processor.flush()
         obj_name: str = minio.upload_bytes.call_args[0][1]
-        assert "bronze/traffic-route-bronze/" in obj_name
+        assert "bronze/vietmap-raw/" in obj_name
         assert "year=2026" in obj_name
         assert "month=04" in obj_name
         assert "day=10" in obj_name
@@ -147,27 +145,26 @@ class TestFlush:
         assert obj_name.endswith(".parquet")
 
     def test_flush_uploads_valid_parquet_bytes(self, processor, minio):
-        processor._buffer.append(make_observation())
+        processor._buffer.append(make_envelope())
         processor.flush()
         data: bytes = minio.upload_bytes.call_args[0][2]
         table = pq.read_table(io.BytesIO(data))
         assert table.num_rows == 1
 
     def test_flush_clears_buffer_after_success(self, processor):
-        processor._buffer.extend([make_observation(), make_observation()])
+        processor._buffer.extend([make_envelope(), make_envelope()])
         processor.flush()
         assert processor._buffer == []
 
     def test_flush_does_not_clear_buffer_on_minio_error(self, processor, minio):
         minio.upload_bytes.side_effect = Exception("MinIO unreachable")
-        processor._buffer.append(make_observation())
+        processor._buffer.append(make_envelope())
         with pytest.raises(Exception, match="MinIO unreachable"):
             processor.flush()
-        # Data must be preserved for retry
         assert len(processor._buffer) == 1
 
     def test_flush_updates_last_flush_time(self, processor):
-        processor._buffer.append(make_observation())
+        processor._buffer.append(make_envelope())
         before = processor.last_flush_time
         processor.flush()
         assert processor.last_flush_time >= before
@@ -178,13 +175,12 @@ class TestFlush:
 @pytest.mark.unit
 class TestCheckTimeFlush:
     def test_no_flush_when_interval_not_elapsed(self, processor, minio):
-        processor._buffer.append(make_observation())
-        # last_flush_time was set at construction — interval hasn't elapsed
+        processor._buffer.append(make_envelope())
         assert processor.check_time_flush() is False
         minio.upload_bytes.assert_not_called()
 
     def test_flushes_when_interval_elapsed(self, processor, minio):
-        processor._buffer.append(make_observation())
+        processor._buffer.append(make_envelope())
         processor.last_flush_time = time.monotonic() - FLUSH_INTERVAL_S - 1
         assert processor.check_time_flush() is True
         minio.upload_bytes.assert_called_once()
@@ -202,8 +198,7 @@ class TestOnError:
     def test_on_error_logs_without_raising(self, processor):
         msg = MagicMock()
         msg.offset.return_value = 42
-        # BaseProcessor.on_error raises by default; TrafficProcessor overrides to log only
-        processor.on_error(msg, ValueError("bad message"))  # must not raise
+        processor.on_error(msg, ValueError("bad message"))
 
 
 # ── _to_parquet() ─────────────────────────────────────────────────────────────
@@ -211,44 +206,37 @@ class TestOnError:
 @pytest.mark.unit
 class TestToParquet:
     def test_output_is_bytes(self):
-        data = _to_parquet([make_observation()])
-        assert isinstance(data, bytes)
+        assert isinstance(_to_parquet([make_envelope()]), bytes)
 
     def test_schema_has_all_expected_columns(self):
-        data = _to_parquet([make_observation()])
-        table = pq.read_table(io.BytesIO(data))
+        table = pq.read_table(io.BytesIO(_to_parquet([make_envelope()])))
         expected = {
-            "route_id", "origin", "destination", "distance_meters",
-            "duration_ms", "duration_minutes", "heavy_ratio", "moderate_ratio",
-            "low_ratio", "severe_segments", "total_segments", "timestamp_utc", "source",
+            "route_id", "origin", "destination",
+            "polled_at_ms", "timestamp_utc", "raw_response",
         }
         assert set(table.column_names) == expected
 
-    def test_values_match_observation(self):
-        obs = make_observation("zone3_northern_to_zone6_coastal")
-        table = pq.read_table(io.BytesIO(_to_parquet([obs])))
+    def test_values_match_envelope(self):
+        env = make_envelope("zone3_northern_to_zone6_coastal")
+        table = pq.read_table(io.BytesIO(_to_parquet([env])))
         assert table.column("route_id")[0].as_py() == "zone3_northern_to_zone6_coastal"
-        assert table.column("heavy_ratio")[0].as_py() == pytest.approx(0.1)
-        assert table.column("distance_meters")[0].as_py() == pytest.approx(5000.0)
+        assert table.column("polled_at_ms")[0].as_py() == 1744272000000
 
-    def test_null_congestion_produces_null_columns(self):
-        obs = make_observation()
-        obs = obs.model_copy(update={"congestion": None})
-        table = pq.read_table(io.BytesIO(_to_parquet([obs])))
-        assert table.column("heavy_ratio")[0].as_py() is None
-        assert table.column("severe_segments")[0].as_py() is None
-        assert table.column("total_segments")[0].as_py() is None
+    def test_raw_response_stored_as_json_string(self):
+        env = make_envelope()
+        table = pq.read_table(io.BytesIO(_to_parquet([env])))
+        raw_str = table.column("raw_response")[0].as_py()
+        assert isinstance(raw_str, str)
+        parsed = json.loads(raw_str)
+        assert "paths" in parsed
 
     def test_multiple_observations_correct_row_count(self):
-        batch = [make_observation(f"route_{i}") for i in range(5)]
+        batch = [make_envelope(f"route_{i}") for i in range(5)]
         table = pq.read_table(io.BytesIO(_to_parquet(batch)))
         assert table.num_rows == 5
 
     def test_timestamp_timezone_preserved(self):
-        import pyarrow as pa
-
-        obs = make_observation()
-        table = pq.read_table(io.BytesIO(_to_parquet([obs])))
+        table = pq.read_table(io.BytesIO(_to_parquet([make_envelope()])))
         ts_type = table.schema.field("timestamp_utc").type
         assert pa.types.is_timestamp(ts_type)
         assert ts_type.tz == "UTC"

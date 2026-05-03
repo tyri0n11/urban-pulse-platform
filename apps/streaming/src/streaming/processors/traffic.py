@@ -1,4 +1,4 @@
-"""Stream processor for real-time traffic events."""
+"""Stream processor for real-time traffic events — saves raw VietMap envelopes to MinIO."""
 import io
 import json
 import time
@@ -7,7 +7,7 @@ from uuid import uuid4
 import pyarrow as pa
 import pyarrow.parquet as pq
 from confluent_kafka import Message
-from urbanpulse_core.models.traffic import TrafficRouteObservation
+from urbanpulse_core.models.traffic import VietmapRawEnvelope
 
 from logger import Logger
 from processors.base import BaseProcessor
@@ -19,18 +19,18 @@ FLUSH_INTERVAL_S = 30
 
 class TrafficProcessor(BaseProcessor):
     BUCKET = "urban-pulse"
-    TOPIC = "traffic-route-bronze"
+    TOPIC = "vietmap-raw"
 
     def __init__(self, minio: MinioClient) -> None:
         self.minio = minio
         self.logger = Logger("processor.traffic")
-        self._buffer: list[TrafficRouteObservation] = []
+        self._buffer: list[VietmapRawEnvelope] = []
         self.last_flush_time: float = time.monotonic()
 
     def process(self, message: Message) -> bool:
         t_start = time.monotonic()
         raw: bytes = message.value()
-        observation = TrafficRouteObservation.model_validate(json.loads(raw))
+        envelope = VietmapRawEnvelope.model_validate(json.loads(raw))
 
         # Compute end-to-end latency from ingest_ts header
         latency_e2e_ms = 0
@@ -38,15 +38,17 @@ class TrafficProcessor(BaseProcessor):
         if headers:
             for key, val in headers:
                 if key == "ingest_ts" and val is not None:
-                    ingest_ts = int(val.decode())
-                    latency_e2e_ms = int(time.time() * 1000) - ingest_ts
+                    try:
+                        latency_e2e_ms = int(time.time() * 1000) - int(val.decode())
+                    except (ValueError, TypeError):
+                        pass
                     break
 
-        self._buffer.append(observation)
+        self._buffer.append(envelope)
 
         latency_processing_ms = int((time.monotonic() - t_start) * 1000)
         self.logger.info(
-            f"route={observation.route_id} "
+            f"route={envelope.route_id} "
             f"latency_e2e_ms={latency_e2e_ms} "
             f"latency_processing_ms={latency_processing_ms} "
             f"buffer_size={len(self._buffer)} buffer_capacity={BUFFER_SIZE}"
@@ -64,9 +66,8 @@ class TrafficProcessor(BaseProcessor):
         return False
 
     def flush(self) -> bool:
-        """Write buffered records to MinIO and clear the buffer.
+        """Write buffered raw envelopes to MinIO as Parquet and clear the buffer.
 
-        Returns True if data was successfully written.
         Buffer is only cleared after a successful upload to prevent data loss.
         """
         if not self._buffer:
@@ -88,7 +89,6 @@ class TrafficProcessor(BaseProcessor):
         parquet_bytes = _to_parquet(batch)
         self.minio.upload_bytes(self.BUCKET, object_name, parquet_bytes)
 
-        # Clear buffer only after successful upload
         self._buffer = []
 
         latency_flush_ms = int((time.monotonic() - t_start) * 1000)
@@ -103,26 +103,20 @@ class TrafficProcessor(BaseProcessor):
         self.logger.error(f"Failed to process message offset={message.offset()}: {error}")
 
 
-def _to_parquet(batch: list[TrafficRouteObservation]) -> bytes:
-    congestion_list = [obs.congestion for obs in batch]
-
+def _to_parquet(batch: list[VietmapRawEnvelope]) -> bytes:
     table = pa.table(
         {
-            "route_id": [obs.route_id for obs in batch],
-            "origin": [obs.origin for obs in batch],
-            "destination": [obs.destination for obs in batch],
-            "distance_meters": [obs.distance_meters for obs in batch],
-            "duration_ms": [obs.duration_ms for obs in batch],
-            "duration_minutes": [obs.duration_minutes for obs in batch],
-            "heavy_ratio": [c.heavy_ratio if c else None for c in congestion_list],
-            "moderate_ratio": [c.moderate_ratio if c else None for c in congestion_list],
-            "low_ratio": [c.low_ratio if c else None for c in congestion_list],
-            "severe_segments": [c.severe_segments if c else None for c in congestion_list],
-            "total_segments": [c.total_segments if c else None for c in congestion_list],
+            "route_id": pa.array([e.route_id for e in batch], type=pa.string()),
+            "origin": pa.array([e.origin for e in batch], type=pa.string()),
+            "destination": pa.array([e.destination for e in batch], type=pa.string()),
+            "polled_at_ms": pa.array([e.polled_at_ms for e in batch], type=pa.int64()),
             "timestamp_utc": pa.array(
-                [obs.timestamp_utc for obs in batch], type=pa.timestamp("us", tz="UTC")
+                [e.timestamp_utc for e in batch], type=pa.timestamp("us", tz="UTC")
             ),
-            "source": [obs.source for obs in batch],
+            "raw_response": pa.array(
+                [json.dumps(e.raw_response, ensure_ascii=False) for e in batch],
+                type=pa.string(),
+            ),
         }
     )
 
