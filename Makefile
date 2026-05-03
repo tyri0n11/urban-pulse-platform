@@ -8,7 +8,7 @@ dev:
 	$(COMPOSE) up -d
 
 dev-%:
-	$(COMPOSE) build --no-cache $*
+	$(COMPOSE) build $*
 	$(COMPOSE) up -d --force-recreate $*
 
 down:
@@ -42,7 +42,7 @@ test-integration:
 	uv run pytest -m integration
 
 build:
-	$(COMPOSE) build --no-cache
+	$(COMPOSE) build
 
 build-ingestion:
 	$(COMPOSE) build traffic-ingestion weather-ingestion

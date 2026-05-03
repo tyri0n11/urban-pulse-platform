@@ -1,31 +1,43 @@
 """Publisher implementations for traffic ingestion events."""
 
 import json
-from typing import Protocol
-
-from urbanpulse_core.models.traffic import VietmapRawEnvelope
+from datetime import datetime
+from typing import Any, Protocol
 
 TRAFFIC_TOPIC = "vietmap-raw"
 
 
 class Publisher(Protocol):
-    def publish(self, envelope: VietmapRawEnvelope) -> None: ...
+    def publish(
+        self,
+        route_id: str,
+        polled_at_ms: int,
+        timestamp_utc: datetime,
+        raw_response: dict[str, Any],
+    ) -> None: ...
     def close(self) -> None: ...
 
 
 class StdoutPublisher:
-    """DRY_RUN publisher — emits newline-delimited JSON to stdout. No Kafka required."""
+    """DRY_RUN publisher — emits newline-delimited JSON to stdout."""
 
-    def publish(self, envelope: VietmapRawEnvelope) -> None:
-        line = json.dumps(
-            {
-                "topic": TRAFFIC_TOPIC,
-                "key": envelope.route_id,
-                "value": json.loads(envelope.model_dump_json()),
+    def publish(
+        self,
+        route_id: str,
+        polled_at_ms: int,
+        timestamp_utc: datetime,
+        raw_response: dict[str, Any],
+    ) -> None:
+        print(json.dumps({
+            "topic": TRAFFIC_TOPIC,
+            "key": route_id,
+            "headers": {
+                "route_id": route_id,
+                "polled_at_ms": polled_at_ms,
+                "timestamp_utc": timestamp_utc.isoformat(),
             },
-            ensure_ascii=False,
-        )
-        print(line, flush=True)
+            "value": raw_response,
+        }, ensure_ascii=False), flush=True)
 
     def close(self) -> None:
         pass

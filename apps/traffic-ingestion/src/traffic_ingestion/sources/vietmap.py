@@ -1,15 +1,10 @@
-"""VietMap traffic route API source connector.
-
-Response shape (relevant parts):
-  paths[n].annotations.congestion → [{value: "low"|"moderate"|"heavy"|"severe"|"unknown", first, last}]
-"""
+"""VietMap traffic route API source connector."""
 
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 import requests
-
-from urbanpulse_core.models.traffic import VietmapRawEnvelope
 
 _BASE_URL = "https://maps.vietmap.vn/api/route/v3"
 _VEHICLE = "car"
@@ -23,12 +18,8 @@ def fetch_route_raw(
     origin_anchor: list[float],
     destination_anchor: list[float],
     api_key: str,
-) -> tuple[VietmapRawEnvelope, int]:
-    """Fetch a single route and return the raw API response envelope + poll timestamp.
-
-    Returns (envelope, polled_at_ms) where polled_at_ms is recorded before the
-    HTTP call so downstream consumers can measure true end-to-end pipeline latency.
-    """
+) -> tuple[dict[str, Any], int, datetime]:
+    """Fetch a single route and return the raw API response, poll timestamp, and UTC time."""
     url = (
         f"{_BASE_URL}"
         f"?apikey={api_key}"
@@ -40,12 +31,4 @@ def fetch_route_raw(
     timestamp_utc = datetime.now(timezone.utc)
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
-
-    return VietmapRawEnvelope(
-        route_id=route_id,
-        origin=origin,
-        destination=destination,
-        polled_at_ms=polled_at_ms,
-        timestamp_utc=timestamp_utc,
-        raw_response=resp.json(),
-    ), polled_at_ms
+    return resp.json(), polled_at_ms, timestamp_utc

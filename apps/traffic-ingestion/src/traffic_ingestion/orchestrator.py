@@ -33,7 +33,7 @@ def run(publisher: Publisher, api_key: str) -> None:
     for i, route in enumerate(routes):
         try:
             t0 = time.monotonic()
-            envelope, _ = fetch_route_raw(
+            raw_response, polled_at_ms, timestamp_utc = fetch_route_raw(
                 route_id=route["route_id"],
                 origin=route["origin"],
                 destination=route["destination"],
@@ -42,7 +42,7 @@ def run(publisher: Publisher, api_key: str) -> None:
                 api_key=api_key,
             )
             latency_api_ms = int((time.monotonic() - t0) * 1000)
-            publisher.publish(envelope)
+            publisher.publish(route["route_id"], polled_at_ms, timestamp_utc, raw_response)
             logger.info(
                 "[%d/%d] %s → %s  latency_api_ms=%d",
                 i + 1,

@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from pyiceberg.catalog import Catalog
 from pyiceberg.exceptions import CommitFailedException, NoSuchNamespaceError, NoSuchTableError
@@ -36,8 +37,6 @@ _SILVER_SCHEMA = Schema(
     NestedField(1, "route_id", StringType(), required=True),
     NestedField(2, "origin", StringType(), required=True),
     NestedField(3, "destination", StringType(), required=True),
-    NestedField(4, "distance_meters", DoubleType()),
-    NestedField(5, "duration_ms", DoubleType()),
     NestedField(6, "duration_minutes", DoubleType()),
     NestedField(7, "congestion_heavy_ratio", DoubleType()),
     NestedField(8, "congestion_moderate_ratio", DoubleType()),
@@ -45,15 +44,12 @@ _SILVER_SCHEMA = Schema(
     NestedField(10, "congestion_severe_segments", IntegerType()),
     NestedField(11, "congestion_total_segments", IntegerType()),
     NestedField(12, "timestamp_utc", TimestamptzType()),
-    NestedField(13, "source", StringType()),
 )
 
 _ARROW_SCHEMA = pa.schema([
     pa.field("route_id", pa.string(), nullable=False),
     pa.field("origin", pa.string(), nullable=False),
     pa.field("destination", pa.string(), nullable=False),
-    pa.field("distance_meters", pa.float64()),
-    pa.field("duration_ms", pa.float64()),
     pa.field("duration_minutes", pa.float64()),
     pa.field("congestion_heavy_ratio", pa.float64()),
     pa.field("congestion_moderate_ratio", pa.float64()),
@@ -61,7 +57,6 @@ _ARROW_SCHEMA = pa.schema([
     pa.field("congestion_severe_segments", pa.int32()),
     pa.field("congestion_total_segments", pa.int32()),
     pa.field("timestamp_utc", pa.timestamp("us", tz="UTC")),
-    pa.field("source", pa.string()),
 ])
 
 
@@ -74,8 +69,15 @@ def _get_catalog() -> Catalog:
     )
 
 
+_CURRENT_COLUMNS = {field.name for field in _SILVER_SCHEMA.fields}
+
+
 def _ensure_table(catalog: Catalog) -> Table:
-    """Create the silver namespace and table if they don't exist."""
+    """Create the silver namespace and table if they don't exist.
+
+    If the table exists with a stale schema, drops and recreates it.
+    Data is always re-derivable from bronze, so recreation is safe.
+    """
     try:
         catalog.load_namespace_properties(_SILVER_NS)
     except NoSuchNamespaceError:
@@ -83,7 +85,13 @@ def _ensure_table(catalog: Catalog) -> Table:
         logger.info("Created Iceberg namespace: %s", _SILVER_NS)
 
     try:
-        return catalog.load_table(_SILVER_TABLE)
+        table = catalog.load_table(_SILVER_TABLE)
+        existing = {field.name for field in table.schema().fields}
+        if existing != _CURRENT_COLUMNS:
+            catalog.drop_table(_SILVER_TABLE)
+            logger.info("silver: schema mismatch (existing=%s) — dropped for recreation", existing - _CURRENT_COLUMNS)
+            raise NoSuchTableError(_SILVER_TABLE)
+        return table
     except NoSuchTableError:
         partition_spec = PartitionSpec(
             PartitionField(
@@ -97,25 +105,6 @@ def _ensure_table(catalog: Catalog) -> Table:
         )
         logger.info("Created Iceberg table: %s", _SILVER_TABLE)
         return table
-
-
-def _parse_raw_response(raw_json: str | None) -> tuple[float, float, list[dict[str, object]]]:
-    """Extract distance, duration_ms, and congestion segments from a raw VietMap JSON string."""
-    import json as _json
-
-    if not raw_json:
-        return 0.0, 0.0, []
-    try:
-        data: dict[str, object] = _json.loads(raw_json)
-    except (ValueError, TypeError):
-        return 0.0, 0.0, []
-    first: dict[str, object] = (data.get("paths") or [{}])[0]  # type: ignore[assignment]
-    distance = float(first.get("distance", 0.0))  # type: ignore[arg-type]
-    duration_ms = float(first.get("time", 0.0))  # type: ignore[arg-type]
-    congestion_segs: list[dict[str, object]] = (
-        first.get("annotations", {}).get("congestion", [])  # type: ignore[union-attr]
-    )
-    return distance, duration_ms, congestion_segs
 
 
 def _calc_congestion_row(
@@ -139,54 +128,57 @@ def _calc_congestion_row(
     )
 
 
-def _cast_to_arrow_schema(raw: pa.Table) -> pa.Table:
-    """Parse raw bronze Parquet (vietmap-raw format) and promote to Silver Arrow schema."""
-    route_ids = raw.column("route_id").to_pylist()
-    origins = raw.column("origin").to_pylist()
-    destinations = raw.column("destination").to_pylist()
-    raw_responses = raw.column("raw_response").to_pylist()
+def _cast_to_arrow_schema(bronze: pa.Table) -> pa.Table:
+    """Promote bronze Parquet (raw, route_id, timestamp_utc columns) to Silver Arrow schema."""
+    import json as _json
 
-    # Normalize timestamp column
-    ts_col = raw.column("timestamp_utc")
-    if pa.types.is_string(ts_col.type):
-        ts_col = ts_col.cast(pa.timestamp("us", tz="UTC"))
-    elif pa.types.is_timestamp(ts_col.type) and ts_col.type.tz is None:
-        ts_col = pa.compute.assume_timezone(ts_col, timezone="UTC")
-    if ts_col.type != pa.timestamp("us", tz="UTC"):
-        ts_col = ts_col.cast(pa.timestamp("us", tz="UTC"))
+    route_ids = bronze.column("route_id").to_pylist()
+    ts_strings = bronze.column("timestamp_utc").to_pylist()
+    raws = bronze.column("raw").to_pylist()
 
-    distance_meters_list, duration_ms_list, duration_minutes_list = [], [], []
-    heavy_ratios, moderate_ratios, low_ratios = [], [], []
-    severe_segs_list, total_segs_list = [], []
+    origins, destinations = [], []
+    duration_minutes_list = []
+    heavy_list, moderate_list, low_list = [], [], []
+    severe_list, total_list = [], []
 
-    for raw_json in raw_responses:
-        distance, duration_ms, cong_segs = _parse_raw_response(raw_json)
+    for route_id, raw_json in zip(route_ids, raws):
+        # Derive origin/destination from route_id: "zA_to_zB" → ("zA", "zB")
+        parts = (route_id or "").split("_to_", 1)
+        origins.append(parts[0] if len(parts) == 2 else (route_id or ""))
+        destinations.append(parts[1] if len(parts) == 2 else "")
+
+        try:
+            api_resp: dict[str, object] = _json.loads(raw_json)
+        except (ValueError, TypeError):
+            api_resp = {}
+        first: dict[str, object] = (api_resp.get("paths") or [{}])[0]  # type: ignore[assignment]
+        duration_ms = float(first.get("time", 0.0))  # type: ignore[arg-type]
+        cong_segs: list[dict[str, object]] = (
+            first.get("annotations", {}).get("congestion", [])  # type: ignore[union-attr]
+        )
         heavy, moderate, low, severe, total = _calc_congestion_row(cong_segs)
-        distance_meters_list.append(distance)
-        duration_ms_list.append(duration_ms)
-        duration_minutes_list.append(round(duration_ms / 60000, 1))
-        heavy_ratios.append(heavy)
-        moderate_ratios.append(moderate)
-        low_ratios.append(low)
-        severe_segs_list.append(severe)
-        total_segs_list.append(total)
 
-    n = len(route_ids)
+        duration_minutes_list.append(round(duration_ms / 60000, 1))
+        heavy_list.append(heavy)
+        moderate_list.append(moderate)
+        low_list.append(low)
+        severe_list.append(severe)
+        total_list.append(total)
+
+    ts_col = pa.array(ts_strings, type=pa.string()).cast(pa.timestamp("us", tz="UTC"))
+
     return pa.table(
         {
             "route_id": pa.array(route_ids, type=pa.string()),
             "origin": pa.array(origins, type=pa.string()),
             "destination": pa.array(destinations, type=pa.string()),
-            "distance_meters": pa.array(distance_meters_list, type=pa.float64()),
-            "duration_ms": pa.array(duration_ms_list, type=pa.float64()),
             "duration_minutes": pa.array(duration_minutes_list, type=pa.float64()),
-            "congestion_heavy_ratio": pa.array(heavy_ratios, type=pa.float64()),
-            "congestion_moderate_ratio": pa.array(moderate_ratios, type=pa.float64()),
-            "congestion_low_ratio": pa.array(low_ratios, type=pa.float64()),
-            "congestion_severe_segments": pa.array(severe_segs_list, type=pa.int32()),
-            "congestion_total_segments": pa.array(total_segs_list, type=pa.int32()),
+            "congestion_heavy_ratio": pa.array(heavy_list, type=pa.float64()),
+            "congestion_moderate_ratio": pa.array(moderate_list, type=pa.float64()),
+            "congestion_low_ratio": pa.array(low_list, type=pa.float64()),
+            "congestion_severe_segments": pa.array(severe_list, type=pa.int32()),
+            "congestion_total_segments": pa.array(total_list, type=pa.int32()),
             "timestamp_utc": ts_col,
-            "source": pa.array(["ingestion.vietmap"] * n, type=pa.string()),
         },
         schema=_ARROW_SCHEMA,
     )
@@ -222,9 +214,9 @@ def _read_bronze_parquet(path: str) -> pa.Table | None:
 
 def _filter_nulls(table: pa.Table) -> pa.Table:
     """Filter out rows with null required fields."""
-    mask = pa.compute.and_(
-        pa.compute.is_valid(table.column("route_id")),
-        pa.compute.is_valid(table.column("timestamp_utc")),
+    mask = pc.and_(
+        pc.is_valid(table.column("route_id")),
+        pc.is_valid(table.column("timestamp_utc")),
     )
     return table.filter(mask)
 
