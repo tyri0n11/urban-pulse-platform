@@ -1,9 +1,9 @@
-"""Online feature consumer: streams traffic-route-bronze → Postgres.
+"""Online feature consumer: streams vietmap-raw → Postgres.
 
 Uses the same confluent_kafka pattern as streaming-service (proven, no
-compatibility issues). Computes per-route rolling stats using Welford's
-online algorithm and writes to Postgres on every message, achieving
-p95 ingestion-to-feature latency < 20 s.
+compatibility issues). Parses raw VietMap envelopes, computes per-route
+rolling stats using Welford's online algorithm and writes to Postgres on
+every message, achieving p95 ingestion-to-feature latency < 20 s.
 """
 
 import json
@@ -16,14 +16,14 @@ import psycopg2
 import psycopg2.extras
 from confluent_kafka import Consumer, KafkaError, KafkaException, Message, Producer
 from urbanpulse_core.config import settings
-from urbanpulse_core.models.traffic import TrafficRouteObservation
+from urbanpulse_core.models.traffic import CongestionMetrics, _calc_congestion
 
 from online.baseline import load_baseline, BaselineEntry
 from online.models import RouteWindow
 
 logger = logging.getLogger(__name__)
 
-TOPIC = "traffic-route-bronze"
+TOPIC = "vietmap-raw"
 GROUP_ID = "online-features-group"
 
 _CREATE_TABLE_SQL = """
@@ -195,39 +195,65 @@ class OnlineFeatureProcessor:
         if time.monotonic() - self._last_baseline_refresh > self._BASELINE_TTL:
             self._refresh_baseline()
 
-        raw: bytes = msg.value()  # type: ignore[assignment]
-        obs = TrafficRouteObservation.model_validate(json.loads(raw))
+        raw_bytes: bytes | None = msg.value()
+        if raw_bytes is None:
+            return
 
-        # E2E ingestion lag
+        # Read metadata from Kafka headers
+        route_id = ""
         lag_ms = 0
-        headers = msg.headers() or []
-        for key, val in headers:  # type: ignore[misc,str-unpack]
-            if key == "ingest_ts" and isinstance(val, bytes):
+        for key, val in (msg.headers() or []):  # type: ignore[misc,str-unpack]
+            if not isinstance(val, bytes):
+                continue
+            s = val.decode()
+            if key == "route_id":
+                route_id = s
+            elif key == "ingest_ts":
                 try:
-                    lag_ms = int(time.time() * 1000) - int(val.decode())
+                    lag_ms = int(time.time() * 1000) - int(s)
                 except (ValueError, TypeError):
                     pass
-                break
+
+        if not route_id:
+            logger.warning("online-features: message missing route_id header — skipping")
+            return
+
+        try:
+            api_resp: dict[str, object] = json.loads(raw_bytes)
+        except (ValueError, TypeError) as exc:
+            logger.warning("online-features: parse error — %s", exc)
+            return
+
+        first: dict[str, object] = (api_resp.get("paths") or [{}])[0]  # type: ignore[index]
+        duration_ms = float(first.get("time", 0.0))  # type: ignore[arg-type]
+        duration_minutes = round(duration_ms / 60000, 1)
+        cong_segs: list[dict[str, object]] = (
+            first.get("annotations", {}).get("congestion", [])  # type: ignore[attr-defined]
+        )
+        congestion: CongestionMetrics = _calc_congestion(cong_segs) if cong_segs else CongestionMetrics()
 
         # Update or reset hourly window
         hour_ts = _current_hour_ts()
-        window = self._windows.get(obs.route_id)
+        window = self._windows.get(route_id)
         if window is None or window.window_start_ts != hour_ts:
             window = RouteWindow(window_start_ts=hour_ts)
-            self._windows[obs.route_id] = window
+            self._windows[route_id] = window
 
-        heavy_ratio = obs.congestion.heavy_ratio if obs.congestion else 0.0
-        moderate_ratio = obs.congestion.moderate_ratio if obs.congestion else 0.0
-        low_ratio = obs.congestion.low_ratio if obs.congestion else 0.0
-        severe_segments = float(obs.congestion.severe_segments) if obs.congestion else 0.0
-        window.update(obs.duration_minutes, heavy_ratio, moderate_ratio, low_ratio, severe_segments, lag_ms)
+        window.update(
+            duration_minutes,
+            congestion.heavy_ratio,
+            congestion.moderate_ratio,
+            congestion.low_ratio,
+            float(congestion.severe_segments),
+            lag_ms,
+        )
 
         # Heavy-ratio z-score vs batch baseline.
         # NOTE: stored as `duration_zscore` in Postgres for historical reasons —
         # the value is the heavy_ratio z-score, not a duration z-score.
         # Threshold is one-sided (high heavy_ratio = congested) and dynamic
         # per-route from the baseline p99 (default 2.0).
-        baseline = self._baseline.get(obs.route_id)
+        baseline = self._baseline.get(route_id)
         zscore: float | None = None
         is_anomaly = False
         heavy_ratio_deviation: float = window.mean_heavy_ratio
@@ -244,7 +270,7 @@ class OnlineFeatureProcessor:
         try:
             with self._pg.cursor() as cur:
                 cur.execute(_UPSERT_SQL, {
-                    "route_id": obs.route_id,
+                    "route_id": route_id,
                     "window_start": window_start,
                     "observation_count": window.count,
                     "mean_duration_minutes": window.mean_duration,
@@ -266,7 +292,7 @@ class OnlineFeatureProcessor:
             self._reconnect()
             with self._pg.cursor() as cur:
                 cur.execute(_UPSERT_SQL, {
-                    "route_id": obs.route_id,
+                    "route_id": route_id,
                     "window_start": window_start,
                     "observation_count": window.count,
                     "mean_duration_minutes": window.mean_duration,
@@ -286,7 +312,7 @@ class OnlineFeatureProcessor:
 
         logger.info(
             "online-features: route=%s obs=%d zscore=%s lag_ms=%d",
-            obs.route_id, window.count,
+            route_id, window.count,
             f"{zscore:.2f}" if zscore is not None else "N/A",
             lag_ms,
         )

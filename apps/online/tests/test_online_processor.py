@@ -51,13 +51,23 @@ class TestProcessBuffering:
         # Window should be reset (count starts fresh)
         assert proc._windows[sample_obs.route_id].count == 1
 
-    def test_invalid_json_does_not_raise(self):
+    def test_invalid_json_is_skipped_gracefully(self):
+        """Bad JSON body logs a warning and returns — no exception propagated."""
         proc, _ = _make_processor()
         msg = MagicMock()
         msg.value.return_value = b"not-json"
+        msg.headers.return_value = [("route_id", b"test_route")]
+        proc.process(msg)  # must not raise
+        assert "test_route" not in proc._windows
+
+    def test_missing_route_id_header_skips_message(self):
+        """Message with no route_id header is silently skipped."""
+        proc, _ = _make_processor()
+        msg = MagicMock()
+        msg.value.return_value = b'{"paths": []}'
         msg.headers.return_value = []
-        with pytest.raises(ValueError):
-            proc.process(msg)
+        proc.process(msg)
+        assert proc._windows == {}
 
     def test_missing_ingest_ts_header_defaults_to_zero_lag(self, sample_obs):
         proc, _ = _make_processor()
@@ -71,8 +81,6 @@ class TestProcessZScore:
     def test_no_baseline_zscore_is_none(self, sample_obs):
         proc, mock_cursor = _make_processor(baseline={})
         proc.process(make_kafka_msg(sample_obs))
-        _, kwargs = mock_cursor.execute.call_args_list[-1]
-        # duration_zscore passed to upsert should be None
         params: dict = mock_cursor.execute.call_args_list[-1][0][1]
         assert params["duration_zscore"] is None
         assert params["is_anomaly"] is False

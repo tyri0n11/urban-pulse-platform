@@ -1,11 +1,16 @@
 """Tests for the VietMap source connector."""
+from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
-from traffic_ingestion.sources.vietmap import _calc_congestion, fetch_route
-from urbanpulse_core.models.traffic import CongestionMetrics
+from traffic_ingestion.sources.vietmap import fetch_route_raw
+from urbanpulse_core.models.traffic import (
+    CongestionMetrics,
+    _calc_congestion,
+)
 
 
 def _make_api_response(
@@ -24,7 +29,6 @@ def _make_api_response(
             }
         ]
     }
-    mock_resp.content = b'{"paths":[]}'
     return mock_resp
 
 
@@ -49,7 +53,7 @@ class TestCalcCongestion:
             {"value": "heavy"},
             {"value": "moderate"},
             {"value": "low"},
-            {"value": "unknown"},  # not counted in any ratio
+            {"value": "unknown"},
         ]
         result = _calc_congestion(segs)
         assert result.heavy_ratio == pytest.approx(0.4)
@@ -74,66 +78,70 @@ class TestCalcCongestion:
     def test_ratios_rounded_to_3_decimal_places(self):
         segs = [{"value": "heavy"}] * 1 + [{"value": "low"}] * 2
         result = _calc_congestion(segs)
-        # 1/3 = 0.333...
         assert result.heavy_ratio == pytest.approx(0.333, abs=1e-3)
 
 
-# ── fetch_route ───────────────────────────────────────────────────────────────
+# ── fetch_route_raw ───────────────────────────────────────────────────────────
+
+_FETCH_DEFAULTS: dict[str, Any] = dict(
+    route_id="zone1_to_zone4",
+    origin="A",
+    destination="B",
+    origin_anchor=[10.78, 106.70],
+    destination_anchor=[10.73, 106.72],
+    api_key="key123",
+)
+
+
+def _call_fetch(mock_resp: MagicMock, **overrides: Any) -> tuple[dict, int, datetime]:
+    kwargs = {**_FETCH_DEFAULTS, **overrides}
+    with patch("traffic_ingestion.sources.vietmap.requests.get", return_value=mock_resp):
+        raw_response, polled_at_ms, timestamp_utc = fetch_route_raw(**kwargs)
+    return raw_response, polled_at_ms, timestamp_utc
+
 
 @pytest.mark.unit
-class TestFetchRoute:
-    def _fetch(self, mock_resp: MagicMock, **kwargs):
-        defaults = dict(
-            route_id="zone1_to_zone4",
-            origin="A",
-            destination="B",
-            origin_anchor=[10.78, 106.70],
-            destination_anchor=[10.73, 106.72],
-            api_key="key123",
+class TestFetchRouteRaw:
+    def test_returns_raw_dict_polled_at_ms_and_timestamp(self):
+        raw_response, polled_at_ms, timestamp_utc = _call_fetch(
+            _make_api_response(distance=12500.0, duration_ms=900000.0)
         )
-        defaults.update(kwargs)
-        with patch("traffic_ingestion.sources.vietmap.requests.get", return_value=mock_resp):
-            return fetch_route(**defaults)
+        assert isinstance(raw_response, dict)
+        assert isinstance(polled_at_ms, int)
+        assert isinstance(timestamp_utc, datetime)
 
-    def test_returns_typed_observation(self):
-        from urbanpulse_core.models.traffic import TrafficRouteObservation
+    def test_polled_at_ms_is_positive(self):
+        _, polled_at_ms, _ = _call_fetch(_make_api_response())
+        assert polled_at_ms > 0
 
+    def test_timestamp_utc_is_timezone_aware(self):
+        _, _, timestamp_utc = _call_fetch(_make_api_response())
+        assert timestamp_utc.tzinfo is not None
+
+    def test_raw_response_contains_paths(self):
+        raw_response, _, _ = _call_fetch(_make_api_response())
+        assert "paths" in raw_response
+
+    def test_raw_response_distance_preserved(self):
         resp = _make_api_response(
-            distance=12500.0,
-            duration_ms=900000.0,
+            distance=5000.0,
             congestion_segs=[{"value": "heavy"}, {"value": "low"}],
         )
-        obs, raw = self._fetch(resp)
-        assert isinstance(obs, TrafficRouteObservation)
-        assert isinstance(raw, (bytes, bytearray))
-        assert obs.route_id == "zone1_to_zone4"
-        assert obs.distance_meters == 12500.0
-        assert obs.duration_minutes == pytest.approx(15.0)
-
-    def test_congestion_populated_when_segments_present(self):
-        segs = [{"value": "heavy"}, {"value": "moderate"}, {"value": "low"}]
-        resp = _make_api_response(congestion_segs=segs)
-        obs, _ = self._fetch(resp)
-        assert obs.congestion is not None
-        assert obs.congestion.total_segments == 3
-
-    def test_congestion_is_none_when_no_segments(self):
-        resp = _make_api_response(congestion_segs=[])
-        obs, _ = self._fetch(resp)
-        assert obs.congestion is None
+        raw_response, _, _ = _call_fetch(resp)
+        assert raw_response["paths"][0]["distance"] == 5000.0
 
     def test_raises_on_http_error(self):
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = requests.HTTPError("404")
         with pytest.raises(requests.HTTPError):
-            self._fetch(mock_resp)
+            _call_fetch(mock_resp)
 
     def test_api_key_included_in_request_url(self):
         resp = _make_api_response()
         with patch(
             "traffic_ingestion.sources.vietmap.requests.get", return_value=resp
         ) as mock_get:
-            fetch_route(
+            fetch_route_raw(
                 route_id="r",
                 origin="A",
                 destination="B",
@@ -149,7 +157,7 @@ class TestFetchRoute:
         with patch(
             "traffic_ingestion.sources.vietmap.requests.get", return_value=resp
         ) as mock_get:
-            fetch_route(
+            fetch_route_raw(
                 route_id="r",
                 origin="A",
                 destination="B",
@@ -160,16 +168,3 @@ class TestFetchRoute:
         url: str = mock_get.call_args[0][0]
         assert "10.78" in url
         assert "106.7" in url
-
-    def test_duration_minutes_derived_from_ms(self):
-        resp = _make_api_response(duration_ms=600000.0)  # 10 minutes
-        obs, _ = self._fetch(resp)
-        assert obs.duration_minutes == pytest.approx(10.0)
-        assert obs.duration_ms == 600000.0
-
-    def test_empty_paths_response_returns_zero_distance(self):
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"paths": []}
-        obs, _ = self._fetch(mock_resp)
-        assert obs.distance_meters == 0.0

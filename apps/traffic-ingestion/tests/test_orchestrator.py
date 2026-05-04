@@ -1,37 +1,46 @@
 """Tests for the ingestion orchestrator."""
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+_SAMPLE_RAW = {"paths": [{"time": 900000.0, "annotations": {"congestion": []}}]}
+_SAMPLE_TS  = datetime(2026, 4, 10, 8, 0, 0, tzinfo=timezone.utc)
+_SAMPLE_PMS = 999888777
+
 
 @pytest.mark.unit
 class TestOrchestratorRun:
-    def test_publishes_once_per_route(self, sample_routes, sample_observation):
+    def test_publishes_once_per_route(self, sample_routes):
         """run() calls publisher.publish exactly N times for N routes."""
         from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
-        fetch_result = (sample_observation, b'{"ok":true}')
         with (
             patch("traffic_ingestion.orchestrator._load_routes", return_value=sample_routes),
-            patch("traffic_ingestion.orchestrator.fetch_route", return_value=fetch_result),
+            patch(
+                "traffic_ingestion.orchestrator.fetch_route_raw",
+                return_value=(_SAMPLE_RAW, _SAMPLE_PMS, _SAMPLE_TS),
+            ),
             patch("time.sleep"),
         ):
             run(publisher, api_key="test-key")
 
         assert publisher.publish.call_count == len(sample_routes)
 
-    def test_skips_failed_route_continues_rest(self, sample_routes, sample_observation):
+    def test_skips_failed_route_continues_rest(self, sample_routes):
         """If one route raises, orchestrator logs and moves on to the next."""
         from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
-        fetch_result = (sample_observation, b'{"ok":true}')
         with (
             patch("traffic_ingestion.orchestrator._load_routes", return_value=sample_routes),
             patch(
-                "traffic_ingestion.orchestrator.fetch_route",
-                side_effect=[Exception("API timeout"), fetch_result],
+                "traffic_ingestion.orchestrator.fetch_route_raw",
+                side_effect=[
+                    Exception("API timeout"),
+                    (_SAMPLE_RAW, _SAMPLE_PMS, _SAMPLE_TS),
+                ],
             ),
             patch("time.sleep"),
         ):
@@ -49,16 +58,16 @@ class TestOrchestratorRun:
 
         publisher.publish.assert_not_called()
 
-    def test_api_key_forwarded_to_every_fetch(self, sample_routes, sample_observation):
-        """The api_key must reach every fetch_route call."""
+    def test_api_key_forwarded_to_every_fetch(self, sample_routes):
+        """The api_key must reach every fetch_route_raw call."""
         from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
-        fetch_result = (sample_observation, b'{"ok":true}')
         with (
             patch("traffic_ingestion.orchestrator._load_routes", return_value=sample_routes),
             patch(
-                "traffic_ingestion.orchestrator.fetch_route", return_value=fetch_result
+                "traffic_ingestion.orchestrator.fetch_route_raw",
+                return_value=(_SAMPLE_RAW, _SAMPLE_PMS, _SAMPLE_TS),
             ) as mock_fetch,
             patch("time.sleep"),
         ):
@@ -67,31 +76,17 @@ class TestOrchestratorRun:
         for call in mock_fetch.call_args_list:
             assert call.kwargs["api_key"] == "secret-key"
 
-    def test_poll_ts_ms_passed_to_publish(self, sample_routes, sample_observation):
-        """publish() must receive a non-None poll_ts_ms (wall-clock before API call)."""
-        from traffic_ingestion.orchestrator import run
-
-        publisher = MagicMock()
-        fetch_result = (sample_observation, b'{"ok":true}')
-        with (
-            patch("traffic_ingestion.orchestrator._load_routes", return_value=sample_routes),
-            patch("traffic_ingestion.orchestrator.fetch_route", return_value=fetch_result),
-            patch("time.sleep"),
-        ):
-            run(publisher, api_key="key")
-
-        for call in publisher.publish.call_args_list:
-            assert call.kwargs.get("poll_ts_ms") is not None
-
-    def test_sleep_between_routes_not_after_last(self, sample_routes, sample_observation):
+    def test_sleep_between_routes_not_after_last(self, sample_routes):
         """sleep is called N-1 times (between routes, not after the last one)."""
         from traffic_ingestion.orchestrator import run
 
         publisher = MagicMock()
-        fetch_result = (sample_observation, b'{"ok":true}')
         with (
             patch("traffic_ingestion.orchestrator._load_routes", return_value=sample_routes),
-            patch("traffic_ingestion.orchestrator.fetch_route", return_value=fetch_result),
+            patch(
+                "traffic_ingestion.orchestrator.fetch_route_raw",
+                return_value=(_SAMPLE_RAW, _SAMPLE_PMS, _SAMPLE_TS),
+            ),
             patch("time.sleep") as mock_sleep,
         ):
             run(publisher, api_key="key")
