@@ -202,7 +202,7 @@ class OnlineFeatureProcessor:
         # Read metadata from Kafka headers
         route_id = ""
         lag_ms = 0
-        for key, val in (msg.headers() or []):
+        for key, val in (msg.headers() or []):  # type: ignore[misc,str-unpack]
             if not isinstance(val, bytes):
                 continue
             s = val.decode()
@@ -228,7 +228,7 @@ class OnlineFeatureProcessor:
         duration_ms = float(first.get("time", 0.0))  # type: ignore[arg-type]
         duration_minutes = round(duration_ms / 60000, 1)
         cong_segs: list[dict[str, object]] = (
-            first.get("annotations", {}).get("congestion", [])  # type: ignore[union-attr]
+            first.get("annotations", {}).get("congestion", [])  # type: ignore[attr-defined]
         )
         congestion: CongestionMetrics = _calc_congestion(cong_segs) if cong_segs else CongestionMetrics()
 
