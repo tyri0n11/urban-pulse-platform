@@ -24,11 +24,11 @@ Complete technology inventory for Urban Pulse. Every component was selected to s
 | Component | Technology | Version | Role |
 |-----------|-----------|---------|------|
 | Stream consumer | Python (`confluent_kafka`) | — | Kafka → MinIO bronze Parquet |
-| Online features | Python (asyncpg + asyncio) | — | Kafka → Postgres (Welford z-score) |
+| Online features | Python (psycopg2 + `pg_notify`) | — | Kafka → Postgres (Welford z-score) + NOTIFY on each upsert |
 | File format | Apache Parquet | — | Columnar, compressed, schema-encoded |
 | Object store | MinIO | latest | S3-compatible, stores all Parquet files |
 
-**Online feature store**: PostgreSQL is used as the online feature store rather than Redis because the workload is write-once-per-route (upsert keyed on `route_id, window_start`), and reads are low-frequency (15s SSE poll). PostgreSQL's JSONB + asyncpg connection pool is sufficient and avoids an extra infrastructure dependency.
+**Online feature store**: PostgreSQL is used as the online feature store rather than Redis because the workload is write-once-per-route (upsert keyed on `route_id, window_start`). PostgreSQL's native `NOTIFY/LISTEN` mechanism drives event-based push to the SSE layer — the `online` service calls `pg_notify('route_updated')` after each upsert, eliminating the need for timer-based polling. `asyncpg` supports `wait_for_notify()` natively, keeping the serving layer fully async without extra infrastructure.
 
 ---
 
@@ -102,7 +102,7 @@ Complete technology inventory for Urban Pulse. Every component was selected to s
 | Framework | FastAPI | 0.111+ | REST API + SSE |
 | ASGI server | Uvicorn | — | Async HTTP server |
 | DB client | asyncpg | — | Async PostgreSQL connection pool |
-| SSE | FastAPI `StreamingResponse` | — | `/events/traffic` — 15s push to UI |
+| SSE | FastAPI `StreamingResponse` + asyncpg `wait_for_notify` | — | `/events/traffic` — event-driven push on Postgres NOTIFY; 30s heartbeat fallback |
 | Model cache | In-process dict + TTL | 1h | Per-route IForest models |
 | CORS | FastAPI middleware | — | localhost:3000, tyr1on.io.vn |
 
@@ -165,4 +165,5 @@ Complete technology inventory for Urban Pulse. Every component was selected to s
 | LLM | Ollama + qwen2.5:3b | OpenAI API | Free; offline; controllable; privacy |
 | Vector DB | ChromaDB | pgvector | Simpler ops; dedicated ANN index; Python-native |
 | Anomaly model | IsolationForest | LSTM / Autoencoder | Explainable; fast training; works with < 100 samples |
+| SSE trigger | Postgres NOTIFY/LISTEN | Timer-based polling | Zero CPU burn between updates; sub-second push latency after upsert; no extra broker |
 | Orchestration | Prefect | Airflow / Dagster | Modern Python-native API; local server easy to run |

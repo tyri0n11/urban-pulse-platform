@@ -27,7 +27,7 @@ This thesis designs, implements, and evaluates an end-to-end platform — **Urba
 
 3. **LLM-augmented explanation**: Does RAG-enhanced LLM explanation (traffic history + live weather context) produce more actionable anomaly rationale than rule-based templates?
 
-4. **Data freshness vs. system overhead**: How does the externally-imposed 5-minute VietMap poll interval constrain overall end-to-end data freshness, and what is the system's own contribution to latency?
+4. **Data freshness vs. system overhead**: How does the externally-imposed 5-minute VietMap poll interval constrain overall end-to-end data freshness, and what is the system's own contribution to latency? Specifically, does replacing timer-based SSE polling with Postgres `NOTIFY/LISTEN`-driven push meaningfully reduce the serving-to-client staleness component?
 
 ---
 
@@ -61,7 +61,7 @@ This thesis designs, implements, and evaluates an end-to-end platform — **Urba
 
 3. **RAG-LLM explanation pipeline**: A three-layer retrieval design (live weather → ChromaDB weather history → ChromaDB traffic patterns) that grounds LLM responses in evidence rather than parametric knowledge.
 
-4. **E2E latency decomposition**: A principled split of end-to-end latency into (a) pipeline processing latency (system overhead, SLO target p95 < 60 s) and (b) data freshness (externally bounded by poll interval, SLO target p95 < 310 s), with per-tick measurement stored in `prediction_history`.
+4. **E2E latency decomposition**: A principled split of end-to-end latency into (a) pipeline processing latency (system overhead, SLO target p95 < 60 s) and (b) data freshness (externally bounded by poll interval, SLO target p95 < 310 s), with per-tick measurement stored in `prediction_history`. The serving-to-client leg uses Postgres `NOTIFY/LISTEN` to push snapshots within ~500 ms of a feature write, eliminating timer-based polling overhead from the latency budget.
 
 5. **Production deployment**: Full TLS deployment on homelab hardware via Traefik + Cloudflare DNS, demonstrating feasibility at scale.
 
