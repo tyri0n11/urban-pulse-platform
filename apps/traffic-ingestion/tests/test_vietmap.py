@@ -1,4 +1,6 @@
 """Tests for the VietMap source connector."""
+from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -7,7 +9,6 @@ import requests
 from traffic_ingestion.sources.vietmap import fetch_route_raw
 from urbanpulse_core.models.traffic import (
     CongestionMetrics,
-    VietmapRawEnvelope,
     _calc_congestion,
 )
 
@@ -82,55 +83,58 @@ class TestCalcCongestion:
 
 # ── fetch_route_raw ───────────────────────────────────────────────────────────
 
+_FETCH_DEFAULTS: dict[str, Any] = dict(
+    route_id="zone1_to_zone4",
+    origin="A",
+    destination="B",
+    origin_anchor=[10.78, 106.70],
+    destination_anchor=[10.73, 106.72],
+    api_key="key123",
+)
+
+
+def _call_fetch(mock_resp: MagicMock, **overrides: Any) -> tuple[dict, int, datetime]:
+    kwargs = {**_FETCH_DEFAULTS, **overrides}
+    with patch("traffic_ingestion.sources.vietmap.requests.get", return_value=mock_resp):
+        raw_response, polled_at_ms, timestamp_utc = fetch_route_raw(**kwargs)
+    return raw_response, polled_at_ms, timestamp_utc
+
+
 @pytest.mark.unit
 class TestFetchRouteRaw:
-    def _fetch(self, mock_resp: MagicMock, **kwargs):
-        defaults = dict(
-            route_id="zone1_to_zone4",
-            origin="A",
-            destination="B",
-            origin_anchor=[10.78, 106.70],
-            destination_anchor=[10.73, 106.72],
-            api_key="key123",
+    def test_returns_raw_dict_polled_at_ms_and_timestamp(self):
+        raw_response, polled_at_ms, timestamp_utc = _call_fetch(
+            _make_api_response(distance=12500.0, duration_ms=900000.0)
         )
-        defaults.update(kwargs)
-        with patch("traffic_ingestion.sources.vietmap.requests.get", return_value=mock_resp):
-            envelope, polled_at_ms = fetch_route_raw(**defaults)
-        return envelope, polled_at_ms
-
-    def test_returns_envelope_and_timestamp(self):
-        resp = _make_api_response(distance=12500.0, duration_ms=900000.0)
-        envelope, polled_at_ms = self._fetch(resp)
-        assert isinstance(envelope, VietmapRawEnvelope)
+        assert isinstance(raw_response, dict)
         assert isinstance(polled_at_ms, int)
+        assert isinstance(timestamp_utc, datetime)
 
-    def test_envelope_route_id_set_correctly(self):
-        envelope, _ = self._fetch(_make_api_response())
-        assert envelope.route_id == "zone1_to_zone4"
+    def test_polled_at_ms_is_positive(self):
+        _, polled_at_ms, _ = _call_fetch(_make_api_response())
+        assert polled_at_ms > 0
 
-    def test_envelope_origin_destination_set(self):
-        envelope, _ = self._fetch(_make_api_response())
-        assert envelope.origin == "A"
-        assert envelope.destination == "B"
+    def test_timestamp_utc_is_timezone_aware(self):
+        _, _, timestamp_utc = _call_fetch(_make_api_response())
+        assert timestamp_utc.tzinfo is not None
 
-    def test_polled_at_ms_matches_envelope(self):
-        envelope, polled_at_ms = self._fetch(_make_api_response())
-        assert envelope.polled_at_ms == polled_at_ms
+    def test_raw_response_contains_paths(self):
+        raw_response, _, _ = _call_fetch(_make_api_response())
+        assert "paths" in raw_response
 
-    def test_raw_response_preserved(self):
+    def test_raw_response_distance_preserved(self):
         resp = _make_api_response(
             distance=5000.0,
             congestion_segs=[{"value": "heavy"}, {"value": "low"}],
         )
-        envelope, _ = self._fetch(resp)
-        assert "paths" in envelope.raw_response
-        assert envelope.raw_response["paths"][0]["distance"] == 5000.0
+        raw_response, _, _ = _call_fetch(resp)
+        assert raw_response["paths"][0]["distance"] == 5000.0
 
     def test_raises_on_http_error(self):
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = requests.HTTPError("404")
         with pytest.raises(requests.HTTPError):
-            self._fetch(mock_resp)
+            _call_fetch(mock_resp)
 
     def test_api_key_included_in_request_url(self):
         resp = _make_api_response()

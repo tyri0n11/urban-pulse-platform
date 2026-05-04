@@ -7,6 +7,7 @@ All tests in this directory are automatically skipped when the serving
 API or Kafka is not reachable, so they are safe to run in CI as long as
 the stack is not started there.
 """
+import json
 import time
 import psycopg2
 from datetime import datetime, timezone
@@ -26,7 +27,7 @@ from urbanpulse_core.models.traffic import CongestionMetrics, TrafficRouteObserv
 
 KAFKA_BOOTSTRAP = "localhost:19092"
 SERVING_BASE    = "http://localhost:8001"
-KAFKA_TOPIC     = "traffic-route-bronze"
+KAFKA_TOPIC     = "vietmap-raw"
 
 
 # ── connectivity probes ───────────────────────────────────────────────────────
@@ -105,13 +106,42 @@ class KafkaPublisher:
         })
 
     def publish(self, obs: TrafficRouteObservation) -> None:
+        """Publish a TrafficRouteObservation in the new wire format.
+
+        Body  = raw VietMap-format JSON (paths + congestion segments).
+        Headers = route_id, timestamp_utc, ingest_ts.
+        """
         poll_ts_ms = int(time.time() * 1000)
-        payload = obs.model_dump_json().encode()
+
+        # Reconstruct VietMap-style body from observation fields
+        cong = obs.congestion
+        segs: list[dict[str, str]] = []
+        if cong and cong.total_segments > 0:
+            total = cong.total_segments
+            heavy_n   = round(cong.heavy_ratio * total)
+            moderate_n = round(cong.moderate_ratio * total)
+            low_n     = round(cong.low_ratio * total)
+            segs = (
+                [{"value": "heavy"}]    * heavy_n
+                + [{"value": "moderate"}] * moderate_n
+                + [{"value": "low"}]      * low_n
+            )
+        payload = json.dumps({
+            "paths": [{
+                "time": obs.duration_ms,
+                "annotations": {"congestion": segs},
+            }]
+        }).encode()
+
         self._producer.produce(
             KAFKA_TOPIC,
             key=obs.route_id.encode(),
             value=payload,
-            headers={"ingest_ts": str(poll_ts_ms).encode()},
+            headers={
+                "route_id":      obs.route_id.encode(),
+                "timestamp_utc": obs.timestamp_utc.isoformat().encode(),
+                "ingest_ts":     str(poll_ts_ms).encode(),
+            },
         )
         self._producer.flush(timeout=10)
 
