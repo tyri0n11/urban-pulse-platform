@@ -267,48 +267,34 @@ class OnlineFeatureProcessor:
         p95_to_mean_ratio = (p95_approx / window.mean_duration) if window.mean_duration > 0 else 1.0
 
         window_start = datetime.fromtimestamp(hour_ts, tz=timezone.utc)
+        params = {
+            "route_id": route_id,
+            "window_start": window_start,
+            "observation_count": window.count,
+            "mean_duration_minutes": window.mean_duration,
+            "stddev_duration_minutes": window.stddev_duration,
+            "last_duration_minutes": window.last_duration,
+            "mean_heavy_ratio": window.mean_heavy_ratio,
+            "last_heavy_ratio": window.last_heavy_ratio,
+            "duration_zscore": zscore,
+            "is_anomaly": is_anomaly,
+            "last_ingest_lag_ms": lag_ms,
+            "heavy_ratio_deviation": heavy_ratio_deviation,
+            "p95_to_mean_ratio": p95_to_mean_ratio,
+            "max_severe_segments": window.max_severe_segments,
+            "mean_moderate_ratio": window.mean_moderate_ratio,
+            "mean_low_ratio": window.mean_low_ratio,
+        }
         try:
             with self._pg.cursor() as cur:
-                cur.execute(_UPSERT_SQL, {
-                    "route_id": route_id,
-                    "window_start": window_start,
-                    "observation_count": window.count,
-                    "mean_duration_minutes": window.mean_duration,
-                    "stddev_duration_minutes": window.stddev_duration,
-                    "last_duration_minutes": window.last_duration,
-                    "mean_heavy_ratio": window.mean_heavy_ratio,
-                    "last_heavy_ratio": window.last_heavy_ratio,
-                    "duration_zscore": zscore,
-                    "is_anomaly": is_anomaly,
-                    "last_ingest_lag_ms": lag_ms,
-                    "heavy_ratio_deviation": heavy_ratio_deviation,
-                    "p95_to_mean_ratio": p95_to_mean_ratio,
-                    "max_severe_segments": window.max_severe_segments,
-                    "mean_moderate_ratio": window.mean_moderate_ratio,
-                    "mean_low_ratio": window.mean_low_ratio,
-                })
+                cur.execute(_UPSERT_SQL, params)
+                cur.execute("NOTIFY route_updated")
         except psycopg2.OperationalError:
             logger.warning("online-features: Postgres connection lost, reconnecting")
             self._reconnect()
             with self._pg.cursor() as cur:
-                cur.execute(_UPSERT_SQL, {
-                    "route_id": route_id,
-                    "window_start": window_start,
-                    "observation_count": window.count,
-                    "mean_duration_minutes": window.mean_duration,
-                    "stddev_duration_minutes": window.stddev_duration,
-                    "last_duration_minutes": window.last_duration,
-                    "mean_heavy_ratio": window.mean_heavy_ratio,
-                    "last_heavy_ratio": window.last_heavy_ratio,
-                    "duration_zscore": zscore,
-                    "is_anomaly": is_anomaly,
-                    "last_ingest_lag_ms": lag_ms,
-                    "heavy_ratio_deviation": heavy_ratio_deviation,
-                    "p95_to_mean_ratio": p95_to_mean_ratio,
-                    "max_severe_segments": window.max_severe_segments,
-                    "mean_moderate_ratio": window.mean_moderate_ratio,
-                    "mean_low_ratio": window.mean_low_ratio,
-                })
+                cur.execute(_UPSERT_SQL, params)
+                cur.execute("NOTIFY route_updated")
 
         logger.info(
             "online-features: route=%s obs=%d zscore=%s lag_ms=%d",

@@ -81,7 +81,7 @@ class TestProcessZScore:
     def test_no_baseline_zscore_is_none(self, sample_obs):
         proc, mock_cursor = _make_processor(baseline={})
         proc.process(make_kafka_msg(sample_obs))
-        params: dict = mock_cursor.execute.call_args_list[-1][0][1]
+        params: dict = mock_cursor.execute.call_args_list[-2][0][1]
         assert params["duration_zscore"] is None
         assert params["is_anomaly"] is False
 
@@ -100,7 +100,7 @@ class TestProcessZScore:
 
         # heavy_ratio=0.2 → zscore = (0.2-0.05)/0.02 = 7.5 > 2.0
         proc.process(make_kafka_msg(sample_obs))
-        params: dict = mock_cursor.execute.call_args_list[-1][0][1]
+        params: dict = mock_cursor.execute.call_args_list[-2][0][1]
         assert params["is_anomaly"] is True
 
     def test_no_anomaly_when_heavy_ratio_within_threshold(self, sample_obs):
@@ -117,18 +117,18 @@ class TestProcessZScore:
 
         # zscore = (0.2-0.18)/0.05 = 0.4 < 2.0
         proc.process(make_kafka_msg(sample_obs))
-        params: dict = mock_cursor.execute.call_args_list[-1][0][1]
+        params: dict = mock_cursor.execute.call_args_list[-2][0][1]
         assert params["is_anomaly"] is False
 
     def test_upsert_called_with_route_id(self, sample_obs):
         proc, mock_cursor = _make_processor()
         proc.process(make_kafka_msg(sample_obs))
-        params: dict = mock_cursor.execute.call_args_list[-1][0][1]
+        params: dict = mock_cursor.execute.call_args_list[-2][0][1]
         assert params["route_id"] == sample_obs.route_id
 
     def test_upsert_observation_count_matches_window(self, sample_obs):
         proc, mock_cursor = _make_processor()
         proc.process(make_kafka_msg(sample_obs))
         proc.process(make_kafka_msg(sample_obs))
-        params: dict = mock_cursor.execute.call_args_list[-1][0][1]
+        params: dict = mock_cursor.execute.call_args_list[-2][0][1]
         assert params["observation_count"] == 2

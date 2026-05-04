@@ -230,6 +230,8 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def _startup() -> None:
+        from serving.routers.ws import pg_listener_loop
+
         app.state.pg_pool = await asyncpg.create_pool(postgres_dsn(), min_size=2, max_size=10)
         async with app.state.pg_pool.acquire() as conn:
             await conn.execute(_CREATE_IFOREST_TABLE)
@@ -237,15 +239,20 @@ def create_app() -> FastAPI:
             _iforest_scorer_loop(app.state.pg_pool),
             name="iforest-background-scorer",
         )
+        app.state.listener_task = asyncio.create_task(
+            pg_listener_loop(app.state.pg_pool),
+            name="pg-listen-route-updated",
+        )
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
-        task: asyncio.Task[None] = app.state.scorer_task
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for attr in ("scorer_task", "listener_task"):
+            task: asyncio.Task[None] = getattr(app.state, attr)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         await app.state.pg_pool.close()
 
     return app

@@ -164,6 +164,7 @@ async def fetch_routes_snapshot(conn: asyncpg.Connection) -> dict[str, dict[str,
     return {r["route_id"]: row_to_dict(r) for r in rows}
 
 
+
 async def fetch_lag(conn: asyncpg.Connection) -> dict[str, Any]:
     row = await conn.fetchrow(_LAG_SQL)
     if row is None or row["active_routes"] == 0:
