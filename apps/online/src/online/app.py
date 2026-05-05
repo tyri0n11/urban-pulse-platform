@@ -347,6 +347,7 @@ def main() -> None:
                 raise KafkaException(msg.error())
             try:
                 processor.process(msg)
+                consumer.commit(asynchronous=False)
             except Exception as exc:
                 logger.warning("online-features: failed to process message, routing to DLQ — %s", exc)
                 try:
@@ -359,7 +360,6 @@ def main() -> None:
                     dlq_producer.poll(0)
                 except Exception as dlq_err:
                     logger.error("online-features: failed to publish to DLQ — %s", dlq_err)
-            consumer.commit(asynchronous=False)
     finally:
         dlq_producer.flush()
         consumer.close()
