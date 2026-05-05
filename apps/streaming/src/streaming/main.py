@@ -20,6 +20,14 @@ def shutdown(sig=None, frame=None) -> None:  # noqa: ARG001
     running = False
 
 
+def _commit(consumer: KafkaConsumer, logger: Logger, topic: str) -> None:
+    try:
+        consumer.commit()
+        logger.info(f"Committed offsets after MinIO flush — topic={topic}")
+    except Exception as commit_err:
+        logger.error(f"Offset commit failed — topic={topic} error={commit_err}")
+
+
 def _publish_to_dlq(
     producer: KafkaProducer,
     msg: object,
@@ -65,25 +73,26 @@ def main() -> None:
         while running:
             msg = consumer.poll(timeout=1.0)
             if msg is None:
-                for processor in processors.values():
+                for topic, processor in processors.items():
                     if processor.check_time_flush():
-                        consumer.commit()
+                        _commit(consumer, logger, topic)
                 continue
 
             processor = processors.get(msg.topic())
             if processor:
+                flushed = False
                 try:
                     flushed = processor.process(msg)
-                    if flushed:
-                        consumer.commit()
                 except Exception as e:
                     processor.on_error(msg, e)
                     _publish_to_dlq(dlq_producer, msg, e, logger)
+                if flushed:
+                    _commit(consumer, logger, msg.topic())
     finally:
         # Drain buffers and commit before closing
-        for processor in processors.values():
+        for topic, processor in processors.items():
             if processor.flush():
-                consumer.commit()
+                _commit(consumer, logger, topic)
         dlq_producer.flush()
         consumer.stop()
 

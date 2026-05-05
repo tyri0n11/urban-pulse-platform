@@ -345,9 +345,10 @@ def main() -> None:
                 if err is not None and err.code() == KafkaError._PARTITION_EOF:
                     continue
                 raise KafkaException(msg.error())
+            processed = False
             try:
                 processor.process(msg)
-                consumer.commit(asynchronous=False)
+                processed = True
             except Exception as exc:
                 logger.warning("online-features: failed to process message, routing to DLQ — %s", exc)
                 try:
@@ -360,6 +361,11 @@ def main() -> None:
                     dlq_producer.poll(0)
                 except Exception as dlq_err:
                     logger.error("online-features: failed to publish to DLQ — %s", dlq_err)
+            if processed:
+                try:
+                    consumer.commit(asynchronous=False)
+                except Exception as commit_err:
+                    logger.error("online-features: offset commit failed — %s", commit_err)
     finally:
         dlq_producer.flush()
         consumer.close()
