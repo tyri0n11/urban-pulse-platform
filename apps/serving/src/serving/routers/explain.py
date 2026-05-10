@@ -80,7 +80,7 @@ async def explain_anomaly(
     full_text: list[str] = []
 
     async def _stream_and_cache() -> AsyncGenerator[str, None]:
-        async for event in stream_ollama(_SYSTEM, user_prompt, temperature=0.3, num_predict=400):
+        async for event in stream_ollama(_SYSTEM, user_prompt, temperature=0.3):
             yield event
             try:
                 data = json.loads(event.removeprefix("data: ").strip())
