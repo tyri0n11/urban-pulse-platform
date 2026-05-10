@@ -54,7 +54,7 @@ async def chat(
 
     async def _stream_and_log() -> AsyncGenerator[str, None]:
         async for event in stream_ollama_chat(
-            _SYSTEM, history, user_prompt, temperature=0.4, num_predict=300
+            _SYSTEM, history, user_prompt, temperature=0.4
         ):
             try:
                 data = json.loads(event.removeprefix("data: ").strip())

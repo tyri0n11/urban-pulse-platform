@@ -100,7 +100,7 @@ async def telegram_webhook(
         lang = _detect_lang(text)
         user_prompt = build_user_prompt(snapshot, text, lang)
         system = _build_telegram_system()
-        reply = await ask_llm(system, user_prompt, temperature=0.4, num_predict=350)
+        reply = await ask_llm(system, user_prompt, temperature=0.4)
     except Exception as exc:
         logger.error("telegram: handler error — %s", exc)
         reply = "Có lỗi xảy ra khi xử lý câu hỏi của bạn."

@@ -56,7 +56,7 @@ async def root_cause_analysis(
     full_text: list[str] = []
 
     async def _stream_and_log() -> AsyncGenerator[str, None]:
-        async for event in stream_ollama(_SYSTEM, prompt, temperature=0.3, num_predict=400):
+        async for event in stream_ollama(_SYSTEM, prompt, temperature=0.3):
             try:
                 data = json.loads(event.removeprefix("data: ").strip())
             except Exception:

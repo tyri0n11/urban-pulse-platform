@@ -108,7 +108,7 @@ async def heatmap_analyze(req: HeatmapAnalyzeRequest) -> StreamingResponse:
     system = f"{_ANALYZE_SYSTEM_BASE} {lang_note}"
     user_prompt = _build_analyze_prompt(req.context, req.lang, external)
     return StreamingResponse(
-        stream_ollama(system, user_prompt, temperature=0.3, num_predict=700),
+        stream_ollama(system, user_prompt, temperature=0.3),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
