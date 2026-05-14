@@ -53,6 +53,8 @@ ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS p95_to_mean_ratio    
 ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS max_severe_segments    DOUBLE PRECISION;
 ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS mean_moderate_ratio    DOUBLE PRECISION;
 ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS mean_low_ratio         DOUBLE PRECISION;
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS geometry               JSONB;
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS congestion_segments    JSONB;
 """
 
 _UPSERT_SQL = """
@@ -64,7 +66,8 @@ INSERT INTO online_route_features (
     duration_zscore, is_anomaly,
     last_ingest_lag_ms,
     heavy_ratio_deviation, p95_to_mean_ratio, max_severe_segments,
-    mean_moderate_ratio, mean_low_ratio
+    mean_moderate_ratio, mean_low_ratio,
+    geometry, congestion_segments
 ) VALUES (
     %(route_id)s, %(window_start)s, NOW(),
     %(observation_count)s,
@@ -73,7 +76,8 @@ INSERT INTO online_route_features (
     %(duration_zscore)s, %(is_anomaly)s,
     %(last_ingest_lag_ms)s,
     %(heavy_ratio_deviation)s, %(p95_to_mean_ratio)s, %(max_severe_segments)s,
-    %(mean_moderate_ratio)s, %(mean_low_ratio)s
+    %(mean_moderate_ratio)s, %(mean_low_ratio)s,
+    %(geometry)s, %(congestion_segments)s
 )
 ON CONFLICT (route_id, window_start) DO UPDATE SET
     updated_at              = NOW(),
@@ -90,7 +94,9 @@ ON CONFLICT (route_id, window_start) DO UPDATE SET
     p95_to_mean_ratio       = EXCLUDED.p95_to_mean_ratio,
     max_severe_segments     = EXCLUDED.max_severe_segments,
     mean_moderate_ratio     = EXCLUDED.mean_moderate_ratio,
-    mean_low_ratio          = EXCLUDED.mean_low_ratio
+    mean_low_ratio          = EXCLUDED.mean_low_ratio,
+    geometry                = EXCLUDED.geometry,
+    congestion_segments     = EXCLUDED.congestion_segments
 """
 
 
@@ -227,10 +233,12 @@ class OnlineFeatureProcessor:
         first: dict[str, object] = (api_resp.get("paths") or [{}])[0]  # type: ignore[index]
         duration_ms = float(first.get("time", 0.0))  # type: ignore[arg-type]
         duration_minutes = round(duration_ms / 60000, 1)
-        cong_segs: list[dict[str, object]] = (
-            first.get("annotations", {}).get("congestion", [])  # type: ignore[attr-defined]
-        )
+        annotations: dict[str, object] = first.get("annotations", {})  # type: ignore[assignment]
+        cong_segs: list[dict[str, object]] = annotations.get("congestion", [])  # type: ignore[assignment]
         congestion: CongestionMetrics = _calc_congestion(cong_segs) if cong_segs else CongestionMetrics()
+
+        points_geom: dict[str, object] = first.get("points", {})  # type: ignore[assignment]
+        geometry = points_geom.get("coordinates") or None
 
         # Update or reset hourly window
         hour_ts = _current_hour_ts()
@@ -284,6 +292,8 @@ class OnlineFeatureProcessor:
             "max_severe_segments": window.max_severe_segments,
             "mean_moderate_ratio": window.mean_moderate_ratio,
             "mean_low_ratio": window.mean_low_ratio,
+            "geometry": psycopg2.extras.Json(geometry) if geometry is not None else None,
+            "congestion_segments": psycopg2.extras.Json(cong_segs) if cong_segs else None,
         }
         try:
             with self._pg.cursor() as cur:
