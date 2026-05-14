@@ -16,6 +16,12 @@ class CongestionMetrics(BaseModel):
     total_segments: int = 0
 
 
+class CongestionSegment(BaseModel):
+    value: str  # "low" | "moderate" | "heavy" | "severe"
+    first: int
+    last: int
+
+
 class TrafficRouteObservation(BaseModel):
     route_id: str
     origin: str
@@ -24,6 +30,8 @@ class TrafficRouteObservation(BaseModel):
     duration_ms: float
     duration_minutes: float
     congestion: CongestionMetrics | None = None
+    geometry: list[list[float]] | None = None  # [[lng, lat], ...] GeoJSON order
+    congestion_segments: list[CongestionSegment] | None = None
     timestamp_utc: datetime
     source: str = "ingestion.vietmap"
 
@@ -64,6 +72,12 @@ def parse_vietmap_response(envelope: VietmapRawEnvelope) -> TrafficRouteObservat
     congestion_segs: list[dict[str, object]] = (
         first.get("annotations", {}).get("congestion", [])  # type: ignore[union-attr]
     )
+    points_geom: dict[str, Any] = first.get("points", {})  # type: ignore[assignment]
+    geometry: list[list[float]] | None = points_geom.get("coordinates")  # type: ignore[assignment]
+    segments: list[CongestionSegment] | None = (
+        [CongestionSegment(**s) for s in congestion_segs]  # type: ignore[arg-type]
+        if congestion_segs else None
+    )
     return TrafficRouteObservation(
         route_id=envelope.route_id,
         origin=envelope.origin,
@@ -72,5 +86,7 @@ def parse_vietmap_response(envelope: VietmapRawEnvelope) -> TrafficRouteObservat
         duration_ms=duration_ms,
         duration_minutes=round(duration_ms / 60000, 1),
         congestion=_calc_congestion(congestion_segs) if congestion_segs else None,
+        geometry=geometry,
+        congestion_segments=segments,
         timestamp_utc=envelope.timestamp_utc,
     )

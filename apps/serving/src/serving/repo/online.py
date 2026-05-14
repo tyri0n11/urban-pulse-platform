@@ -51,7 +51,8 @@ _ROUTES_SNAPSHOT_SQL = """
     SELECT DISTINCT ON (route_id)
         route_id, window_start, updated_at, observation_count,
         mean_duration_minutes, stddev_duration_minutes,
-        duration_zscore, is_anomaly, last_ingest_lag_ms
+        duration_zscore, is_anomaly, last_ingest_lag_ms,
+        geometry, congestion_segments
     FROM online_route_features
     ORDER BY route_id, updated_at DESC
 """

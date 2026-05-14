@@ -1,6 +1,7 @@
 """FastAPI application factory and middleware configuration."""
 
 import asyncio
+import json
 import logging
 import time
 
@@ -232,7 +233,14 @@ def create_app() -> FastAPI:
     async def _startup() -> None:
         from serving.routers.ws import pg_listener_loop
 
-        app.state.pg_pool = await asyncpg.create_pool(postgres_dsn(), min_size=2, max_size=10)
+        async def _init_conn(conn: asyncpg.Connection) -> None:
+            await conn.set_type_codec(
+                "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+            )
+
+        app.state.pg_pool = await asyncpg.create_pool(
+            postgres_dsn(), min_size=2, max_size=10, init=_init_conn
+        )
         async with app.state.pg_pool.acquire() as conn:
             await conn.execute(_CREATE_IFOREST_TABLE)
         app.state.scorer_task = asyncio.create_task(
