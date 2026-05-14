@@ -401,7 +401,6 @@ services:
     environment:
       CF_API_TOKEN: ${CF_API_TOKEN}
       DOMAINS: >-
-        tyr1on.io.vn,
         api.tyr1on.io.vn,
         grafana.tyr1on.io.vn,
         mlflow.tyr1on.io.vn,
