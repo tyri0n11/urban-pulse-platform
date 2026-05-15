@@ -18,7 +18,7 @@ from serving.dependencies import get_db
 from serving.geo_knowledge import build_system_prompt
 from serving.repo import interactions as interactions_repo
 from serving.services.llm_service import stream_ollama, check_ollama_status
-from serving.utils.weather import fetch_current_weather
+from serving.utils.weather import fetch_current_weather, _origin_zone
 
 router = APIRouter(prefix="/anomalies", tags=["explain"])
 logger = logging.getLogger(__name__)
@@ -62,7 +62,8 @@ async def explain_anomaly(
         )
 
     row = await fetch_route_data(route_id, conn)
-    weather = await fetch_current_weather()
+    origin_zone = _origin_zone(route_id)
+    weather = await fetch_current_weather(zone_id=origin_zone)
     rag_context, retrieved_chunks = await fetch_rag_context(route_id, row)
 
     user_prompt = build_explain_prompt(row, lang, rag_context=rag_context, weather=weather)
