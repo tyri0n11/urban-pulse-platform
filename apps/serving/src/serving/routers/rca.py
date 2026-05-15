@@ -12,7 +12,9 @@ from serving.controllers.rca_controller import retrieve_context, build_rca_promp
 from serving.dependencies import get_db
 from serving.geo_knowledge import build_system_prompt
 from serving.repo import interactions as interactions_repo
+from serving.repo import online as online_repo
 from serving.schemas.rca import FeedbackRequest, RCARequest
+from serving.services import prediction_service
 from serving.services.llm_service import stream_ollama
 
 router = APIRouter(prefix="/rca", tags=["rca"])
@@ -31,7 +33,13 @@ _SYSTEM = build_system_prompt(
     "Reference specific roads (Xa lộ Hà Nội, QL13, Võ Văn Kiệt...), vehicle types, "
     "time-of-day patterns, and whether this matches historical precedent from the RAG context. "
     "If external context (weather, events) is provided, factor it in explicitly. "
-    "Be concise and analytical. No greetings or sign-offs."
+    "Be concise and analytical. No greetings or sign-offs. "
+    "ANTI-HALLUCINATION RULES — MANDATORY: "
+    "NEVER fabricate route IDs, zone names, metric values (z-scores, heavy_ratio percentages), or timestamps. "
+    "ONLY cite route names and metric values that appear verbatim in the live snapshot or RAG context provided. "
+    "All 20 monitored routes connect TWO DIFFERENT zones — there is NO route from a zone to itself (e.g. Zone 6 → Zone 6 does NOT exist). "
+    "If the user asks about specific time-series values you were not given, say: 'I do not have time-series data for that period in this query.' "
+    "Do not invent numbers. Do not invent route names. Cite only what is in the data."
 )
 
 
@@ -41,7 +49,16 @@ async def root_cause_analysis(
     conn: asyncpg.Connection = Depends(get_db),
 ) -> StreamingResponse:
     chunks, rag_context = await retrieve_context(req.message, req.route_id)
-    prompt = build_rca_prompt(rag_context, req.message, req.lang)
+
+    row_list = await online_repo.fetch_for_chat_snapshot(conn)
+    iforest_by_route: dict[str, bool] = {}
+    try:
+        preds = prediction_service.score_rows(row_list)
+        iforest_by_route = {p.route_id: p.iforest_anomaly for p in preds}
+    except Exception:
+        pass
+
+    prompt = build_rca_prompt(rag_context, req.message, req.lang, row_list, iforest_by_route)
 
     log_id = await interactions_repo.log_interaction(
         conn,
