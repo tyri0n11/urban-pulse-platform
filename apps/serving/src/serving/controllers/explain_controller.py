@@ -160,9 +160,10 @@ def build_explain_prompt(
         rain = weather.get("rain_mm") or weather.get("precipitation_mm") or 0.0
         wind = weather.get("wind_speed_kmh")
         desc = weather.get("weather_desc", "")
+        location = weather.get("location", "TP.HCM")
         parts += [
             "",
-            "=== CURRENT WEATHER (HCMC) ===",
+            f"=== CURRENT WEATHER ({location}) ===",
             f"Condition: {desc}"
             + (f", {temp:.1f}°C" if temp is not None else "")
             + (f", rain {rain:.1f} mm" if float(rain) > 0 else ", no rain")
