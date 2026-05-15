@@ -150,7 +150,7 @@ def build_explain_prompt(
         f"Low congestion ratio (low_ratio): {low:.1%}",
         f"Max severe segments: {severe}",
         f"Heavy-ratio z-score vs baseline: {zscore:+.2f} (positive = more congested, negative = less congested)",
-        f"Z-Score anomaly threshold for this route (dynamic, from p99 of historical z-scores): "
+        "Z-Score anomaly threshold for this route (dynamic, from p99 of historical z-scores): "
         + (f"{zscore_threshold:.2f}" if zscore_threshold is not None else "unknown (no baseline yet)"),
         f"Observations in window: {obs}",
     ]
