@@ -55,6 +55,7 @@ ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS mean_moderate_ratio  
 ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS mean_low_ratio         DOUBLE PRECISION;
 ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS geometry               JSONB;
 ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS congestion_segments    JSONB;
+ALTER TABLE online_route_features ADD COLUMN IF NOT EXISTS zscore_threshold       DOUBLE PRECISION;
 """
 
 _UPSERT_SQL = """
@@ -67,7 +68,8 @@ INSERT INTO online_route_features (
     last_ingest_lag_ms,
     heavy_ratio_deviation, p95_to_mean_ratio, max_severe_segments,
     mean_moderate_ratio, mean_low_ratio,
-    geometry, congestion_segments
+    geometry, congestion_segments,
+    zscore_threshold
 ) VALUES (
     %(route_id)s, %(window_start)s, NOW(),
     %(observation_count)s,
@@ -77,7 +79,8 @@ INSERT INTO online_route_features (
     %(last_ingest_lag_ms)s,
     %(heavy_ratio_deviation)s, %(p95_to_mean_ratio)s, %(max_severe_segments)s,
     %(mean_moderate_ratio)s, %(mean_low_ratio)s,
-    %(geometry)s, %(congestion_segments)s
+    %(geometry)s, %(congestion_segments)s,
+    %(zscore_threshold)s
 )
 ON CONFLICT (route_id, window_start) DO UPDATE SET
     updated_at              = NOW(),
@@ -96,7 +99,8 @@ ON CONFLICT (route_id, window_start) DO UPDATE SET
     mean_moderate_ratio     = EXCLUDED.mean_moderate_ratio,
     mean_low_ratio          = EXCLUDED.mean_low_ratio,
     geometry                = EXCLUDED.geometry,
-    congestion_segments     = EXCLUDED.congestion_segments
+    congestion_segments     = EXCLUDED.congestion_segments,
+    zscore_threshold        = EXCLUDED.zscore_threshold
 """
 
 
@@ -265,11 +269,13 @@ class OnlineFeatureProcessor:
         zscore: float | None = None
         is_anomaly = False
         heavy_ratio_deviation: float = window.mean_heavy_ratio
+        zscore_threshold: float | None = None
         if baseline and baseline.heavy_ratio_stddev > 0:
             zscore = (window.mean_heavy_ratio - baseline.heavy_ratio_mean) / baseline.heavy_ratio_stddev
             # one-sided: high heavy_ratio is anomalous; low is fine
             is_anomaly = zscore > baseline.zscore_threshold
             heavy_ratio_deviation = window.mean_heavy_ratio - baseline.heavy_ratio_mean
+            zscore_threshold = baseline.zscore_threshold
 
         p95_approx = window.mean_duration + 2.0 * window.stddev_duration
         p95_to_mean_ratio = (p95_approx / window.mean_duration) if window.mean_duration > 0 else 1.0
@@ -294,6 +300,7 @@ class OnlineFeatureProcessor:
             "mean_low_ratio": window.mean_low_ratio,
             "geometry": psycopg2.extras.Json(geometry) if geometry is not None else None,
             "congestion_segments": psycopg2.extras.Json(cong_segs) if cong_segs else None,
+            "zscore_threshold": zscore_threshold,
         }
         try:
             with self._pg.cursor() as cur:

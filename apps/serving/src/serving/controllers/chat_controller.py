@@ -104,7 +104,7 @@ def build_user_prompt(snapshot: dict[str, Any], message: str, lang: str) -> str:
         f"Thời điểm snapshot: {snapshot_time}",
         f"Đang giám sát {total} tuyến · Độ trễ cảm biến TB: {avg_lag} ms",
         f"Bất thường hiện tại: {anomaly_count}/{total} tuyến",
-        "Ngưỡng tham chiếu: heavy_ratio > ~15% = tắc nghẽn nặng, < 5% = thông thoáng bình thường",
+        "Lưu ý: ngưỡng bất thường là ĐỘNG theo từng tuyến và từng giờ/ngày — không dùng ngưỡng tuyệt đối.",
         "",
     ]
 

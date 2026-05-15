@@ -82,6 +82,7 @@ def build_explain_prompt(
     severe = row.get("max_severe_segments") or 0
     obs = row.get("observation_count") or 0
     zscore = float(row.get("duration_zscore") or 0.0)
+    zscore_threshold = row.get("zscore_threshold")
     is_z = row.get("is_anomaly", False)
     is_if = row.get("iforest_anomaly", False)
     origin = row.get("origin") or row.get("route_id", "unknown")
@@ -149,6 +150,8 @@ def build_explain_prompt(
         f"Low congestion ratio (low_ratio): {low:.1%}",
         f"Max severe segments: {severe}",
         f"Heavy-ratio z-score vs baseline: {zscore:+.2f} (positive = more congested, negative = less congested)",
+        f"Z-Score anomaly threshold for this route (dynamic, from p99 of historical z-scores): "
+        + (f"{zscore_threshold:.2f}" if zscore_threshold is not None else "unknown (no baseline yet)"),
         f"Observations in window: {obs}",
     ]
 

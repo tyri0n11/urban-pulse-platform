@@ -113,19 +113,24 @@ Hệ thống Urban Pulse đo TỈ LỆ PHÂN KHÚC ĐƯỜNG theo 4 mức tắc 
   • low_ratio     : % đoạn đường ít tắc (gần bình thường)
   • severe_segments: số đoạn NGHIÊM TRỌNG NHẤT trong cửa sổ thời gian
 
-Ngưỡng cảnh báo:
-  • heavy_ratio > 30% → Z-Score signal (xe nặng chiếm quá nhiều đoạn đường)
-  • IsolationForest (đa chiều): kết hợp heavy + moderate + low + severe + giờ trong ngày + ngày trong tuần
+Cách phát hiện bất thường (QUAN TRỌNG — KHÔNG dùng ngưỡng tuyệt đối):
+  • Z-Score: so sánh heavy_ratio hiện tại với BASELINE LỊCH SỬ của CHÍNH TUYẾN ĐÓ tại ĐÚNG giờ và ngày trong tuần đó.
+    Ngưỡng là ĐỘNG (dynamic) — tính từ phân vị p99 của z-score lịch sử, riêng cho từng route.
+    Ngưỡng điển hình 1.5–2.5, nhưng có thể khác nhau giữa các route.
+    heavy_ratio 6% CÓ THỂ là bất thường nếu baseline của tuyến đó lúc đó chỉ là 0.5%.
+    heavy_ratio 40% CÓ THỂ là bình thường nếu đó là route cảng vào lúc 6h sáng.
+    KHÔNG BAO GIỜ nói heavy_ratio "cao" hay "thấp" theo nghĩa tuyệt đối.
+  • IsolationForest (đa chiều): học phân phối kết hợp (heavy + moderate + severe + giờ + ngày), phát hiện pattern bất thường mà Z-Score đơn chiều bỏ qua.
 
-Bình thường điển hình theo hành lang:
+Bình thường điển hình theo hành lang (chỉ để tham khảo địa lý):
   • Cảng (Zone 4, Zone 6): heavy_ratio 15–25% sáng sớm 5–8h (xe container), moderate 20–30%
   • KCN Bình Dương (Zone 3): heavy_ratio 10–20% cả ngày (xe tải công nghiệp)
   • CBD (Zone 1): heavy_ratio 5–15% peak 7–9h sáng, 17–19h chiều; moderate cao
   • Vùng ven (Zone 5): heavy_ratio thấp <10%; moderate 10–20%
 
-Khi BOTH anomaly (cả Z-Score lẫn IsolationForest): heavy_ratio cao bất thường VÀ cấu trúc tắc nghẽn lạ.
-Khi chỉ IFOREST: pattern congestion bất thường (vd: moderate/low ratio lệch, giờ bất thường).
-Khi chỉ ZSCORE: heavy_ratio vượt 30% nhưng các chỉ số khác bình thường.
+Khi BOTH anomaly (cả Z-Score lẫn IsolationForest): high confidence — heavy_ratio vượt ngưỡng động VÀ pattern cấu trúc lạ.
+Khi chỉ IFOREST: pattern bất thường đa chiều (kết hợp ratios + thời gian), nhưng z-score chưa vượt ngưỡng.
+Khi chỉ ZSCORE: heavy_ratio vượt ngưỡng động của route này, nhưng pattern tổng thể không đủ dị thường cho IForest.
 """
 
 

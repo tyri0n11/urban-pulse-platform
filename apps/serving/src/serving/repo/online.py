@@ -113,6 +113,7 @@ _EXPLAIN_ROUTE_SQL = """
         COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
         max_severe_segments,
         duration_zscore,
+        zscore_threshold,
         observation_count
     FROM online_route_features
     WHERE route_id = $1
