@@ -95,7 +95,7 @@ _LANG_INSTRUCTIONS = {
 
 
 class HeatmapAnalyzeRequest(BaseModel):
-    context: str = Field(..., min_length=10, max_length=6000)
+    context: str = Field(..., min_length=10, max_length=12000)
     lang: str = Field(default="en", pattern="^(vi|en)$")
     route_ids: list[str] = Field(default_factory=list, max_length=4)
     window_from: Optional[str] = Field(default=None, description="ISO datetime — start of analysis window")
