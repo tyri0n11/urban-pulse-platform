@@ -181,34 +181,61 @@ def build_explain_prompt(
             "The metric 'heavy_ratio' is just a field name — do NOT translate it as 'tắc nghẽn nặng'. "
             "Call it 'tỷ lệ heavy_ratio' or 'chỉ số lưu lượng nặng'."
         )
-        obs_content = (
-            f"Describe that tỷ lệ heavy_ratio={heavy:.1%} và zscore={zscore:+.2f} "
-            "cho thấy tuyến đường thông thoáng bất thường, nhẹ hơn mức bình thường lịch sử. "
-            "Only cite numbers from the data above."
-        )
-        cause_content = (
-            "Explain why traffic is lighter than usual: "
-            "time-of-day, day-of-week, weather, HCMC geography. "
-            "Do NOT say traffic is heavy."
-        )
-        assess_content = (
-            "State this is low-severity (free-flowing is positive). "
-            "One brief observation or recommendation."
-        )
+        if lang == "vi":
+            obs_content = (
+                f"Mô tả rằng tỷ lệ heavy_ratio={heavy:.1%} và zscore={zscore:+.2f} "
+                "cho thấy tuyến đường thông thoáng bất thường, nhẹ hơn mức bình thường lịch sử. "
+                "Chỉ dẫn số liệu từ dữ liệu trên."
+            )
+            cause_content = (
+                "Giải thích tại sao lưu lượng xe nhẹ hơn bình thường: "
+                "giờ trong ngày, ngày trong tuần, thời tiết, địa lý TP.HCM. "
+                "Tuyệt đối không nói lưu lượng xe nặng."
+            )
+            assess_content = (
+                "Nêu đây là mức độ thấp (thông thoáng là tích cực). "
+                "Một nhận xét hoặc khuyến nghị ngắn gọn."
+            )
+        else:
+            obs_content = (
+                f"Describe that heavy_ratio={heavy:.1%} and zscore={zscore:+.2f} "
+                "indicate unusually free-flowing traffic, lighter than historical baseline. "
+                "Only cite numbers from the data above."
+            )
+            cause_content = (
+                "Explain why traffic is lighter than usual: "
+                "time-of-day, day-of-week, weather, HCMC geography. "
+                "Do NOT say traffic is heavy."
+            )
+            assess_content = (
+                "State this is low-severity (free-flowing is positive). "
+                "One brief observation or recommendation."
+            )
     else:
         direction_lock = (
             f"REMEMBER: direction=HIGHER_THAN_NORMAL. heavy_ratio={heavy:.1%} is above baseline (zscore={zscore:+.2f}). "
             "The metric 'heavy_ratio' is just a field name — do NOT translate it as 'tắc nghẽn nặng'; call it 'tỷ lệ heavy_ratio'."
         )
-        obs_content = (
-            f"Describe that tỷ lệ heavy_ratio={heavy:.1%} và zscore={zscore:+.2f} "
-            "cho thấy lưu lượng nặng cao hơn mức bình thường. Only cite numbers from the data above."
-        )
-        cause_content = (
-            "Explain why traffic is heavier than usual: "
-            "traffic patterns, time-of-day, HCMC geography, weather if relevant."
-        )
-        assess_content = "Severity level and one concrete recommendation."
+        if lang == "vi":
+            obs_content = (
+                f"Mô tả rằng tỷ lệ heavy_ratio={heavy:.1%} và zscore={zscore:+.2f} "
+                "cho thấy lưu lượng nặng cao hơn mức bình thường. Chỉ dẫn số liệu từ dữ liệu trên."
+            )
+            cause_content = (
+                "Giải thích tại sao lưu lượng xe nặng hơn bình thường: "
+                "mô hình giao thông, giờ cao điểm, địa lý TP.HCM, thời tiết nếu liên quan."
+            )
+            assess_content = "Mức độ nghiêm trọng và một khuyến nghị cụ thể."
+        else:
+            obs_content = (
+                f"Describe that heavy_ratio={heavy:.1%} and zscore={zscore:+.2f} "
+                "indicate heavier traffic than normal. Only cite numbers from the data above."
+            )
+            cause_content = (
+                "Explain why traffic is heavier than usual: "
+                "traffic patterns, time-of-day, HCMC geography, weather if relevant."
+            )
+            assess_content = "Severity level and one concrete recommendation."
 
     h0, h1, h2 = section_labels
     parts += [
