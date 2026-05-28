@@ -1,6 +1,7 @@
 # main.py
 import signal
 
+from confluent_kafka import KafkaError, KafkaException
 from urbanpulse_core.config import settings
 from urbanpulse_infra.kafka import KafkaProducer
 
@@ -24,6 +25,11 @@ def _commit(consumer: KafkaConsumer, logger: Logger, topic: str) -> None:
     try:
         consumer.commit()
         logger.info(f"Committed offsets after MinIO flush — topic={topic}")
+    except KafkaException as commit_err:
+        if commit_err.args[0].code() == KafkaError._NO_OFFSET:
+            logger.debug(f"Nothing to commit (no new messages) — topic={topic}")
+        else:
+            logger.error(f"Offset commit failed — topic={topic} error={commit_err}")
     except Exception as commit_err:
         logger.error(f"Offset commit failed — topic={topic} error={commit_err}")
 
