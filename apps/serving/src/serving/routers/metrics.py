@@ -77,27 +77,6 @@ _ANALYZE_SYSTEM_BASE = (
     "Do not invent, estimate, or approximate any IF score."
 )
 
-_ANALYZE_SYSTEM_REPORT = (
-    "You are writing a traffic situation report for Ho Chi Minh City (HCMC), Vietnam, "
-    "addressed to city traffic managers and infrastructure planners who are NOT familiar with data systems or technical metrics. "
-    "Your job is to translate raw monitoring data into clear, actionable insights in plain language. "
-    "AUDIENCE: decision-makers — use plain language, avoid all technical jargon. "
-    "NEVER mention z-score, IsolationForest, sigma, z_avg, z_max, if_flagged, z_flagged, or any internal metric name in your output. "
-    "Instead, translate the data: "
-    "  - High z_flagged or if_flagged fraction → 'route was frequently congested', 'recurring heavy traffic', 'above normal traffic load' "
-    "  - Negative z_avg AND flagged → 'unusually light traffic', 'significantly below normal volume', 'possible road closure or major rerouting' "
-    "  - both_flagged=M/N → 'confirmed congestion in M out of N observations' "
-    "  - n=1 or n=2 → 'isolated observation, treat with caution' — do NOT build strong conclusions from sparse data "
-    "Routes are labeled as 'Zone X → Zone Y'. Always write 'Zone' (never 'Zona'). "
-    "HCMC context: morning peak 07:00–09:00 UTC+7, evening peak 17:00–19:00 UTC+7. "
-    "Industrial/port zones have early peaks 05:00–08:00. Weekends have different patterns from weekdays. "
-    "Weather context is provided separately — use it ONLY to explain anomalies (e.g. heavy rain correlating with congestion). "
-    "Do NOT compare weather numbers (°C, mm) to any traffic metric. "
-    "End your report with this exact disclaimer on a new line: "
-    "'*Nội dung chỉ mang tính chất tham khảo.*' (if writing in Vietnamese) or "
-    "'*This report is for reference purposes only.*' (if writing in English). "
-    "Analyze ONLY the data provided — never invent route names, hours, or statistics."
-)
 
 _DOW_VI = ["Chủ nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"]
 _DOW_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
@@ -133,22 +112,6 @@ _SECTIONS_MULTIDAY = {
     ],
 }
 
-_SECTIONS_REPORT = {
-    "vi": [
-        "1. **Tổng quan tình hình giao thông** — Mô tả bức tranh tổng thể trong kỳ báo cáo bằng ngôn ngữ đời thường: tuyến đường nào thường xuyên ùn tắc nhất, khung giờ nào nặng nhất trong ngày, xu hướng tổng thể so với mức bình thường (nặng hơn, nhẹ hơn, hay ổn định). Không dùng thuật ngữ kỹ thuật.",
-        "2. **Các tuyến và khung giờ trọng điểm** — Liệt kê cụ thể các tuyến đường có tình trạng bất thường thường xuyên nhất, kèm ngày trong tuần và khung giờ (UTC+7). Phân biệt rõ: tắc nghẽn nặng (lưu lượng cao hơn bình thường) vs tuyến bất thường ít xe (lưu lượng thấp bất thường — có thể do công trình, cấm đường). Bỏ qua các quan sát đơn lẻ không có đủ dữ liệu.",
-        "3. **Diễn giải nguyên nhân** — Giải thích tại sao các tuyến/giờ đó xảy ra bất thường: liên hệ với đặc điểm giao thông TP.HCM (cao điểm sáng/chiều, khu công nghiệp, cảng, cuối tuần). Nếu có dữ liệu thời tiết, đề cập ảnh hưởng của mưa/nắng/gió đến tình trạng giao thông tại các thời điểm bất thường — KHÔNG so sánh con số thời tiết với bất kỳ chỉ số giao thông nào.",
-        "4. **Khuyến nghị quản lý & vận hành** — 3–5 khuyến nghị ngắn hạn và trung hạn: điều chỉnh đèn tín hiệu, phân luồng, bố trí lực lượng kiểm soát giao thông tại các điểm nóng. Mỗi khuyến nghị PHẢI gắn với ngày trong tuần + khung giờ (UTC+7) + tuyến cụ thể.",
-        "5. **Khuyến nghị đầu tư hạ tầng** — 2–3 đề xuất dài hạn về mở rộng, nâng cấp, hoặc xây mới hạ tầng giao thông dựa trên các tuyến điểm nóng lặp lại. Ưu tiên các khu vực có nhiều tuyến cùng bất thường hoặc tình trạng kéo dài nhiều tuần.",
-    ],
-    "en": [
-        "1. **Traffic Situation Overview** — Describe the overall picture for the reporting period in plain language: which routes were most frequently congested, which time windows were heaviest, and whether the overall situation was worse, better, or similar to normal. No technical jargon.",
-        "2. **Key Routes and Peak Windows** — List the specific routes with the most frequent abnormal conditions, with day-of-week and hour ranges (UTC+7). Clearly distinguish: heavy congestion (above-normal volume) vs unusually quiet routes (below-normal volume — possibly road works, closures). Skip isolated observations with insufficient data.",
-        "3. **Cause Analysis** — Explain why those routes/hours experienced abnormal conditions: link to HCMC traffic characteristics (morning/evening peak, industrial zones, port, weekends). If weather data is available, mention how rain/heat/wind may have contributed at anomalous times — do NOT compare weather numbers to any traffic metric.",
-        "4. **Operational Recommendations** — 3–5 short-to-medium-term actions: signal timing adjustments, traffic diversion, officer deployment at hotspots. Each recommendation MUST specify day-of-week + hour range (UTC+7) + specific route.",
-        "5. **Infrastructure Investment Recommendations** — 2–3 long-term proposals for road widening, upgrades, or new infrastructure based on recurring hotspot routes. Prioritise areas where multiple routes are simultaneously affected or conditions have persisted for multiple weeks.",
-    ],
-}
 
 _PEAK_HOURS_NOTE = {
     "vi": "Giờ cao điểm điển hình TP.HCM: sáng 07:00–09:00 UTC+7, chiều 17:00–19:00 UTC+7. KCN/cảng: sớm 05:00–08:00.",
@@ -203,9 +166,6 @@ def _build_analyze_prompt(
     window_from: str | None = None,
     window_to: str | None = None,
 ) -> str:
-    # lang_note = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["en"])
-
-    # Compute span to decide analysis mode
     span_h: int | None = None
     try:
         if window_from and window_to:
@@ -215,30 +175,9 @@ def _build_analyze_prompt(
     except Exception:
         pass
 
-    report_mode = span_h is not None and span_h >= 168  # ≥ 7 days
     multi_day = span_h is not None and span_h > 24
 
-    if report_mode:
-        sections = "\n".join(_SECTIONS_REPORT.get(lang, _SECTIONS_REPORT["en"]))
-        concise = (
-            "ĐỊNH DẠNG BẮT BUỘC — phải có đúng 5 mục đánh số như trên, theo đúng thứ tự, không thêm mục phụ. "
-            "4–6 câu mỗi mục. Không chào hỏi, không mở đầu chung chung. "
-            "Viết cho quản lý đô thị — ngôn ngữ đơn giản, không dùng thuật ngữ kỹ thuật. "
-            "Mục 1 bắt đầu bằng tiêu đề kỳ báo cáo đã cho, đọc được độc lập như tóm tắt cho lãnh đạo. "
-            "Mục 3 dùng thời tiết (nếu có) để giải thích nguyên nhân — chỉ định tính (mưa nhiều, nắng nóng). "
-            "Mục 4–5 phải có tuyến đường cụ thể + khung giờ (UTC+7) + ngày trong tuần. "
-            "Dòng CUỐI CÙNG của toàn bộ báo cáo phải là: *Nội dung chỉ mang tính chất tham khảo.*"
-            if lang == "vi"
-            else "MANDATORY FORMAT — exactly 5 numbered sections as listed above, in order, no sub-sections. "
-            "4–6 sentences per section. No greetings, no generic opening. "
-            "Write for urban/city managers — plain language, no technical jargon. "
-            "Section 1 opens with the given reporting period title, must be self-contained for an executive audience. "
-            "Section 3 uses weather (if available) qualitatively only (heavy rain, heat waves). "
-            "Sections 4–5 must specify route + hour range (UTC+7) + day-of-week. "
-            "The LAST LINE of the entire report must be: *This report is for reference purposes only.*"
-        )
-        section_count = 5
-    elif multi_day:
+    if multi_day:
         sections = "\n".join(_SECTIONS_MULTIDAY.get(lang, _SECTIONS_MULTIDAY["en"]))
         concise = (
             "3–4 câu mỗi mục. Không chào hỏi. "
@@ -249,7 +188,6 @@ def _build_analyze_prompt(
             "Prioritise RECURRING PATTERNS (e.g. 'every Saturday at 17:00') over isolated incidents. "
             "Section 4 must anchor recommendations to day-of-week + hour range (UTC+7), not specific dates."
         )
-        section_count = 4
     else:
         sections = "\n".join(_SECTIONS.get(lang, _SECTIONS["en"]))
         concise = (
@@ -257,36 +195,11 @@ def _build_analyze_prompt(
             if lang == "vi"
             else "3–4 sentences per section. No greetings. Section 4 must include an explicit hour range (UTC+7) for every recommendation."
         )
-        section_count = 4
 
     time_header = _format_window_header(lang, window_from, window_to)
-
-    # For report mode: build explicit period label for model to include in output
-    report_period = ""
-    if report_mode and window_from and window_to:
-        try:
-            frm = datetime.fromisoformat(window_from).astimezone(_HCMC_TZ)
-            to_ = datetime.fromisoformat(window_to).astimezone(_HCMC_TZ)
-            if lang == "vi":
-                report_period = (
-                    f"KỲ BÁO CÁO: từ {frm.strftime('%d/%m/%Y')} đến {to_.strftime('%d/%m/%Y')} (UTC+7)\n"
-                    f"Bắt đầu phần tóm tắt (Mục 1) bằng dòng: "
-                    f"\"Báo cáo tình hình giao thông TP.HCM từ {frm.strftime('%d/%m/%Y')} đến {to_.strftime('%d/%m/%Y')}\""
-                )
-            else:
-                report_period = (
-                    f"REPORTING PERIOD: {frm.strftime('%d %b %Y')} to {to_.strftime('%d %b %Y')} (UTC+7)\n"
-                    f"Begin Section 1 with: "
-                    f"\"HCMC Traffic Situation Report: {frm.strftime('%d %b %Y')} – {to_.strftime('%d %b %Y')}\""
-                )
-        except Exception:
-            pass
-
-    parts = [time_header]
-    if report_period:
-        parts.append(report_period)
-    parts += [
-        f"Provide analysis in {section_count} sections:\n{sections}\n{concise}",
+    parts = [
+        time_header,
+        f"Provide analysis in 4 sections:\n{sections}\n{concise}",
         f"=== HEATMAP DATA ===\n{context}",
     ]
     if external:
@@ -383,91 +296,6 @@ def _aggregate_multiday_context(
     return "\n".join(lines), top_slots
 
 
-def _humanize_aggregated_for_report(rows: list[dict[str, Any]], lang: str) -> str:
-    """Convert aggregated heatmap buckets into plain-language traffic descriptions for city managers.
-
-    This replaces raw z-score data with human-readable severity descriptions so the LLM
-    does not need to translate technical metrics — it just writes the report.
-    """
-    from collections import defaultdict
-
-    buckets: dict[tuple[str, int, int], dict[str, Any]] = defaultdict(
-        lambda: {"zscores": [], "anomaly": 0, "iforest": 0, "both": 0, "n": 0}
-    )
-    for r in rows:
-        ws = r.get("window_start")
-        if ws is None:
-            continue
-        if isinstance(ws, str):
-            ws = datetime.fromisoformat(ws)
-        ws_local = ws.astimezone(_HCMC_TZ)
-        key = (r["route_id"], ws_local.weekday(), ws_local.hour)
-        b = buckets[key]
-        b["n"] += 1
-        if r.get("duration_zscore") is not None:
-            b["zscores"].append(float(r["duration_zscore"]))
-        if r.get("is_anomaly"):
-            b["anomaly"] += 1
-        if r.get("iforest_anomaly"):
-            b["iforest"] += 1
-        if r.get("both_anomaly"):
-            b["both"] += 1
-
-    dow_vi = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
-    dow_en = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    dow_names = dow_vi if lang == "vi" else dow_en
-
-    route_blocks: dict[str, list[str]] = defaultdict(list)
-
-    for (route_id, dow, hour), b in sorted(buckets.items(), key=lambda x: (x[0][0], x[0][1], x[0][2])):
-        n = b["n"]
-        if n == 0:
-            continue
-        z_avg = sum(b["zscores"]) / len(b["zscores"]) if b["zscores"] else None
-        z_frac = b["anomaly"] / n
-        if_frac = b["iforest"] / n
-        both_frac = b["both"] / n
-
-        # Skip slots with no signal
-        if z_frac == 0 and if_frac == 0 and (z_avg is None or abs(z_avg) < 1.0):
-            continue
-
-        # Determine severity
-        low_confidence = n < 3
-        negative_z = z_avg is not None and z_avg < -0.5
-
-        if negative_z and if_frac >= 0.5:
-            if lang == "vi":
-                severity = "Lưu lượng bất thường thấp" + (" (có thể đóng cửa đường/công trình)" if if_frac >= 0.8 else "")
-            else:
-                severity = "Abnormally low traffic" + (" (possible road closure or works)" if if_frac >= 0.8 else "")
-        elif both_frac >= 0.6 and n >= 3:
-            severity = "Thường xuyên ùn tắc nặng" if lang == "vi" else "Frequently heavily congested"
-        elif both_frac >= 0.3 or (z_frac >= 0.5 and if_frac >= 0.5):
-            severity = "Hay xảy ra ùn tắc" if lang == "vi" else "Often congested"
-        elif z_frac >= 0.5:
-            severity = "Có dấu hiệu ùn tắc" if lang == "vi" else "Signs of congestion"
-        elif if_frac >= 0.5:
-            severity = "Lưu lượng bất thường (không rõ chiều)" if lang == "vi" else "Abnormal traffic volume"
-        else:
-            continue  # weak signal, skip
-
-        confidence_note = (" — ít dữ liệu, cần theo dõi thêm" if lang == "vi" else " — limited data, needs monitoring") if low_confidence else ""
-        obs_note = f"{b['both']}/{n} lần xác nhận cả hai chiều" if lang == "vi" else f"{b['both']}/{n} observations dual-confirmed"
-        line = f"  {dow_names[dow]}, {hour:02d}:00–{(hour+1)%24:02d}:00: {severity} ({obs_note}){confidence_note}"
-        route_blocks[route_id].append(line)
-
-    if not route_blocks:
-        return ("Không có dữ liệu bất thường đáng kể trong kỳ báo cáo." if lang == "vi"
-                else "No significant anomaly data found in the reporting period.")
-
-    lines: list[str] = []
-    for route_id, entries in sorted(route_blocks.items()):
-        label = route_id.replace("_to_", " → ").replace("_", " ").title()
-        lines.append(f"Tuyến {label}:" if lang == "vi" else f"Route {label}:")
-        lines.extend(entries)
-    return "\n".join(lines)
-
 
 @router.post("/analyze")
 async def heatmap_analyze(
@@ -485,30 +313,24 @@ async def heatmap_analyze(
     except Exception:
         pass
 
-    report_mode = span_h is not None and span_h >= 168
-
     if span_h is not None and span_h > 24:
         rows: list[dict[str, Any]] = []
         try:
             frm_dt = datetime.fromisoformat(req.window_from)  # type: ignore[arg-type]
             to_dt = datetime.fromisoformat(req.window_to)  # type: ignore[arg-type]
             rows = await metrics_repo.fetch_heatmap_range(conn, frm_dt, to_dt)
-            if report_mode:
-                context = _humanize_aggregated_for_report(rows, req.lang)
-            else:
-                context, _ = _aggregate_multiday_context(rows)
+            context, _ = _aggregate_multiday_context(rows)
         except Exception:
             pass  # fall back to req.context if fetch fails
 
-        no_traffic_data = not rows or context.startswith("Không có") or context.startswith("No significant")
+        no_traffic_data = not rows or not context.strip()
         external = "" if no_traffic_data else await fetch_heatmap_external_context(req.route_ids, None)
     else:
         weather = await fetch_current_weather()
         external = await fetch_heatmap_external_context(req.route_ids, weather)
 
     lang_note = _LANG_INSTRUCTIONS.get(req.lang, _LANG_INSTRUCTIONS["en"])
-    system_base = _ANALYZE_SYSTEM_REPORT if report_mode else _ANALYZE_SYSTEM_BASE
-    system = f"{system_base} {lang_note}"
+    system = f"{_ANALYZE_SYSTEM_BASE} {lang_note}"
     user_prompt = _build_analyze_prompt(
         context, req.lang, external, req.window_from, req.window_to
     )
