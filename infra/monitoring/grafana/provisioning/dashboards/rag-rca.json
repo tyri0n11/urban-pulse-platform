@@ -128,7 +128,8 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT COALESCE(ROUND(AVG(jsonb_array_length(retrieved_chunks))::numeric, 1), 0) AS value FROM rag_interaction_log WHERE $__timeFilter(ts) AND retrieved_chunks IS NOT NULL",
+          "rawSql": "SELECT COALESCE(ROUND(AVG(jsonb_array_length(retrieved_chunks))::numeric, 1), 0) AS value FROM rag_interaction_log WHERE $__timeFilter(ts) AND retrieved_chunks IS NOT NULL
+  AND jsonb_typeof(retrieved_chunks) = 'array'",
           "format": "table"
         }
       ],
@@ -440,7 +441,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT\n  DATE_TRUNC('hour', ts) AS time,\n  COALESCE(ROUND(AVG(jsonb_array_length(retrieved_chunks))::numeric, 2), 0) AS avg_chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\n  AND retrieved_chunks IS NOT NULL\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  DATE_TRUNC('hour', ts) AS time,\n  COALESCE(ROUND(AVG(jsonb_array_length(retrieved_chunks))::numeric, 2), 0) AS avg_chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\n  AND retrieved_chunks IS NOT NULL\n  AND jsonb_typeof(retrieved_chunks) = 'array'\nGROUP BY 1\nORDER BY 1",
           "format": "time_series"
         }
       ],
@@ -560,7 +561,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT\n  COALESCE(NULLIF(route_id, ''), '(no route)') AS route_id,\n  COUNT(*) AS total_queries,\n  COUNT(*) FILTER (WHERE feedback = 1) AS positive,\n  COUNT(*) FILTER (WHERE feedback = -1) AS negative,\n  COALESCE(ROUND(AVG(jsonb_array_length(retrieved_chunks))::numeric, 1), 0) AS avg_chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nGROUP BY route_id\nORDER BY total_queries DESC\nLIMIT 20",
+          "rawSql": "SELECT\n  COALESCE(NULLIF(route_id, ''), '(no route)') AS route_id,\n  COUNT(*) AS total_queries,\n  COUNT(*) FILTER (WHERE feedback = 1) AS positive,\n  COUNT(*) FILTER (WHERE feedback = -1) AS negative,\n  COALESCE(ROUND(AVG(jsonb_array_length(retrieved_chunks)) FILTER (WHERE jsonb_typeof(retrieved_chunks) = 'array')::numeric, 1), 0) AS avg_chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nGROUP BY route_id\nORDER BY total_queries DESC\nLIMIT 20",
           "format": "table"
         }
       ],
@@ -778,7 +779,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT\n  id,\n  ts AT TIME ZONE 'UTC' AS ts,\n  query_type,\n  lang,\n  COALESCE(route_id, '—') AS route_id,\n  LEFT(query, 120) AS query,\n  LEFT(COALESCE(response, ''), 200) AS response,\n  CASE feedback WHEN 1 THEN 'good' WHEN -1 THEN 'bad' ELSE '—' END AS feedback,\n  COALESCE(jsonb_array_length(retrieved_chunks), 0) AS chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nORDER BY ts DESC\nLIMIT 20",
+          "rawSql": "SELECT\n  id,\n  ts AT TIME ZONE 'UTC' AS ts,\n  query_type,\n  lang,\n  COALESCE(route_id, '—') AS route_id,\n  LEFT(query, 120) AS query,\n  LEFT(COALESCE(response, ''), 200) AS response,\n  CASE feedback WHEN 1 THEN 'good' WHEN -1 THEN 'bad' ELSE '—' END AS feedback,\n  CASE WHEN jsonb_typeof(retrieved_chunks) = 'array' THEN jsonb_array_length(retrieved_chunks) ELSE 0 END AS chunks\nFROM rag_interaction_log\nWHERE $__timeFilter(ts)\nORDER BY ts DESC\nLIMIT 20",
           "format": "table"
         }
       ],
