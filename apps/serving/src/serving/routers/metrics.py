@@ -203,7 +203,7 @@ def _build_analyze_prompt(
     window_from: str | None = None,
     window_to: str | None = None,
 ) -> str:
-    lang_note = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["en"])
+    # lang_note = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["en"])
 
     # Compute span to decide analysis mode
     span_h: int | None = None
@@ -282,7 +282,7 @@ def _build_analyze_prompt(
         except Exception:
             pass
 
-    parts = [lang_note, time_header]
+    parts = [time_header]
     if report_period:
         parts.append(report_period)
     parts += [
@@ -291,7 +291,6 @@ def _build_analyze_prompt(
     ]
     if external:
         parts.append(external)
-    parts.append(lang_note)
     return "\n\n".join(parts)
 
 
