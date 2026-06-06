@@ -101,6 +101,11 @@ jobs:
             up -d --no-deps \
             traffic-ingestion weather-ingestion streaming online ml batch serving
 
+      - name: Pull Ollama models
+        run: |
+          docker exec ollama ollama pull ${OLLAMA_MODEL:-qwen3:8b}
+          docker exec ollama ollama pull ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+
       - name: Start monitoring exporters (idempotent)
         run: |
           docker compose \

@@ -57,6 +57,12 @@ _ANALYZE_SYSTEM_BASE = (
     "Use HCMC domain knowledge only to explain causes and give recommendations. "
     "CRITICAL — signal definitions: "
     "Z-score (duration_zscore) is the ONLY numerical score in this data. "
+    "Z-score DIRECTIONALITY — MANDATORY: "
+    "z > 0 means heavy_ratio is ABOVE the route's historical baseline → heavier than usual → potential congestion. "
+    "z < 0 means heavy_ratio is BELOW the route's historical baseline → lighter than usual → unusually free traffic. "
+    "NEVER describe a negative Z-score as congestion, slow traffic, or tắc nghẽn. "
+    "Negative Z-score flagged by IsolationForest means the route is anomalously quiet — possible causes: rerouting, road closure, late-night low demand, or data sparsity. "
+    "Z-score threshold is ONE-SIDED (only z > threshold triggers z_flagged); negative-Z routes appear ONLY because IsolationForest (bidirectional) flagged them. "
     "IsolationForest (IF) is a BINARY signal — it is either 'flagged' or 'not flagged', never a number. "
     "NEVER write 'IF: <number>' or assign any numerical value to IF. "
     "When referencing IF, write 'IF flagged', 'IF anomaly detected', or 'both signals confirmed' — nothing else. "
@@ -95,6 +101,23 @@ _SECTIONS_MULTIDAY = {
         "2. **Root causes** — explain WHY that day-of-week / hour pattern recurs, linking to HCMC traffic characteristics (morning/evening peak, industrial zones, port logistics, weekday vs weekend, zone-specific traits).",
         "3. **Single-signal trends** — for Z-score-only or IF-only routes, describe the day-of-week trend, not specific dates. Quantify with Z-score values; describe IF as 'flagged' or 'not flagged' only.",
         "4. **Weekly schedule recommendations** — every recommendation MUST specify day-of-week + hour range (UTC+7) derived from recurring patterns (e.g. 'Mon–Fri, 07:00–09:00, Route X'). Prioritise patterns appearing ≥3 times within the window.",
+    ],
+}
+
+_SECTIONS_REPORT = {
+    "vi": [
+        "1. **Tóm tắt điều hành** — 3–5 điểm nổi bật nhất trong toàn bộ window: tuyến nào bất thường thường xuyên nhất, khung giờ nào có tần suất cao nhất, xu hướng tổng thể (tăng/giảm/ổn định). Viết như phần Executive Summary của một báo cáo chính thức.",
+        "2. **Mẫu lặp lại theo tuần** — phân tích theo ngày trong tuần (Thứ 2–CN), KHÔNG theo ngày cụ thể: ngày nào nặng nhất, nhẹ nhất; pattern nào xuất hiện ≥3 tuần liên tiếp; so sánh ngày thường vs cuối tuần.",
+        "3. **Tuyến điểm nóng & xu hướng tháng** — top tuyến theo tần suất bất thường (cả hai tín hiệu ưu tiên); mô tả xu hướng: congestion tập trung ở zone nào, đang tăng hay giảm so với đầu window. Dùng Z-score (số) để định lượng, IF chỉ là 'flagged/không flagged'.",
+        "4. **Phân tích giờ cao điểm hệ thống** — tổng hợp giờ nào trong ngày có nhiều tuyến bất thường đồng thời nhất (≥3 tuyến cùng lúc); so sánh peak sáng vs chiều; liệu có giờ nào ngoài peak điển hình (07–09, 17–19) cũng bất thường.",
+        "5. **Khuyến nghị chiến lược** — 3–5 khuyến nghị dài hạn (theo tuần/tháng), mỗi khuyến nghị PHẢI gắn ngày trong tuần + khung giờ + tuyến cụ thể. Ưu tiên can thiệp có tác động cao nhất (≥3 tuyến bị ảnh hưởng hoặc pattern lặp ≥3 tuần).",
+    ],
+    "en": [
+        "1. **Executive Summary** — 3–5 headline findings across the entire window: which routes are most frequently anomalous, which hour ranges have the highest frequency, overall trend (increasing/decreasing/stable). Write this as a formal Executive Summary.",
+        "2. **Weekly recurring patterns** — analyse by day-of-week (Mon–Sun), NOT by specific dates: heaviest vs lightest days; patterns appearing ≥3 consecutive weeks; weekday vs weekend comparison.",
+        "3. **Hotspot routes & monthly trend** — top routes by anomaly frequency (dual-signal prioritised); describe trend: which zone concentrates congestion, is it increasing or decreasing vs the start of the window. Quantify with Z-score values; describe IF as 'flagged' or 'not flagged' only.",
+        "4. **System-wide peak hour analysis** — aggregate which hours of day have the most simultaneous anomalous routes (≥3 at once); compare morning vs evening peak; identify any off-peak hours that are also anomalous outside the typical 07–09, 17–19 windows.",
+        "5. **Strategic recommendations** — 3–5 long-term recommendations (weekly/monthly cadence), each MUST specify day-of-week + hour range + specific route. Prioritise high-impact interventions (≥3 routes affected or pattern repeating ≥3 weeks).",
     ],
 }
 
@@ -163,9 +186,22 @@ def _build_analyze_prompt(
     except Exception:
         pass
 
+    report_mode = span_h is not None and span_h >= 168  # ≥ 7 days
     multi_day = span_h is not None and span_h > 24
 
-    if multi_day:
+    if report_mode:
+        sections = "\n".join(_SECTIONS_REPORT.get(lang, _SECTIONS_REPORT["en"]))
+        concise = (
+            "3–5 câu mỗi mục. Không chào hỏi. Viết theo phong cách báo cáo chính thức, súc tích. "
+            "Mục 1 là tóm tắt điều hành — phải đọc được độc lập. "
+            "Mục 5 chỉ chứa khuyến nghị dài hạn, gắn ngày trong tuần + khung giờ + tuyến cụ thể."
+            if lang == "vi"
+            else "3–5 sentences per section. No greetings. Write in formal report style, concise. "
+            "Section 1 is the executive summary — must be self-contained. "
+            "Section 5 contains only long-term recommendations, anchored to day-of-week + hour range + specific route."
+        )
+        section_count = 5
+    elif multi_day:
         sections = "\n".join(_SECTIONS_MULTIDAY.get(lang, _SECTIONS_MULTIDAY["en"]))
         concise = (
             "3–4 câu mỗi mục. Không chào hỏi. "
@@ -176,6 +212,7 @@ def _build_analyze_prompt(
             "Prioritise RECURRING PATTERNS (e.g. 'every Saturday at 17:00') over isolated incidents. "
             "Section 4 must anchor recommendations to day-of-week + hour range (UTC+7), not specific dates."
         )
+        section_count = 4
     else:
         sections = "\n".join(_SECTIONS.get(lang, _SECTIONS["en"]))
         concise = (
@@ -183,12 +220,13 @@ def _build_analyze_prompt(
             if lang == "vi"
             else "3–4 sentences per section. No greetings. Section 4 must include an explicit hour range (UTC+7) for every recommendation."
         )
+        section_count = 4
 
     time_header = _format_window_header(lang, window_from, window_to)
     parts = [
         lang_note,
         time_header,
-        f"Provide analysis in 4 sections:\n{sections}\n{concise}",
+        f"Provide analysis in {section_count} sections:\n{sections}\n{concise}",
         f"=== HEATMAP DATA ===\n{context}",
     ]
     if external:
@@ -247,15 +285,20 @@ def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
         if z_avg is not None:
             parts.append(f"z_avg={z_avg} z_max={z_max}")
         if ar > 0:
-            parts.append(f"zscore_anomaly={ar}")
+            parts.append(f"z_flagged={ar:.0%}")
         if ir > 0:
-            parts.append(f"iforest={ir}")
+            parts.append(f"if_flagged={ir:.0%}")
         if br > 0:
-            parts.append(f"both={br}")
+            parts.append(f"both_flagged={br:.0%}")
         parts.append(f"n={n}")
         route_blocks[route_id].append("  " + " | ".join(parts))
 
-    lines: list[str] = []
+    legend = (
+        "Legend: z_avg/z_max=Z-score mean/max | z_flagged=% windows Z-score flagged (binary, NOT a score) "
+        "| if_flagged=% windows IsolationForest flagged (binary, NOT a score) "
+        "| both_flagged=% windows BOTH signals flagged | n=observation count"
+    )
+    lines: list[str] = [legend, ""]
     for route_id, entries in sorted(route_blocks.items()):
         label = route_id.replace("_to_", " → ").replace("_", " ").title()
         lines.append(label)
@@ -269,10 +312,6 @@ async def heatmap_analyze(
     conn: asyncpg.Connection = Depends(get_db),
 ) -> StreamingResponse:
     """Stream LLM analysis of heatmap data. All prompt engineering is server-side."""
-    weather = await fetch_current_weather()
-    external = await fetch_heatmap_external_context(req.route_ids, weather)
-
-    # For multi-day windows fetch + aggregate server-side to avoid context overflow
     context = req.context
     span_h: int | None = None
     try:
@@ -282,6 +321,13 @@ async def heatmap_analyze(
             span_h = int((to_ - frm).total_seconds() / 3600)
     except Exception:
         pass
+
+    # For short windows use live weather + full RAG; for multi-day/report skip live weather + anomaly chunks
+    if span_h is None or span_h <= 24:
+        weather = await fetch_current_weather()
+        external = await fetch_heatmap_external_context(req.route_ids, weather)
+    else:
+        external = await fetch_heatmap_external_context(req.route_ids, None, weather_only=True)
 
     if span_h is not None and span_h > 24:
         try:
@@ -298,7 +344,7 @@ async def heatmap_analyze(
         context, req.lang, external, req.window_from, req.window_to
     )
     return StreamingResponse(
-        stream_ollama(system, user_prompt, temperature=0.0, num_predict=-1),
+        stream_ollama(system, user_prompt, temperature=0.0),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

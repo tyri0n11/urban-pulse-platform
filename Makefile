@@ -1,5 +1,5 @@
-.PHONY: dev dev-% down logs status lint typecheck test test-unit test-integration build build-ingestion build-serving bootstrap train pull-model \
-        prod prod-down prod-logs prod-status prod-build prod-bootstrap prod-train prod-setup
+.PHONY: dev dev-% down logs logs-serving logs-ingestion status lint typecheck test test-unit test-integration build build-ingestion build-serving bootstrap train pull-model \
+        prod prod-down prod-logs prod-status prod-build prod-bootstrap prod-train prod-setup prod-pull-model
 
 COMPOSE     = docker compose --env-file .env -f infra/docker/docker-compose.base.yaml -f infra/docker/docker-compose.dev.yaml
 COMPOSE_PROD = docker compose --env-file .env.prod -f infra/docker/docker-compose.prod.yaml
@@ -19,6 +19,9 @@ logs:
 
 status:
 	$(COMPOSE) ps
+
+logs-serving:
+	$(COMPOSE) logs -f serving
 
 logs-ingestion:
 	$(COMPOSE) logs -f traffic-ingestion weather-ingestion
@@ -54,9 +57,23 @@ bootstrap:
 	$(COMPOSE) exec batch .venv/bin/python -m batch.bootstrap_cli
 
 pull-model:
-	@echo "Pulling $(OLLAMA_MODEL) into Ollama (this may take a few minutes)..."
-	$(COMPOSE) exec ollama ollama pull $(or $(OLLAMA_MODEL),qwen2.5:3b)
-	@echo "Model ready."
+	@echo "Pulling models into Ollama (this may take a few minutes)..."
+	@LLM=$(or $(OLLAMA_MODEL),qwen3:8b); \
+	 EMBED=$(or $(OLLAMA_EMBED_MODEL),nomic-embed-text); \
+	 if docker ps --format '{{.Names}}' | grep -q '^ollama$$'; then \
+	   docker exec ollama ollama pull $$LLM && docker exec ollama ollama pull $$EMBED; \
+	 else \
+	   ollama pull $$LLM && ollama pull $$EMBED; \
+	 fi
+	@echo "Models ready."
+
+prod-pull-model:
+	@echo "Pulling models into production Ollama container..."
+	@LLM=$(or $(OLLAMA_MODEL),qwen3:8b); \
+	 EMBED=$(or $(OLLAMA_EMBED_MODEL),nomic-embed-text); \
+	 $(COMPOSE_PROD) exec ollama ollama pull $$LLM && \
+	 $(COMPOSE_PROD) exec ollama ollama pull $$EMBED
+	@echo "Models ready."
 
 train:
 	@echo "Triggering training via ML service API..."

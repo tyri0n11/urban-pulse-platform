@@ -42,14 +42,28 @@ async def pg_listener_loop(pool: asyncpg.Pool) -> None:
     while True:
         try:
             async with pool.acquire() as conn:
-                await conn.execute("LISTEN route_updated")
+                notify_event: asyncio.Event = asyncio.Event()
+
+                def _on_notify(
+                    connection: asyncpg.Connection,
+                    pid: int,
+                    channel: str,
+                    payload: str,
+                ) -> None:
+                    notify_event.set()
+
+                await conn.add_listener("route_updated", _on_notify)
                 logger.info("sse-listener: LISTEN route_updated active")
-                while True:
-                    try:
-                        await asyncio.wait_for(conn.wait_for_notify(), timeout=_HEARTBEAT_INTERVAL)
-                    except asyncio.TimeoutError:
-                        pass
-                    _fire_update()
+                try:
+                    while True:
+                        notify_event.clear()
+                        try:
+                            await asyncio.wait_for(notify_event.wait(), timeout=_HEARTBEAT_INTERVAL)
+                        except asyncio.TimeoutError:
+                            pass
+                        _fire_update()
+                finally:
+                    await conn.remove_listener("route_updated", _on_notify)
         except asyncio.CancelledError:
             return
         except Exception as exc:
