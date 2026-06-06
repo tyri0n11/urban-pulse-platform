@@ -221,15 +221,21 @@ def _build_analyze_prompt(
     if report_mode:
         sections = "\n".join(_SECTIONS_REPORT.get(lang, _SECTIONS_REPORT["en"]))
         concise = (
-            "4–6 câu mỗi mục. Không chào hỏi. Viết cho người quản lý giao thông, không dùng thuật ngữ kỹ thuật. "
-            "Mục 1 đọc được độc lập như tóm tắt cho lãnh đạo. "
-            "Mục 3 dùng thời tiết (nếu có) để giải thích nguyên nhân — chỉ đề cập định tính (mưa nhiều, nắng nóng), không so sánh con số. "
-            "Mục 4–5 phải có tuyến đường cụ thể + khung giờ (UTC+7) + ngày trong tuần."
+            "ĐỊNH DẠNG BẮT BUỘC — phải có đúng 5 mục đánh số như trên, theo đúng thứ tự, không thêm mục phụ. "
+            "4–6 câu mỗi mục. Không chào hỏi, không mở đầu chung chung. "
+            "Viết cho quản lý đô thị — ngôn ngữ đơn giản, không dùng thuật ngữ kỹ thuật. "
+            "Mục 1 bắt đầu bằng tiêu đề kỳ báo cáo đã cho, đọc được độc lập như tóm tắt cho lãnh đạo. "
+            "Mục 3 dùng thời tiết (nếu có) để giải thích nguyên nhân — chỉ định tính (mưa nhiều, nắng nóng). "
+            "Mục 4–5 phải có tuyến đường cụ thể + khung giờ (UTC+7) + ngày trong tuần. "
+            "Dòng CUỐI CÙNG của toàn bộ báo cáo phải là: *Nội dung chỉ mang tính chất tham khảo.*"
             if lang == "vi"
-            else "4–6 sentences per section. No greetings. Write for traffic managers, not engineers — no technical jargon. "
-            "Section 1 must be self-contained for an executive audience. "
-            "Section 3 may use weather (if available) to explain causes — qualitative only (heavy rain, heat), never compare weather numbers to traffic metrics. "
-            "Sections 4–5 must specify route + hour range (UTC+7) + day-of-week."
+            else "MANDATORY FORMAT — exactly 5 numbered sections as listed above, in order, no sub-sections. "
+            "4–6 sentences per section. No greetings, no generic opening. "
+            "Write for urban/city managers — plain language, no technical jargon. "
+            "Section 1 opens with the given reporting period title, must be self-contained for an executive audience. "
+            "Section 3 uses weather (if available) qualitatively only (heavy rain, heat waves). "
+            "Sections 4–5 must specify route + hour range (UTC+7) + day-of-week. "
+            "The LAST LINE of the entire report must be: *This report is for reference purposes only.*"
         )
         section_count = 5
     elif multi_day:
