@@ -205,7 +205,8 @@ def _build_analyze_prompt(
     ]
     if external:
         parts.append(external)
-    parts.append(lang_note)
+    trigger = "Bắt đầu phân tích:" if lang == "vi" else "Begin analysis:"
+    parts.append(f"{lang_note}\n\n{trigger}")
     return "\n\n".join(parts)
 
 
