@@ -201,8 +201,6 @@ def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
     """Aggregate raw heatmap rows into a compact (route, day_of_week, hour) summary for multi-day LLM analysis."""
     from collections import defaultdict
 
-    dow_abbr = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-
     # key: (route_id, dow, hour) → accumulated stats
     buckets: dict[tuple[str, int, int], dict[str, Any]] = defaultdict(
         lambda: {"zscores": [], "anomaly": 0, "iforest": 0, "both": 0, "n": 0}
@@ -229,7 +227,6 @@ def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
 
     # Build compact text — only rows with any signal
     route_blocks: dict[str, list[str]] = defaultdict(list)
-    dow_order = [0, 1, 2, 3, 4, 5, 6]  # Mon–Sun
     dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
     for (route_id, dow, hour), b in sorted(buckets.items(), key=lambda x: (x[0][0], x[0][1], x[0][2])):
