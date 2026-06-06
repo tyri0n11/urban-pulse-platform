@@ -68,8 +68,10 @@ _ANALYZE_SYSTEM_BASE = (
     "Negative Z-score flagged by IsolationForest means the route is anomalously quiet — possible causes: rerouting, road closure, late-night low demand, or data sparsity. "
     "Z-score threshold is ONE-SIDED (only z > threshold triggers z_flagged); negative-Z routes appear ONLY because IsolationForest (bidirectional) flagged them. "
     "IsolationForest (IF) is a BINARY flag — it is either 'flagged' or 'not flagged', never a number. "
-    "if_flagged=X% means X% of observation windows in that time slot were flagged by IsolationForest — it is a frequency, NOT a score. "
-    "z_flagged=X% means X% of windows exceeded the Z-score threshold — a frequency, NOT a score. "
+    "if_flagged=M/N means M out of N observation windows were flagged by IsolationForest. "
+    "z_flagged=M/N means M out of N windows exceeded the Z-score threshold. "
+    "When N is small (n=1 or n=2), treat the flagging as low-confidence — do NOT conclude a strong pattern from a single observation. "
+    "A pattern is only reliable when N≥5 and the flagged fraction is high (e.g. if_flagged=4/5). "
     "NEVER write 'IF: <number>' or assign any numerical value to IF. "
     "When referencing IF, write 'IF flagged', 'IF anomaly detected', or 'both signals confirmed' — nothing else. "
     "Do not invent, estimate, or approximate any IF score."
@@ -289,20 +291,24 @@ def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
         parts = [f"{dow_name} {hour:02d}:00"]
         if z_avg is not None:
             parts.append(f"z_avg={z_avg}σ z_max={z_max}σ")
-        if ar > 0:
-            parts.append(f"z_flagged={ar:.0%}")
-        if ir > 0:
-            parts.append(f"if_flagged={ir:.0%}")
-        if br > 0:
-            parts.append(f"both_flagged={br:.0%}")
+        n_z = b["anomaly"]
+        n_if = b["iforest"]
+        n_both = b["both"]
+        if n_z > 0:
+            parts.append(f"z_flagged={n_z}/{n}")
+        if n_if > 0:
+            parts.append(f"if_flagged={n_if}/{n}")
+        if n_both > 0:
+            parts.append(f"both_flagged={n_both}/{n}")
         parts.append(f"n={n}")
         route_blocks[route_id].append("  " + " | ".join(parts))
 
     legend = (
         "Legend: z_avg/z_max=Z-score mean/max in σ units (dimensionless, NOT temperature/weather) "
-        "| z_flagged=% observation windows where Z-score exceeded threshold (frequency, NOT a score) "
-        "| if_flagged=% windows IsolationForest flagged (binary frequency, NOT a score) "
-        "| both_flagged=% windows BOTH signals simultaneously flagged | n=window count"
+        "| z_flagged=flagged/total windows where Z-score exceeded threshold "
+        "| if_flagged=flagged/total windows IsolationForest flagged "
+        "| both_flagged=flagged/total windows BOTH signals simultaneously active "
+        "| n=total observation window count (low n → low statistical confidence)"
     )
     lines: list[str] = [legend, ""]
     for route_id, entries in sorted(route_blocks.items()):
