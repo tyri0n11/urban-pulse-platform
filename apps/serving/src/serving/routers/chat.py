@@ -44,8 +44,7 @@ async def chat(
     user_prompt = build_user_prompt(snapshot, req.message, req.lang)
     logger.info("chat: lang=%s msg_len=%d anomalies=%d", req.lang, len(req.message), snapshot["anomaly_count"])
 
-    # Cap history to last 10 messages to stay within qwen2.5:3b context window
-    history = [{"role": m.role, "content": m.content} for m in req.history[-10:]]
+    history = [{"role": m.role, "content": m.content} for m in req.history[-20:]]
 
     log_id = await interactions_repo.log_interaction(
         conn, query_type="chat", query=req.message, lang=req.lang,

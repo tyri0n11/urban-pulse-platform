@@ -602,7 +602,7 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       OLLAMA_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
       OLLAMA_EMBED_MODEL: nomic-embed-text
       CHROMA_HOST: chromadb
       CHROMA_PORT: "8000"

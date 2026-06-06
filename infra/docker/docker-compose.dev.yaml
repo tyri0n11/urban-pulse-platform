@@ -464,7 +464,7 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       OLLAMA_URL: http://host.docker.internal:11434
-      OLLAMA_MODEL: qwen2.5:3b
+      OLLAMA_MODEL: qwen3:8b
       OLLAMA_EMBED_MODEL: nomic-embed-text
       CHROMA_HOST: chromadb
       CHROMA_PORT: "8000"
@@ -617,6 +617,7 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
+    runtime: nvidia
     ports:
       - "11434:11434"
     networks:
@@ -628,5 +629,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: on-failure
