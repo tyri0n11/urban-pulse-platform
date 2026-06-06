@@ -128,8 +128,7 @@
             "type": "postgres",
             "uid": "postgres"
           },
-          "rawSql": "SELECT COALESCE(ROUND(AVG(jsonb_array_length(retrieved_chunks))::numeric, 1), 0) AS value FROM rag_interaction_log WHERE $__timeFilter(ts) AND retrieved_chunks IS NOT NULL
-  AND jsonb_typeof(retrieved_chunks) = 'array'",
+          "rawSql": "SELECT COALESCE(ROUND(AVG(jsonb_array_length(retrieved_chunks))::numeric, 1), 0) AS value FROM rag_interaction_log WHERE $__timeFilter(ts) AND retrieved_chunks IS NOT NULL AND jsonb_typeof(retrieved_chunks) = 'array'",
           "format": "table"
         }
       ],

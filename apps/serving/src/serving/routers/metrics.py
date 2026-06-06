@@ -57,16 +57,21 @@ _ANALYZE_SYSTEM_BASE = (
     "Use HCMC domain knowledge only to explain causes and give recommendations. "
     "CRITICAL — signal definitions: "
     "Z-score (duration_zscore) is the ONLY numerical score in this data. "
+    "Z-score values (z_avg, z_max) are DIMENSIONLESS — they have NO units. "
+    "z_avg=28.3 means 28.3 standard deviations, NOT 28.3 degrees Celsius. "
+    "NEVER confuse Z-score values with weather measurements (temperature, rain, wind). "
+    "Weather data (°C, mm, km/h) is completely separate from Z-score data (σ). "
     "Z-score DIRECTIONALITY — MANDATORY: "
     "z > 0 means heavy_ratio is ABOVE the route's historical baseline → heavier than usual → potential congestion. "
     "z < 0 means heavy_ratio is BELOW the route's historical baseline → lighter than usual → unusually free traffic. "
     "NEVER describe a negative Z-score as congestion, slow traffic, or tắc nghẽn. "
     "Negative Z-score flagged by IsolationForest means the route is anomalously quiet — possible causes: rerouting, road closure, late-night low demand, or data sparsity. "
     "Z-score threshold is ONE-SIDED (only z > threshold triggers z_flagged); negative-Z routes appear ONLY because IsolationForest (bidirectional) flagged them. "
-    "IsolationForest (IF) is a BINARY signal — it is either 'flagged' or 'not flagged', never a number. "
+    "IsolationForest (IF) is a BINARY flag — it is either 'flagged' or 'not flagged', never a number. "
+    "if_flagged=X% means X% of observation windows in that time slot were flagged by IsolationForest — it is a frequency, NOT a score. "
+    "z_flagged=X% means X% of windows exceeded the Z-score threshold — a frequency, NOT a score. "
     "NEVER write 'IF: <number>' or assign any numerical value to IF. "
     "When referencing IF, write 'IF flagged', 'IF anomaly detected', or 'both signals confirmed' — nothing else. "
-    "If you see 'iforest_anomaly: true', say 'IsolationForest flagged this route'. "
     "Do not invent, estimate, or approximate any IF score."
 )
 
@@ -283,7 +288,7 @@ def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
         dow_name = dow_names[dow]  # 0=Mon
         parts = [f"{dow_name} {hour:02d}:00"]
         if z_avg is not None:
-            parts.append(f"z_avg={z_avg} z_max={z_max}")
+            parts.append(f"z_avg={z_avg}σ z_max={z_max}σ")
         if ar > 0:
             parts.append(f"z_flagged={ar:.0%}")
         if ir > 0:
@@ -294,9 +299,10 @@ def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
         route_blocks[route_id].append("  " + " | ".join(parts))
 
     legend = (
-        "Legend: z_avg/z_max=Z-score mean/max | z_flagged=% windows Z-score flagged (binary, NOT a score) "
-        "| if_flagged=% windows IsolationForest flagged (binary, NOT a score) "
-        "| both_flagged=% windows BOTH signals flagged | n=observation count"
+        "Legend: z_avg/z_max=Z-score mean/max in σ units (dimensionless, NOT temperature/weather) "
+        "| z_flagged=% observation windows where Z-score exceeded threshold (frequency, NOT a score) "
+        "| if_flagged=% windows IsolationForest flagged (binary frequency, NOT a score) "
+        "| both_flagged=% windows BOTH signals simultaneously flagged | n=window count"
     )
     lines: list[str] = [legend, ""]
     for route_id, entries in sorted(route_blocks.items()):
