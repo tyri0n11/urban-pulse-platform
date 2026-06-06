@@ -489,6 +489,7 @@ async def heatmap_analyze(
     report_mode = span_h is not None and span_h >= 168
 
     if span_h is not None and span_h > 24:
+        rows: list[dict[str, Any]] = []
         try:
             frm_dt = datetime.fromisoformat(req.window_from)  # type: ignore[arg-type]
             to_dt = datetime.fromisoformat(req.window_to)  # type: ignore[arg-type]
