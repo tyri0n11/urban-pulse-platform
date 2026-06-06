@@ -319,12 +319,12 @@ async def heatmap_analyze(
             frm_dt = datetime.fromisoformat(req.window_from)  # type: ignore[arg-type]
             to_dt = datetime.fromisoformat(req.window_to)  # type: ignore[arg-type]
             rows = await metrics_repo.fetch_heatmap_range(conn, frm_dt, to_dt)
-            context, _ = _aggregate_multiday_context(rows)
+            context, top_slots = _aggregate_multiday_context(rows)
         except Exception:
+            top_slots = []
             pass  # fall back to req.context if fetch fails
 
-        no_traffic_data = not rows or not context.strip()
-        external = "" if no_traffic_data else await fetch_heatmap_external_context(req.route_ids, None)
+        external = "" if not top_slots else await fetch_heatmap_external_context(req.route_ids, None)
     else:
         weather = await fetch_current_weather()
         external = await fetch_heatmap_external_context(req.route_ids, weather)
