@@ -35,10 +35,14 @@ async def fetch_heatmap_external_context(
     route_ids: list[str],
     weather: dict[str, Any] | None,
 ) -> str:
-    """Fetch current weather + RAG context for single-day heatmap analysis."""
+    """Fetch weather + RAG context for heatmap analysis.
+
+    weather=None (multiday/report): only historical weather chunks from ChromaDB.
+    weather=dict (single-day): current live weather + full RAG (anomaly events + patterns + weather).
+    """
     sections: list[str] = []
 
-    # --- Current weather ---
+    # --- Current weather (single-day only) ---
     if weather:
         temp = weather.get("temperature_c")
         rain = weather.get("rain_mm") or weather.get("precipitation_mm") or 0.0
@@ -61,14 +65,15 @@ async def fetch_heatmap_external_context(
             now_local = datetime.now(_HCMC_TZ)
             hour, dow = now_local.hour, (now_local.weekday() + 1) % 7
 
+            multiday = weather is None
             chroma = get_chroma_client()
             all_chunks = []
             for route_id in route_ids[:3]:
                 chunks = retrieve_for_route(
                     chroma, route_id, hour=hour, dow=dow,
-                    n_anomaly=1,
-                    n_pattern=1,
-                    n_external=1,
+                    n_anomaly=0 if multiday else 1,
+                    n_pattern=0 if multiday else 1,
+                    n_external=2 if multiday else 1,
                 )
                 all_chunks.extend(chunks)
 
@@ -79,7 +84,9 @@ async def fetch_heatmap_external_context(
                     if c.text not in seen:
                         seen.add(c.text)
                         unique.append(c)
-                sections.append(format_chunks_for_prompt(unique[:6]))
+                header = "=== HISTORICAL WEATHER CONTEXT (qualitative reference only — do NOT compare these numbers to traffic metrics) ===" if multiday else ""
+                rag_text = format_chunks_for_prompt(unique[:6])
+                sections.append(f"{header}\n{rag_text}".strip() if header else rag_text)
         except Exception as exc:
             logger.debug("fetch_heatmap_external_context: RAG failed — %s", exc)
 
