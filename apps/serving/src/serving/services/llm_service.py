@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 _OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 _MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 _NUM_PREDICT = -1    # unlimited; thinking-mode loops prevented by _THINK=False
-_THINK = False       # disable chain-of-thought for latency-sensitive endpoints
-_TEMPERATURE = 0.2   # greedy decoding — deterministic, no hallucination drift
+_THINK = True       # disable chain-of-thought for latency-sensitive endpoints
+_TEMPERATURE = 0.3   # greedy decoding — deterministic, no hallucination drift
 
 
 async def stream_ollama(
