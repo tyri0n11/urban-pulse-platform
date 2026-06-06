@@ -11,17 +11,14 @@ logger = logging.getLogger(__name__)
 
 _OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 _MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
-_NUM_PREDICT = -1    # unlimited; thinking-mode loops prevented by _THINK=False
-_THINK = True       # disable chain-of-thought for latency-sensitive endpoints
-_TEMPERATURE = 0.3   # greedy decoding — deterministic, no hallucination drift
-
-
+_NUM_PREDICT = -1 
+_TEMP = 0.1
+_THINK = True
 async def stream_ollama(
     system: str,
     prompt: str,
     *,
-    temperature: float = _TEMPERATURE,
-    num_predict: int = _NUM_PREDICT,
+    temperature: float = _TEMP,
 ) -> AsyncGenerator[str, None]:
     """Stream SSE chunks from Ollama generate API (single-turn)."""
     payload = {
@@ -30,13 +27,15 @@ async def stream_ollama(
         "prompt": prompt,
         "stream": True,
         "think": _THINK,
-        "options": {"temperature": temperature, "num_predict": num_predict},
+        "options": {"temperature": temperature, "num_predict": _NUM_PREDICT},
     }
     timeout = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", f"{_OLLAMA_URL}/api/generate", json=payload) as resp:
                 if resp.status_code != 200:
+                    body = await resp.aread()
+                    logger.error("llm: generate %s — url=%s model=%s body=%s", resp.status_code, _OLLAMA_URL, _MODEL, body.decode()[:300])
                     yield f"data: {json.dumps({'error': f'Ollama {resp.status_code}'})}\n\n"
                     return
                 async for line in resp.aiter_lines():
@@ -46,8 +45,9 @@ async def stream_ollama(
                         data = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    chunk = data.get("response", "")
-                    if chunk:
+                    if thinking := data.get("thinking", ""):
+                        yield f"data: {json.dumps({'thinking': thinking})}\n\n"
+                    if chunk := data.get("response", ""):
                         yield f"data: {json.dumps({'chunk': chunk})}\n\n"
                     if data.get("done"):
                         yield f"data: {json.dumps({'done': True})}\n\n"
@@ -64,7 +64,7 @@ async def stream_ollama_chat(
     history: list[dict[str, str]],
     user_message: str,
     *,
-    temperature: float = _TEMPERATURE,
+    temperature: float = _TEMP,
 ) -> AsyncGenerator[str, None]:
     """Stream SSE chunks from Ollama chat API (multi-turn with session history)."""
     messages = (
@@ -84,6 +84,8 @@ async def stream_ollama_chat(
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", f"{_OLLAMA_URL}/api/chat", json=payload) as resp:
                 if resp.status_code != 200:
+                    body = await resp.aread()
+                    logger.error("llm: chat %s — url=%s model=%s body=%s", resp.status_code, _OLLAMA_URL, _MODEL, body.decode()[:300])
                     yield f"data: {json.dumps({'error': f'Ollama {resp.status_code}'})}\n\n"
                     return
                 async for line in resp.aiter_lines():
@@ -93,8 +95,10 @@ async def stream_ollama_chat(
                         data = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    chunk = data.get("message", {}).get("content", "")
-                    if chunk:
+                    msg = data.get("message", {})
+                    if thinking := msg.get("thinking", ""):
+                        yield f"data: {json.dumps({'thinking': thinking})}\n\n"
+                    if chunk := msg.get("content", ""):
                         yield f"data: {json.dumps({'chunk': chunk})}\n\n"
                     if data.get("done"):
                         yield f"data: {json.dumps({'done': True})}\n\n"
@@ -110,7 +114,7 @@ async def ask_llm(
     system: str,
     prompt: str,
     *,
-    temperature: float = _TEMPERATURE,
+    temperature: float = _TEMP,
 ) -> str:
     """Non-streaming Ollama call — returns full response text."""
     try:

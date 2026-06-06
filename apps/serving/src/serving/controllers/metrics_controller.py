@@ -34,13 +34,13 @@ async def get_leaderboard(conn: asyncpg.Connection, limit: int) -> list[dict[str
 async def fetch_heatmap_external_context(
     route_ids: list[str],
     weather: dict[str, Any] | None,
+    *,
+    weather_only: bool = False,
 ) -> str:
     """Fetch weather + RAG context for heatmap analysis.
 
-    Retrieves:
-    - Current weather formatted as a prompt section
-    - 1 anomaly event + 1 traffic pattern per top route (up to 3 routes)
-    - 2 recent external_context (weather history) chunks
+    weather_only=True (multiday/report): only historical weather from Chroma, no anomaly/pattern chunks
+    weather_only=False (single-day): current weather + anomaly events + traffic patterns
     """
     sections: list[str] = []
 
@@ -58,7 +58,7 @@ async def fetch_heatmap_external_context(
         )
         sections.append(f"=== CURRENT WEATHER (HCMC) ===\n{w_line}")
 
-    # --- RAG context for top anomalous routes ---
+    # --- RAG context ---
     if route_ids:
         try:
             from rag.client import get_chroma_client
@@ -72,12 +72,13 @@ async def fetch_heatmap_external_context(
             for route_id in route_ids[:3]:
                 chunks = retrieve_for_route(
                     chroma, route_id, hour=hour, dow=dow,
-                    n_anomaly=1, n_pattern=1, n_external=1,
+                    n_anomaly=0 if weather_only else 1,
+                    n_pattern=0 if weather_only else 1,
+                    n_external=2 if weather_only else 1,
                 )
                 all_chunks.extend(chunks)
 
             if all_chunks:
-                # Deduplicate by text, sort by score
                 seen: set[str] = set()
                 unique = []
                 for c in sorted(all_chunks, key=lambda x: x.score):
