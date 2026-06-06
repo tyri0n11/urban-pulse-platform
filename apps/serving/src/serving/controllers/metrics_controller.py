@@ -34,14 +34,8 @@ async def get_leaderboard(conn: asyncpg.Connection, limit: int) -> list[dict[str
 async def fetch_heatmap_external_context(
     route_ids: list[str],
     weather: dict[str, Any] | None,
-    *,
-    weather_only: bool = False,
 ) -> str:
-    """Fetch weather + RAG context for heatmap analysis.
-
-    weather_only=True (multiday/report): only historical weather from Chroma, no anomaly/pattern chunks
-    weather_only=False (single-day): current weather + anomaly events + traffic patterns
-    """
+    """Fetch current weather + RAG context for single-day heatmap analysis."""
     sections: list[str] = []
 
     # --- Current weather ---
@@ -72,9 +66,9 @@ async def fetch_heatmap_external_context(
             for route_id in route_ids[:3]:
                 chunks = retrieve_for_route(
                     chroma, route_id, hour=hour, dow=dow,
-                    n_anomaly=0 if weather_only else 1,
-                    n_pattern=0 if weather_only else 1,
-                    n_external=2 if weather_only else 1,
+                    n_anomaly=1,
+                    n_pattern=1,
+                    n_external=1,
                 )
                 all_chunks.extend(chunks)
 

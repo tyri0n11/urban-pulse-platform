@@ -57,16 +57,23 @@ _ANALYZE_SYSTEM_BASE = (
     "Use HCMC domain knowledge only to explain causes and give recommendations. "
     "CRITICAL — signal definitions: "
     "Z-score (duration_zscore) is the ONLY numerical score in this data. "
+    "Z-score values (z_avg, z_max) are DIMENSIONLESS — they have NO units. "
+    "z_avg=28.3 means 28.3 standard deviations, NOT 28.3 degrees Celsius. "
+    "NEVER confuse Z-score values with weather measurements (temperature, rain, wind). "
+    "Weather data (°C, mm, km/h) is completely separate from Z-score data (σ). "
     "Z-score DIRECTIONALITY — MANDATORY: "
     "z > 0 means heavy_ratio is ABOVE the route's historical baseline → heavier than usual → potential congestion. "
     "z < 0 means heavy_ratio is BELOW the route's historical baseline → lighter than usual → unusually free traffic. "
     "NEVER describe a negative Z-score as congestion, slow traffic, or tắc nghẽn. "
     "Negative Z-score flagged by IsolationForest means the route is anomalously quiet — possible causes: rerouting, road closure, late-night low demand, or data sparsity. "
     "Z-score threshold is ONE-SIDED (only z > threshold triggers z_flagged); negative-Z routes appear ONLY because IsolationForest (bidirectional) flagged them. "
-    "IsolationForest (IF) is a BINARY signal — it is either 'flagged' or 'not flagged', never a number. "
+    "IsolationForest (IF) is a BINARY flag — it is either 'flagged' or 'not flagged', never a number. "
+    "if_flagged=M/N means M out of N observation windows were flagged by IsolationForest. "
+    "z_flagged=M/N means M out of N windows exceeded the Z-score threshold. "
+    "When N is small (n=1 or n=2), treat the flagging as low-confidence — do NOT conclude a strong pattern from a single observation. "
+    "A pattern is only reliable when N≥5 and the flagged fraction is high (e.g. if_flagged=4/5). "
     "NEVER write 'IF: <number>' or assign any numerical value to IF. "
     "When referencing IF, write 'IF flagged', 'IF anomaly detected', or 'both signals confirmed' — nothing else. "
-    "If you see 'iforest_anomaly: true', say 'IsolationForest flagged this route'. "
     "Do not invent, estimate, or approximate any IF score."
 )
 
@@ -235,11 +242,16 @@ def _build_analyze_prompt(
     return "\n\n".join(parts)
 
 
-def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
-    """Aggregate raw heatmap rows into a compact (route, day_of_week, hour) summary for multi-day LLM analysis."""
+def _aggregate_multiday_context(
+    rows: list[dict[str, Any]],
+) -> tuple[str, list[tuple[str, int, int]]]:
+    """Aggregate raw heatmap rows into a compact (route, day_of_week, hour) summary.
+
+    Returns (text, top_anomaly_slots) where top_anomaly_slots is a list of
+    (route_id, dow, hour) for the most-flagged slots — used to fetch targeted weather context.
+    """
     from collections import defaultdict
 
-    # key: (route_id, dow, hour) → accumulated stats
     buckets: dict[tuple[str, int, int], dict[str, Any]] = defaultdict(
         lambda: {"zscores": [], "anomaly": 0, "iforest": 0, "both": 0, "n": 0}
     )
@@ -251,7 +263,7 @@ def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
         if isinstance(ws, str):
             ws = datetime.fromisoformat(ws)
         ws_local = ws.astimezone(_HCMC_TZ)
-        key = (r["route_id"], ws_local.weekday(), ws_local.hour)  # weekday: 0=Mon
+        key = (r["route_id"], ws_local.weekday(), ws_local.hour)
         b = buckets[key]
         b["n"] += 1
         if r.get("duration_zscore") is not None:
@@ -263,9 +275,11 @@ def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
         if r.get("both_anomaly"):
             b["both"] += 1
 
-    # Build compact text — only rows with any signal
     route_blocks: dict[str, list[str]] = defaultdict(list)
     dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    # Track anomaly score per slot for top-N selection (both_flagged > iforest > zscore)
+    slot_scores: list[tuple[float, tuple[str, int, int]]] = []
 
     for (route_id, dow, hour), b in sorted(buckets.items(), key=lambda x: (x[0][0], x[0][1], x[0][2])):
         n = b["n"]
@@ -276,34 +290,46 @@ def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
         z_max = round(max(zs), 2) if zs else None
         ar = round(b["anomaly"] / n, 2)
         ir = round(b["iforest"] / n, 2)
-        br = round(b["both"] / n, 2)
-        # Skip rows with no signal
         if ar == 0 and ir == 0 and (z_avg is None or abs(z_avg) < 1.0):
             continue
-        dow_name = dow_names[dow]  # 0=Mon
+        n_z = b["anomaly"]
+        n_if = b["iforest"]
+        n_both = b["both"]
+        dow_name = dow_names[dow]
         parts = [f"{dow_name} {hour:02d}:00"]
         if z_avg is not None:
-            parts.append(f"z_avg={z_avg} z_max={z_max}")
-        if ar > 0:
-            parts.append(f"z_flagged={ar:.0%}")
-        if ir > 0:
-            parts.append(f"if_flagged={ir:.0%}")
-        if br > 0:
-            parts.append(f"both_flagged={br:.0%}")
+            parts.append(f"z_avg={z_avg}σ z_max={z_max}σ")
+        if n_z > 0:
+            parts.append(f"z_flagged={n_z}/{n}")
+        if n_if > 0:
+            parts.append(f"if_flagged={n_if}/{n}")
+        if n_both > 0:
+            parts.append(f"both_flagged={n_both}/{n}")
         parts.append(f"n={n}")
         route_blocks[route_id].append("  " + " | ".join(parts))
 
+        # Score = both weight + iforest rate; only meaningful slots (n≥2) counted for weather fetch
+        if n >= 2:
+            score = (b["both"] / n) * 2 + (b["iforest"] / n)
+            if score > 0:
+                slot_scores.append((score, (route_id, dow, hour)))
+
     legend = (
-        "Legend: z_avg/z_max=Z-score mean/max | z_flagged=% windows Z-score flagged (binary, NOT a score) "
-        "| if_flagged=% windows IsolationForest flagged (binary, NOT a score) "
-        "| both_flagged=% windows BOTH signals flagged | n=observation count"
+        "Legend: z_avg/z_max=Z-score mean/max in σ units (dimensionless, NOT temperature/weather) "
+        "| z_flagged=flagged/total windows where Z-score exceeded threshold "
+        "| if_flagged=flagged/total windows IsolationForest flagged "
+        "| both_flagged=flagged/total windows BOTH signals simultaneously active "
+        "| n=total observation window count (low n → low statistical confidence)"
     )
     lines: list[str] = [legend, ""]
     for route_id, entries in sorted(route_blocks.items()):
         label = route_id.replace("_to_", " → ").replace("_", " ").title()
         lines.append(label)
         lines.extend(entries)
-    return "\n".join(lines)
+
+    # Top 3 most anomalous slots (n≥2) for targeted weather fetch
+    top_slots = [slot for _, slot in sorted(slot_scores, reverse=True)[:3]]
+    return "\n".join(lines), top_slots
 
 
 @router.post("/analyze")
@@ -322,21 +348,20 @@ async def heatmap_analyze(
     except Exception:
         pass
 
-    # For short windows use live weather + full RAG; for multi-day/report skip live weather + anomaly chunks
-    if span_h is None or span_h <= 24:
-        weather = await fetch_current_weather()
-        external = await fetch_heatmap_external_context(req.route_ids, weather)
-    else:
-        external = await fetch_heatmap_external_context(req.route_ids, None, weather_only=True)
-
     if span_h is not None and span_h > 24:
+        # Multiday/report: no weather injection — weather numbers (°C) collide with z-score
+        # values and cause hallucinations. Weather context belongs in /rca, not trend analysis.
+        external = ""
         try:
             frm_dt = datetime.fromisoformat(req.window_from)  # type: ignore[arg-type]
             to_dt = datetime.fromisoformat(req.window_to)  # type: ignore[arg-type]
             rows = await metrics_repo.fetch_heatmap_range(conn, frm_dt, to_dt)
-            context = _aggregate_multiday_context(rows)
+            context, _ = _aggregate_multiday_context(rows)
         except Exception:
             pass  # fall back to req.context if fetch fails
+    else:
+        weather = await fetch_current_weather()
+        external = await fetch_heatmap_external_context(req.route_ids, weather)
 
     lang_note = _LANG_INSTRUCTIONS.get(req.lang, _LANG_INSTRUCTIONS["en"])
     system = f"{_ANALYZE_SYSTEM_BASE} {lang_note}"
