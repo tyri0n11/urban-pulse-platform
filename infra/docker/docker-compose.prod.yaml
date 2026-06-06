@@ -724,6 +724,7 @@ services:
   nvidia-gpu-exporter:
     image: utkuozdemir/nvidia_gpu_exporter:1.2.1
     container_name: nvidia-gpu-exporter
+    runtime: nvidia
     networks:
       - urban-pulse-platform
     volumes:

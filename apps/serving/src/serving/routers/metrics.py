@@ -83,6 +83,21 @@ _SECTIONS = {
     ],
 }
 
+_SECTIONS_MULTIDAY = {
+    "vi": [
+        "1. **Mẫu lặp lại đa tín hiệu** — nhóm các bất thường theo ngày trong tuần và khung giờ (không phải ngày cụ thể). Ví dụ: 'Thứ 6–7 lúc 17:00–19:00 thường xuyên có cả hai tín hiệu xác nhận trên Tuyến X'. Bỏ qua sự kiện đơn lẻ không lặp lại.",
+        "2. **Nguyên nhân gốc rễ** — giải thích tại sao mẫu ngày/giờ đó lặp lại, liên kết với đặc điểm giao thông TP.HCM (peak sáng/chiều, KCN, cảng, cuối tuần vs ngày thường, đặc trưng từng zone).",
+        "3. **Tín hiệu đơn lẻ theo xu hướng** — các tuyến chỉ có Z-score hoặc chỉ có IF flagged: mô tả xu hướng theo ngày trong tuần, không phải ngày cụ thể. Dùng Z-score (số) để định lượng, IF chỉ là 'flagged/không flagged'.",
+        "4. **Khuyến nghị theo lịch tuần** — mỗi khuyến nghị PHẢI gắn với ngày trong tuần + khung giờ (UTC+7) dựa trên mẫu lặp lại (VD: 'Thứ 2–6, 07:00–09:00, tuyến X'). Ưu tiên các mẫu xuất hiện ≥3 lần trong window.",
+    ],
+    "en": [
+        "1. **Recurring dual-signal patterns** — group anomalies by day-of-week and hour range, NOT by specific dates. Example: 'Fri–Sat 17:00–19:00 consistently shows both signals on Route X'. Ignore one-off incidents that do not repeat.",
+        "2. **Root causes** — explain WHY that day-of-week / hour pattern recurs, linking to HCMC traffic characteristics (morning/evening peak, industrial zones, port logistics, weekday vs weekend, zone-specific traits).",
+        "3. **Single-signal trends** — for Z-score-only or IF-only routes, describe the day-of-week trend, not specific dates. Quantify with Z-score values; describe IF as 'flagged' or 'not flagged' only.",
+        "4. **Weekly schedule recommendations** — every recommendation MUST specify day-of-week + hour range (UTC+7) derived from recurring patterns (e.g. 'Mon–Fri, 07:00–09:00, Route X'). Prioritise patterns appearing ≥3 times within the window.",
+    ],
+}
+
 _PEAK_HOURS_NOTE = {
     "vi": "Giờ cao điểm điển hình TP.HCM: sáng 07:00–09:00 UTC+7, chiều 17:00–19:00 UTC+7. KCN/cảng: sớm 05:00–08:00.",
     "en": "Typical HCMC peak hours: morning 07:00–09:00 UTC+7, evening 17:00–19:00 UTC+7. Industrial/port: early 05:00–08:00.",
@@ -137,12 +152,38 @@ def _build_analyze_prompt(
     window_to: str | None = None,
 ) -> str:
     lang_note = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["en"])
-    sections = "\n".join(_SECTIONS.get(lang, _SECTIONS["en"]))
-    concise = (
-        "3–4 câu mỗi mục. Không chào hỏi. Mục 4 phải có giờ cụ thể (UTC+7) cho mỗi khuyến nghị."
-        if lang == "vi"
-        else "3–4 sentences per section. No greetings. Section 4 must include an explicit hour range (UTC+7) for every recommendation."
-    )
+
+    # Compute span to decide analysis mode
+    span_h: int | None = None
+    try:
+        if window_from and window_to:
+            frm = datetime.fromisoformat(window_from).astimezone(_HCMC_TZ)
+            to_ = datetime.fromisoformat(window_to).astimezone(_HCMC_TZ)
+            span_h = int((to_ - frm).total_seconds() / 3600)
+    except Exception:
+        pass
+
+    multi_day = span_h is not None and span_h > 24
+
+    if multi_day:
+        sections = "\n".join(_SECTIONS_MULTIDAY.get(lang, _SECTIONS_MULTIDAY["en"]))
+        concise = (
+            "3–4 câu mỗi mục. Không chào hỏi. "
+            "Ưu tiên MẪU LẶP LẠI (ví dụ: 'mỗi thứ 7 lúc 17h') hơn sự kiện đơn lẻ. "
+            "Mục 4 phải gắn khuyến nghị với ngày trong tuần + khung giờ (UTC+7), không phải ngày cụ thể."
+            if lang == "vi"
+            else "3–4 sentences per section. No greetings. "
+            "Prioritise RECURRING PATTERNS (e.g. 'every Saturday at 17:00') over isolated incidents. "
+            "Section 4 must anchor recommendations to day-of-week + hour range (UTC+7), not specific dates."
+        )
+    else:
+        sections = "\n".join(_SECTIONS.get(lang, _SECTIONS["en"]))
+        concise = (
+            "3–4 câu mỗi mục. Không chào hỏi. Mục 4 phải có giờ cụ thể (UTC+7) cho mỗi khuyến nghị."
+            if lang == "vi"
+            else "3–4 sentences per section. No greetings. Section 4 must include an explicit hour range (UTC+7) for every recommendation."
+        )
+
     time_header = _format_window_header(lang, window_from, window_to)
     parts = [
         lang_note,
@@ -156,16 +197,108 @@ def _build_analyze_prompt(
     return "\n\n".join(parts)
 
 
+def _aggregate_multiday_context(rows: list[dict[str, Any]]) -> str:
+    """Aggregate raw heatmap rows into a compact (route, day_of_week, hour) summary for multi-day LLM analysis."""
+    from collections import defaultdict
+
+    dow_abbr = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+    # key: (route_id, dow, hour) → accumulated stats
+    buckets: dict[tuple[str, int, int], dict[str, Any]] = defaultdict(
+        lambda: {"zscores": [], "anomaly": 0, "iforest": 0, "both": 0, "n": 0}
+    )
+
+    for r in rows:
+        ws = r.get("window_start")
+        if ws is None:
+            continue
+        if isinstance(ws, str):
+            ws = datetime.fromisoformat(ws)
+        ws_local = ws.astimezone(_HCMC_TZ)
+        key = (r["route_id"], ws_local.weekday(), ws_local.hour)  # weekday: 0=Mon
+        b = buckets[key]
+        b["n"] += 1
+        if r.get("duration_zscore") is not None:
+            b["zscores"].append(float(r["duration_zscore"]))
+        if r.get("is_anomaly"):
+            b["anomaly"] += 1
+        if r.get("iforest_anomaly"):
+            b["iforest"] += 1
+        if r.get("both_anomaly"):
+            b["both"] += 1
+
+    # Build compact text — only rows with any signal
+    route_blocks: dict[str, list[str]] = defaultdict(list)
+    dow_order = [0, 1, 2, 3, 4, 5, 6]  # Mon–Sun
+    dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    for (route_id, dow, hour), b in sorted(buckets.items(), key=lambda x: (x[0][0], x[0][1], x[0][2])):
+        n = b["n"]
+        if n == 0:
+            continue
+        zs = b["zscores"]
+        z_avg = round(sum(zs) / len(zs), 2) if zs else None
+        z_max = round(max(zs), 2) if zs else None
+        ar = round(b["anomaly"] / n, 2)
+        ir = round(b["iforest"] / n, 2)
+        br = round(b["both"] / n, 2)
+        # Skip rows with no signal
+        if ar == 0 and ir == 0 and (z_avg is None or abs(z_avg) < 1.0):
+            continue
+        dow_name = dow_names[dow]  # 0=Mon
+        parts = [f"{dow_name} {hour:02d}:00"]
+        if z_avg is not None:
+            parts.append(f"z_avg={z_avg} z_max={z_max}")
+        if ar > 0:
+            parts.append(f"zscore_anomaly={ar}")
+        if ir > 0:
+            parts.append(f"iforest={ir}")
+        if br > 0:
+            parts.append(f"both={br}")
+        parts.append(f"n={n}")
+        route_blocks[route_id].append("  " + " | ".join(parts))
+
+    lines: list[str] = []
+    for route_id, entries in sorted(route_blocks.items()):
+        label = route_id.replace("_to_", " → ").replace("_", " ").title()
+        lines.append(label)
+        lines.extend(entries)
+    return "\n".join(lines)
+
+
 @router.post("/analyze")
-async def heatmap_analyze(req: HeatmapAnalyzeRequest) -> StreamingResponse:
+async def heatmap_analyze(
+    req: HeatmapAnalyzeRequest,
+    conn: asyncpg.Connection = Depends(get_db),
+) -> StreamingResponse:
     """Stream LLM analysis of heatmap data. All prompt engineering is server-side."""
     weather = await fetch_current_weather()
     external = await fetch_heatmap_external_context(req.route_ids, weather)
 
+    # For multi-day windows fetch + aggregate server-side to avoid context overflow
+    context = req.context
+    span_h: int | None = None
+    try:
+        if req.window_from and req.window_to:
+            frm = datetime.fromisoformat(req.window_from).astimezone(_HCMC_TZ)
+            to_ = datetime.fromisoformat(req.window_to).astimezone(_HCMC_TZ)
+            span_h = int((to_ - frm).total_seconds() / 3600)
+    except Exception:
+        pass
+
+    if span_h is not None and span_h > 24:
+        try:
+            frm_dt = datetime.fromisoformat(req.window_from)  # type: ignore[arg-type]
+            to_dt = datetime.fromisoformat(req.window_to)  # type: ignore[arg-type]
+            rows = await metrics_repo.fetch_heatmap_range(conn, frm_dt, to_dt)
+            context = _aggregate_multiday_context(rows)
+        except Exception:
+            pass  # fall back to req.context if fetch fails
+
     lang_note = _LANG_INSTRUCTIONS.get(req.lang, _LANG_INSTRUCTIONS["en"])
     system = f"{_ANALYZE_SYSTEM_BASE} {lang_note}"
     user_prompt = _build_analyze_prompt(
-        req.context, req.lang, external, req.window_from, req.window_to
+        context, req.lang, external, req.window_from, req.window_to
     )
     return StreamingResponse(
         stream_ollama(system, user_prompt, temperature=0.3),
