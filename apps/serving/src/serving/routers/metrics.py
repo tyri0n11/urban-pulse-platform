@@ -179,15 +179,22 @@ def _build_analyze_prompt(
 
     if multi_day:
         sections = "\n".join(_SECTIONS_MULTIDAY.get(lang, _SECTIONS_MULTIDAY["en"]))
-        concise = (
-            "3–4 câu mỗi mục. Không chào hỏi. "
-            "Ưu tiên MẪU LẶP LẠI (ví dụ: 'mỗi thứ 7 lúc 17h') hơn sự kiện đơn lẻ. "
-            "Mục 4 phải gắn khuyến nghị với ngày trong tuần + khung giờ (UTC+7), không phải ngày cụ thể."
-            if lang == "vi"
-            else "3–4 sentences per section. No greetings. "
-            "Prioritise RECURRING PATTERNS (e.g. 'every Saturday at 17:00') over isolated incidents. "
-            "Section 4 must anchor recommendations to day-of-week + hour range (UTC+7), not specific dates."
-        )
+        # expected max n per (dow, hour) slot = floor(span_days / 7)
+        span_days = (span_h // 24) if span_h else 7
+        max_n = max(1, span_days // 7)
+        if max_n >= 3:
+            recur_note_vi = "Ưu tiên MẪU LẶP LẠI xuất hiện ≥3 lần (ví dụ: 'mỗi thứ 6 lúc 17h'). Bỏ qua sự kiện đơn lẻ không lặp lại."
+            recur_note_en = "Prioritise RECURRING PATTERNS appearing ≥3 times (e.g. 'every Friday at 17:00'). Ignore one-off incidents."
+        elif max_n == 2:
+            recur_note_vi = f"Window {span_days} ngày: n tối đa ~{max_n} — báo cáo slot xuất hiện ≥2 lần; nếu chỉ n=1 thì ghi nhận là 'quan sát đơn lẻ, cần theo dõi thêm'."
+            recur_note_en = f"{span_days}-day window: max n~{max_n} — report slots appearing ≥2 times; if only n=1, note as 'single observation, needs monitoring'."
+        else:
+            recur_note_vi = f"Window {span_days} ngày: n=1 là BÌNH THƯỜNG — báo cáo các slot có tín hiệu mạnh nhất (both_flagged hoặc z_avg cao nhất). Không yêu cầu lặp lại."
+            recur_note_en = f"{span_days}-day window: n=1 is NORMAL — report slots with strongest signals (both_flagged or highest z_avg). Recurrence not required."
+        if lang == "vi":
+            concise = f"3–4 câu mỗi mục. Không chào hỏi. Mục 4 phải gắn khuyến nghị với ngày trong tuần + khung giờ (UTC+7). {recur_note_vi}"
+        else:
+            concise = f"3–4 sentences per section. No greetings. Section 4 must anchor recommendations to day-of-week + hour range (UTC+7). {recur_note_en}"
     else:
         sections = "\n".join(_SECTIONS.get(lang, _SECTIONS["en"]))
         concise = (
@@ -198,10 +205,25 @@ def _build_analyze_prompt(
 
     lang_note = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["en"])
     time_header = _format_window_header(lang, window_from, window_to)
+    if multi_day:
+        n_note = (
+            "LƯU Ý VỀ n: Trong dữ liệu tổng hợp này, n = số lần slot (ngày_trong_tuần, giờ) xuất hiện trong window. "
+            "Với window 7 ngày: n=1 là BÌNH THƯỜNG (mỗi thứ trong tuần xuất hiện đúng 1 lần). "
+            "Với window 30 ngày: n=4–5 là bình thường. "
+            "n=1 KHÔNG có nghĩa là dữ liệu kém chất lượng — chỉ có nghĩa là pattern chưa lặp lại đủ để kết luận chắc chắn."
+            if lang == "vi"
+            else "NOTE ON n: In this aggregated context, n = number of times the (day-of-week, hour) slot occurred in the window. "
+            "For a 7-day window: n=1 is NORMAL (each day of week appears exactly once). "
+            "For a 30-day window: n=4–5 is normal. "
+            "n=1 does NOT mean poor data quality — it only means the pattern has not recurred enough to confirm statistically."
+        )
+        heatmap_block = f"=== HEATMAP DATA ===\n{n_note}\n\n{context}"
+    else:
+        heatmap_block = f"=== HEATMAP DATA ===\n{context}"
     parts = [
         time_header,
         f"Provide analysis in 4 sections:\n{sections}\n{concise}",
-        f"=== HEATMAP DATA ===\n{context}",
+        heatmap_block,
     ]
     if external:
         parts.append(external)
@@ -327,7 +349,8 @@ async def heatmap_analyze(
             top_slots = []
             pass  # fall back to req.context if fetch fails
 
-        external = "" if not top_slots else await fetch_heatmap_external_context(req.route_ids, None)
+        # Weather context is a 7-day rolling window — irrelevant for spans >7d and overwhelms the model
+        external = "" if (not top_slots or span_h > 168) else await fetch_heatmap_external_context(req.route_ids, None)
     else:
         weather = await fetch_current_weather()
         external = await fetch_heatmap_external_context(req.route_ids, weather)
