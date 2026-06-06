@@ -77,6 +77,28 @@ _ANALYZE_SYSTEM_BASE = (
     "Do not invent, estimate, or approximate any IF score."
 )
 
+_ANALYZE_SYSTEM_REPORT = (
+    "You are writing a traffic situation report for Ho Chi Minh City (HCMC), Vietnam, "
+    "addressed to city traffic managers and infrastructure planners who are NOT familiar with data systems or technical metrics. "
+    "Your job is to translate raw monitoring data into clear, actionable insights in plain language. "
+    "AUDIENCE: decision-makers — use plain language, avoid all technical jargon. "
+    "NEVER mention z-score, IsolationForest, sigma, z_avg, z_max, if_flagged, z_flagged, or any internal metric name in your output. "
+    "Instead, translate the data: "
+    "  - High z_flagged or if_flagged fraction → 'route was frequently congested', 'recurring heavy traffic', 'above normal traffic load' "
+    "  - Negative z_avg AND flagged → 'unusually light traffic', 'significantly below normal volume', 'possible road closure or major rerouting' "
+    "  - both_flagged=M/N → 'confirmed congestion in M out of N observations' "
+    "  - n=1 or n=2 → 'isolated observation, treat with caution' — do NOT build strong conclusions from sparse data "
+    "Routes are labeled as 'Zone X → Zone Y'. Always write 'Zone' (never 'Zona'). "
+    "HCMC context: morning peak 07:00–09:00 UTC+7, evening peak 17:00–19:00 UTC+7. "
+    "Industrial/port zones have early peaks 05:00–08:00. Weekends have different patterns from weekdays. "
+    "Weather context is provided separately — use it ONLY to explain anomalies (e.g. heavy rain correlating with congestion). "
+    "Do NOT compare weather numbers (°C, mm) to any traffic metric. "
+    "End your report with this exact disclaimer on a new line: "
+    "'*Nội dung chỉ mang tính chất tham khảo.*' (if writing in Vietnamese) or "
+    "'*This report is for reference purposes only.*' (if writing in English). "
+    "Analyze ONLY the data provided — never invent route names, hours, or statistics."
+)
+
 _DOW_VI = ["Chủ nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"]
 _DOW_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 _HCMC_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -113,18 +135,18 @@ _SECTIONS_MULTIDAY = {
 
 _SECTIONS_REPORT = {
     "vi": [
-        "1. **Tóm tắt điều hành** — 3–5 điểm nổi bật nhất trong toàn bộ window: tuyến nào bất thường thường xuyên nhất, khung giờ nào có tần suất cao nhất, xu hướng tổng thể (tăng/giảm/ổn định). Viết như phần Executive Summary của một báo cáo chính thức.",
-        "2. **Mẫu lặp lại theo tuần** — phân tích theo ngày trong tuần (Thứ 2–CN), KHÔNG theo ngày cụ thể: ngày nào nặng nhất, nhẹ nhất; pattern nào xuất hiện ≥3 tuần liên tiếp; so sánh ngày thường vs cuối tuần.",
-        "3. **Tuyến điểm nóng & xu hướng tháng** — top tuyến theo tần suất bất thường (cả hai tín hiệu ưu tiên); mô tả xu hướng: congestion tập trung ở zone nào, đang tăng hay giảm so với đầu window. Dùng Z-score (số) để định lượng, IF chỉ là 'flagged/không flagged'.",
-        "4. **Phân tích giờ cao điểm hệ thống** — tổng hợp giờ nào trong ngày có nhiều tuyến bất thường đồng thời nhất (≥3 tuyến cùng lúc); so sánh peak sáng vs chiều; liệu có giờ nào ngoài peak điển hình (07–09, 17–19) cũng bất thường.",
-        "5. **Khuyến nghị chiến lược** — 3–5 khuyến nghị dài hạn (theo tuần/tháng), mỗi khuyến nghị PHẢI gắn ngày trong tuần + khung giờ + tuyến cụ thể. Ưu tiên can thiệp có tác động cao nhất (≥3 tuyến bị ảnh hưởng hoặc pattern lặp ≥3 tuần).",
+        "1. **Tổng quan tình hình giao thông** — Mô tả bức tranh tổng thể trong kỳ báo cáo bằng ngôn ngữ đời thường: tuyến đường nào thường xuyên ùn tắc nhất, khung giờ nào nặng nhất trong ngày, xu hướng tổng thể so với mức bình thường (nặng hơn, nhẹ hơn, hay ổn định). Không dùng thuật ngữ kỹ thuật.",
+        "2. **Các tuyến và khung giờ trọng điểm** — Liệt kê cụ thể các tuyến đường có tình trạng bất thường thường xuyên nhất, kèm ngày trong tuần và khung giờ (UTC+7). Phân biệt rõ: tắc nghẽn nặng (lưu lượng cao hơn bình thường) vs tuyến bất thường ít xe (lưu lượng thấp bất thường — có thể do công trình, cấm đường). Bỏ qua các quan sát đơn lẻ không có đủ dữ liệu.",
+        "3. **Diễn giải nguyên nhân** — Giải thích tại sao các tuyến/giờ đó xảy ra bất thường: liên hệ với đặc điểm giao thông TP.HCM (cao điểm sáng/chiều, khu công nghiệp, cảng, cuối tuần). Nếu có dữ liệu thời tiết, đề cập ảnh hưởng của mưa/nắng/gió đến tình trạng giao thông tại các thời điểm bất thường — KHÔNG so sánh con số thời tiết với bất kỳ chỉ số giao thông nào.",
+        "4. **Khuyến nghị quản lý & vận hành** — 3–5 khuyến nghị ngắn hạn và trung hạn: điều chỉnh đèn tín hiệu, phân luồng, bố trí lực lượng kiểm soát giao thông tại các điểm nóng. Mỗi khuyến nghị PHẢI gắn với ngày trong tuần + khung giờ (UTC+7) + tuyến cụ thể.",
+        "5. **Khuyến nghị đầu tư hạ tầng** — 2–3 đề xuất dài hạn về mở rộng, nâng cấp, hoặc xây mới hạ tầng giao thông dựa trên các tuyến điểm nóng lặp lại. Ưu tiên các khu vực có nhiều tuyến cùng bất thường hoặc tình trạng kéo dài nhiều tuần.",
     ],
     "en": [
-        "1. **Executive Summary** — 3–5 headline findings across the entire window: which routes are most frequently anomalous, which hour ranges have the highest frequency, overall trend (increasing/decreasing/stable). Write this as a formal Executive Summary.",
-        "2. **Weekly recurring patterns** — analyse by day-of-week (Mon–Sun), NOT by specific dates: heaviest vs lightest days; patterns appearing ≥3 consecutive weeks; weekday vs weekend comparison.",
-        "3. **Hotspot routes & monthly trend** — top routes by anomaly frequency (dual-signal prioritised); describe trend: which zone concentrates congestion, is it increasing or decreasing vs the start of the window. Quantify with Z-score values; describe IF as 'flagged' or 'not flagged' only.",
-        "4. **System-wide peak hour analysis** — aggregate which hours of day have the most simultaneous anomalous routes (≥3 at once); compare morning vs evening peak; identify any off-peak hours that are also anomalous outside the typical 07–09, 17–19 windows.",
-        "5. **Strategic recommendations** — 3–5 long-term recommendations (weekly/monthly cadence), each MUST specify day-of-week + hour range + specific route. Prioritise high-impact interventions (≥3 routes affected or pattern repeating ≥3 weeks).",
+        "1. **Traffic Situation Overview** — Describe the overall picture for the reporting period in plain language: which routes were most frequently congested, which time windows were heaviest, and whether the overall situation was worse, better, or similar to normal. No technical jargon.",
+        "2. **Key Routes and Peak Windows** — List the specific routes with the most frequent abnormal conditions, with day-of-week and hour ranges (UTC+7). Clearly distinguish: heavy congestion (above-normal volume) vs unusually quiet routes (below-normal volume — possibly road works, closures). Skip isolated observations with insufficient data.",
+        "3. **Cause Analysis** — Explain why those routes/hours experienced abnormal conditions: link to HCMC traffic characteristics (morning/evening peak, industrial zones, port, weekends). If weather data is available, mention how rain/heat/wind may have contributed at anomalous times — do NOT compare weather numbers to any traffic metric.",
+        "4. **Operational Recommendations** — 3–5 short-to-medium-term actions: signal timing adjustments, traffic diversion, officer deployment at hotspots. Each recommendation MUST specify day-of-week + hour range (UTC+7) + specific route.",
+        "5. **Infrastructure Investment Recommendations** — 2–3 long-term proposals for road widening, upgrades, or new infrastructure based on recurring hotspot routes. Prioritise areas where multiple routes are simultaneously affected or conditions have persisted for multiple weeks.",
     ],
 }
 
@@ -199,13 +221,15 @@ def _build_analyze_prompt(
     if report_mode:
         sections = "\n".join(_SECTIONS_REPORT.get(lang, _SECTIONS_REPORT["en"]))
         concise = (
-            "3–5 câu mỗi mục. Không chào hỏi. Viết theo phong cách báo cáo chính thức, súc tích. "
-            "Mục 1 là tóm tắt điều hành — phải đọc được độc lập. "
-            "Mục 5 chỉ chứa khuyến nghị dài hạn, gắn ngày trong tuần + khung giờ + tuyến cụ thể."
+            "4–6 câu mỗi mục. Không chào hỏi. Viết cho người quản lý giao thông, không dùng thuật ngữ kỹ thuật. "
+            "Mục 1 đọc được độc lập như tóm tắt cho lãnh đạo. "
+            "Mục 3 dùng thời tiết (nếu có) để giải thích nguyên nhân — chỉ đề cập định tính (mưa nhiều, nắng nóng), không so sánh con số. "
+            "Mục 4–5 phải có tuyến đường cụ thể + khung giờ (UTC+7) + ngày trong tuần."
             if lang == "vi"
-            else "3–5 sentences per section. No greetings. Write in formal report style, concise. "
-            "Section 1 is the executive summary — must be self-contained. "
-            "Section 5 contains only long-term recommendations, anchored to day-of-week + hour range + specific route."
+            else "4–6 sentences per section. No greetings. Write for traffic managers, not engineers — no technical jargon. "
+            "Section 1 must be self-contained for an executive audience. "
+            "Section 3 may use weather (if available) to explain causes — qualitative only (heavy rain, heat), never compare weather numbers to traffic metrics. "
+            "Sections 4–5 must specify route + hour range (UTC+7) + day-of-week."
         )
         section_count = 5
     elif multi_day:
@@ -348,10 +372,10 @@ async def heatmap_analyze(
     except Exception:
         pass
 
+    report_mode = span_h is not None and span_h >= 168
+
     if span_h is not None and span_h > 24:
-        # Multiday/report: no weather injection — weather numbers (°C) collide with z-score
-        # values and cause hallucinations. Weather context belongs in /rca, not trend analysis.
-        external = ""
+        external = await fetch_heatmap_external_context(req.route_ids, None)
         try:
             frm_dt = datetime.fromisoformat(req.window_from)  # type: ignore[arg-type]
             to_dt = datetime.fromisoformat(req.window_to)  # type: ignore[arg-type]
@@ -364,7 +388,8 @@ async def heatmap_analyze(
         external = await fetch_heatmap_external_context(req.route_ids, weather)
 
     lang_note = _LANG_INSTRUCTIONS.get(req.lang, _LANG_INSTRUCTIONS["en"])
-    system = f"{_ANALYZE_SYSTEM_BASE} {lang_note}"
+    system_base = _ANALYZE_SYSTEM_REPORT if report_mode else _ANALYZE_SYSTEM_BASE
+    system = f"{system_base} {lang_note}"
     user_prompt = _build_analyze_prompt(
         context, req.lang, external, req.window_from, req.window_to
     )
