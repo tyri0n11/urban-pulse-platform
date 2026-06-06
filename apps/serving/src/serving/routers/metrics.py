@@ -203,7 +203,7 @@ def _build_analyze_prompt(
     window_from: str | None = None,
     window_to: str | None = None,
 ) -> str:
-    lang_note = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["en"])
+    # lang_note = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["en"])
 
     # Compute span to decide analysis mode
     span_h: int | None = None
