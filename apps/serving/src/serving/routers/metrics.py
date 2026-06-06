@@ -374,9 +374,94 @@ def _aggregate_multiday_context(
         lines.append(label)
         lines.extend(entries)
 
-    # Top 3 most anomalous slots (n≥2) for targeted weather fetch
     top_slots = [slot for _, slot in sorted(slot_scores, reverse=True)[:3]]
     return "\n".join(lines), top_slots
+
+
+def _humanize_aggregated_for_report(rows: list[dict[str, Any]], lang: str) -> str:
+    """Convert aggregated heatmap buckets into plain-language traffic descriptions for city managers.
+
+    This replaces raw z-score data with human-readable severity descriptions so the LLM
+    does not need to translate technical metrics — it just writes the report.
+    """
+    from collections import defaultdict
+
+    buckets: dict[tuple[str, int, int], dict[str, Any]] = defaultdict(
+        lambda: {"zscores": [], "anomaly": 0, "iforest": 0, "both": 0, "n": 0}
+    )
+    for r in rows:
+        ws = r.get("window_start")
+        if ws is None:
+            continue
+        if isinstance(ws, str):
+            ws = datetime.fromisoformat(ws)
+        ws_local = ws.astimezone(_HCMC_TZ)
+        key = (r["route_id"], ws_local.weekday(), ws_local.hour)
+        b = buckets[key]
+        b["n"] += 1
+        if r.get("duration_zscore") is not None:
+            b["zscores"].append(float(r["duration_zscore"]))
+        if r.get("is_anomaly"):
+            b["anomaly"] += 1
+        if r.get("iforest_anomaly"):
+            b["iforest"] += 1
+        if r.get("both_anomaly"):
+            b["both"] += 1
+
+    dow_vi = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+    dow_en = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    dow_names = dow_vi if lang == "vi" else dow_en
+
+    route_blocks: dict[str, list[str]] = defaultdict(list)
+
+    for (route_id, dow, hour), b in sorted(buckets.items(), key=lambda x: (x[0][0], x[0][1], x[0][2])):
+        n = b["n"]
+        if n == 0:
+            continue
+        z_avg = sum(b["zscores"]) / len(b["zscores"]) if b["zscores"] else None
+        z_frac = b["anomaly"] / n
+        if_frac = b["iforest"] / n
+        both_frac = b["both"] / n
+
+        # Skip slots with no signal
+        if z_frac == 0 and if_frac == 0 and (z_avg is None or abs(z_avg) < 1.0):
+            continue
+
+        # Determine severity
+        low_confidence = n < 3
+        negative_z = z_avg is not None and z_avg < -0.5
+
+        if negative_z and if_frac >= 0.5:
+            if lang == "vi":
+                severity = "Lưu lượng bất thường thấp" + (" (có thể đóng cửa đường/công trình)" if if_frac >= 0.8 else "")
+            else:
+                severity = "Abnormally low traffic" + (" (possible road closure or works)" if if_frac >= 0.8 else "")
+        elif both_frac >= 0.6 and n >= 3:
+            severity = "Thường xuyên ùn tắc nặng" if lang == "vi" else "Frequently heavily congested"
+        elif both_frac >= 0.3 or (z_frac >= 0.5 and if_frac >= 0.5):
+            severity = "Hay xảy ra ùn tắc" if lang == "vi" else "Often congested"
+        elif z_frac >= 0.5:
+            severity = "Có dấu hiệu ùn tắc" if lang == "vi" else "Signs of congestion"
+        elif if_frac >= 0.5:
+            severity = "Lưu lượng bất thường (không rõ chiều)" if lang == "vi" else "Abnormal traffic volume"
+        else:
+            continue  # weak signal, skip
+
+        confidence_note = (" — ít dữ liệu, cần theo dõi thêm" if lang == "vi" else " — limited data, needs monitoring") if low_confidence else ""
+        obs_note = f"{b['both']}/{n} lần xác nhận cả hai chiều" if lang == "vi" else f"{b['both']}/{n} observations dual-confirmed"
+        line = f"  {dow_names[dow]}, {hour:02d}:00–{(hour+1)%24:02d}:00: {severity} ({obs_note}){confidence_note}"
+        route_blocks[route_id].append(line)
+
+    if not route_blocks:
+        return ("Không có dữ liệu bất thường đáng kể trong kỳ báo cáo." if lang == "vi"
+                else "No significant anomaly data found in the reporting period.")
+
+    lines: list[str] = []
+    for route_id, entries in sorted(route_blocks.items()):
+        label = route_id.replace("_to_", " → ").replace("_", " ").title()
+        lines.append(f"Tuyến {label}:" if lang == "vi" else f"Route {label}:")
+        lines.extend(entries)
+    return "\n".join(lines)
 
 
 @router.post("/analyze")
@@ -403,7 +488,10 @@ async def heatmap_analyze(
             frm_dt = datetime.fromisoformat(req.window_from)  # type: ignore[arg-type]
             to_dt = datetime.fromisoformat(req.window_to)  # type: ignore[arg-type]
             rows = await metrics_repo.fetch_heatmap_range(conn, frm_dt, to_dt)
-            context, _ = _aggregate_multiday_context(rows)
+            if report_mode:
+                context = _humanize_aggregated_for_report(rows, req.lang)
+            else:
+                context, _ = _aggregate_multiday_context(rows)
         except Exception:
             pass  # fall back to req.context if fetch fails
     else:
