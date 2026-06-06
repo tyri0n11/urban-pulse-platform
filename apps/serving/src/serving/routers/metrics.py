@@ -196,6 +196,7 @@ def _build_analyze_prompt(
             else "3–4 sentences per section. No greetings. Section 4 must include an explicit hour range (UTC+7) for every recommendation."
         )
 
+    lang_note = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["en"])
     time_header = _format_window_header(lang, window_from, window_to)
     parts = [
         time_header,
@@ -204,6 +205,7 @@ def _build_analyze_prompt(
     ]
     if external:
         parts.append(external)
+    parts.append(lang_note)
     return "\n\n".join(parts)
 
 
