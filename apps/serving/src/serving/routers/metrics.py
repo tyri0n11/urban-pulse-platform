@@ -193,6 +193,7 @@ def _build_analyze_prompt(
     ]
     if external:
         parts.append(external)
+    parts.append(lang_note)
     return "\n\n".join(parts)
 
 
