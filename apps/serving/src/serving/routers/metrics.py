@@ -298,7 +298,7 @@ async def heatmap_analyze(
         context, req.lang, external, req.window_from, req.window_to
     )
     return StreamingResponse(
-        stream_ollama(system, user_prompt, temperature=0.3),
+        stream_ollama(system, user_prompt, temperature=0.0, num_predict=-1),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

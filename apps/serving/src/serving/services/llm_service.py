@@ -11,14 +11,17 @@ logger = logging.getLogger(__name__)
 
 _OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 _MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
-_NUM_PREDICT = -1  # -1 = unlimited (Ollama default cap removed)
+_NUM_PREDICT = -1    # unlimited; thinking-mode loops prevented by _THINK=False
+_THINK = False       # disable chain-of-thought for latency-sensitive endpoints
+_TEMPERATURE = 0.1   # greedy decoding — deterministic, no hallucination drift
 
 
 async def stream_ollama(
     system: str,
     prompt: str,
     *,
-    temperature: float = 0.4,
+    temperature: float = _TEMPERATURE,
+    num_predict: int = _NUM_PREDICT,
 ) -> AsyncGenerator[str, None]:
     """Stream SSE chunks from Ollama generate API (single-turn)."""
     payload = {
@@ -26,7 +29,8 @@ async def stream_ollama(
         "system": system,
         "prompt": prompt,
         "stream": True,
-        "options": {"temperature": temperature, "num_predict": _NUM_PREDICT},
+        "think": _THINK,
+        "options": {"temperature": temperature, "num_predict": num_predict},
     }
     timeout = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
     try:
@@ -60,7 +64,7 @@ async def stream_ollama_chat(
     history: list[dict[str, str]],
     user_message: str,
     *,
-    temperature: float = 0.4,
+    temperature: float = _TEMPERATURE,
 ) -> AsyncGenerator[str, None]:
     """Stream SSE chunks from Ollama chat API (multi-turn with session history)."""
     messages = (
@@ -72,6 +76,7 @@ async def stream_ollama_chat(
         "model": _MODEL,
         "messages": messages,
         "stream": True,
+        "think": _THINK,
         "options": {"temperature": temperature, "num_predict": _NUM_PREDICT},
     }
     timeout = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
@@ -105,7 +110,7 @@ async def ask_llm(
     system: str,
     prompt: str,
     *,
-    temperature: float = 0.4,
+    temperature: float = _TEMPERATURE,
 ) -> str:
     """Non-streaming Ollama call — returns full response text."""
     try:
@@ -119,6 +124,7 @@ async def ask_llm(
                     "system": system,
                     "prompt": prompt,
                     "stream": False,
+                    "think": _THINK,
                     "options": {"temperature": temperature, "num_predict": _NUM_PREDICT},
                 },
             )
