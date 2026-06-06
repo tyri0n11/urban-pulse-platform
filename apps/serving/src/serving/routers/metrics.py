@@ -282,7 +282,7 @@ def _build_analyze_prompt(
         except Exception:
             pass
 
-    parts = [lang_note, time_header]
+    parts = [time_header]
     if report_period:
         parts.append(report_period)
     parts += [
@@ -291,7 +291,6 @@ def _build_analyze_prompt(
     ]
     if external:
         parts.append(external)
-    parts.append(lang_note)
     return "\n\n".join(parts)
 
 
