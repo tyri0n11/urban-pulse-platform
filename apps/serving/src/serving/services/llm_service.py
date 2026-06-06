@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 _OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 _MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
-_NUM_PREDICT = -1  # -1 = unlimited (Ollama default cap removed)
+_NUM_PREDICT = 1500  # cap to prevent qwen3 thinking-mode loops
+_THINK = False       # disable chain-of-thought for latency-sensitive endpoints
 
 
 async def stream_ollama(
@@ -19,6 +20,7 @@ async def stream_ollama(
     prompt: str,
     *,
     temperature: float = 0.4,
+    num_predict: int = _NUM_PREDICT,
 ) -> AsyncGenerator[str, None]:
     """Stream SSE chunks from Ollama generate API (single-turn)."""
     payload = {
@@ -26,7 +28,8 @@ async def stream_ollama(
         "system": system,
         "prompt": prompt,
         "stream": True,
-        "options": {"temperature": temperature, "num_predict": _NUM_PREDICT},
+        "think": _THINK,
+        "options": {"temperature": temperature, "num_predict": num_predict},
     }
     timeout = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
     try:
@@ -72,6 +75,7 @@ async def stream_ollama_chat(
         "model": _MODEL,
         "messages": messages,
         "stream": True,
+        "think": _THINK,
         "options": {"temperature": temperature, "num_predict": _NUM_PREDICT},
     }
     timeout = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
@@ -119,6 +123,7 @@ async def ask_llm(
                     "system": system,
                     "prompt": prompt,
                     "stream": False,
+                    "think": _THINK,
                     "options": {"temperature": temperature, "num_predict": _NUM_PREDICT},
                 },
             )
