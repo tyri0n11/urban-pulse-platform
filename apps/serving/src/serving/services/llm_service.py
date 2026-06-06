@@ -11,15 +11,16 @@ logger = logging.getLogger(__name__)
 
 _OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 _MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
-_NUM_PREDICT = 1500  # cap to prevent qwen3 thinking-mode loops
+_NUM_PREDICT = -1    # unlimited; thinking-mode loops prevented by _THINK=False
 _THINK = False       # disable chain-of-thought for latency-sensitive endpoints
+_TEMPERATURE = 0.1   # greedy decoding — deterministic, no hallucination drift
 
 
 async def stream_ollama(
     system: str,
     prompt: str,
     *,
-    temperature: float = 0.4,
+    temperature: float = _TEMPERATURE,
     num_predict: int = _NUM_PREDICT,
 ) -> AsyncGenerator[str, None]:
     """Stream SSE chunks from Ollama generate API (single-turn)."""
@@ -63,7 +64,7 @@ async def stream_ollama_chat(
     history: list[dict[str, str]],
     user_message: str,
     *,
-    temperature: float = 0.4,
+    temperature: float = _TEMPERATURE,
 ) -> AsyncGenerator[str, None]:
     """Stream SSE chunks from Ollama chat API (multi-turn with session history)."""
     messages = (
@@ -109,7 +110,7 @@ async def ask_llm(
     system: str,
     prompt: str,
     *,
-    temperature: float = 0.4,
+    temperature: float = _TEMPERATURE,
 ) -> str:
     """Non-streaming Ollama call — returns full response text."""
     try:
