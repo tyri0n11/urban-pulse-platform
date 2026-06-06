@@ -254,9 +254,32 @@ def _build_analyze_prompt(
         section_count = 4
 
     time_header = _format_window_header(lang, window_from, window_to)
-    parts = [
-        lang_note,
-        time_header,
+
+    # For report mode: build explicit period label for model to include in output
+    report_period = ""
+    if report_mode and window_from and window_to:
+        try:
+            frm = datetime.fromisoformat(window_from).astimezone(_HCMC_TZ)
+            to_ = datetime.fromisoformat(window_to).astimezone(_HCMC_TZ)
+            if lang == "vi":
+                report_period = (
+                    f"KỲ BÁO CÁO: từ {frm.strftime('%d/%m/%Y')} đến {to_.strftime('%d/%m/%Y')} (UTC+7)\n"
+                    f"Bắt đầu phần tóm tắt (Mục 1) bằng dòng: "
+                    f"\"Báo cáo tình hình giao thông TP.HCM từ {frm.strftime('%d/%m/%Y')} đến {to_.strftime('%d/%m/%Y')}\""
+                )
+            else:
+                report_period = (
+                    f"REPORTING PERIOD: {frm.strftime('%d %b %Y')} to {to_.strftime('%d %b %Y')} (UTC+7)\n"
+                    f"Begin Section 1 with: "
+                    f"\"HCMC Traffic Situation Report: {frm.strftime('%d %b %Y')} – {to_.strftime('%d %b %Y')}\""
+                )
+        except Exception:
+            pass
+
+    parts = [lang_note, time_header]
+    if report_period:
+        parts.append(report_period)
+    parts += [
         f"Provide analysis in {section_count} sections:\n{sections}\n{concise}",
         f"=== HEATMAP DATA ===\n{context}",
     ]
