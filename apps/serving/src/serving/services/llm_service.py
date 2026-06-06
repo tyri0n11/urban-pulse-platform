@@ -76,7 +76,7 @@ async def stream_ollama_chat(
         "model": _MODEL,
         "messages": messages,
         "stream": True,
-        "think": _THINK,
+        "think": False,  # chat API doesn't handle thinking tokens correctly in streaming
         "options": {"temperature": temperature, "num_predict": _NUM_PREDICT},
     }
     timeout = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
