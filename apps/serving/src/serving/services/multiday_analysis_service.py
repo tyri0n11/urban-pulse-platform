@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, AsyncGenerator
 from zoneinfo import ZoneInfo
 
@@ -89,7 +89,7 @@ def preprocess(rows: list[dict[str, Any]], span_days: int) -> dict[str, Any]:
             continue
         peak_z = max(zscores)
 
-        days: set = set()
+        days: set[date] = set()
         hour_zs: dict[int, list[float]] = defaultdict(list)
         for r in route_rows:
             dt = _ws_dt(r)

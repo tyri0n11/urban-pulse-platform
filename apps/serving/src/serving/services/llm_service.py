@@ -120,7 +120,7 @@ async def ask_llm(
 ) -> str:
     """Non-streaming Ollama call — returns full response text."""
     try:
-        payload: dict = {
+        payload: dict[str, object] = {
             "model": _MODEL,
             "system": system,
             "prompt": prompt,
