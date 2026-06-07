@@ -275,27 +275,110 @@ _NARRATIVE_SYSTEM_EN = (
 
 _SECTIONS_VI = (
     "Viết báo cáo theo 4 mục:\n"
-    "1. **Mẫu bất thường nổi bật** — liệt kê top routes theo peak_z và both_confirmed. "
-    "Nêu rõ peak_hour_utc7 và severity. Chú thích recurring nếu xuất hiện ≥2 ngày.\n"
-    "2. **Nguyên nhân gốc rễ** — liên kết type phân loại (PEAK_HOUR/INCIDENT...) với đặc điểm "
-    "giao thông TP.HCM (peak sáng/chiều, KCN, cảng, cuối tuần). Đề cập correlated_routes nếu r>0.7.\n"
-    "3. **Xu hướng và tương quan** — mô tả trend_groups (worsening/improving/stable) "
-    "và cặp route có r cao. Chỉ nêu xu hướng, không lặp lại số liệu thô.\n"
-    "4. **Khuyến nghị** — mỗi khuyến nghị PHẢI gắn route cụ thể + khung giờ UTC+7. "
-    "Tập trung vào các route severity=critical hoặc both_confirmed=true."
+    "1. **Mẫu bất thường nổi bật** — liệt kê các tuyến có mức độ bất thường cao nhất. "
+    "Nêu rõ giờ cao điểm (UTC+7) và mức độ nghiêm trọng. "
+    "Ghi chú nếu bất thường xuất hiện lặp lại nhiều ngày.\n"
+    "2. **Nguyên nhân gốc rễ** — liên kết loại phân loại (PEAK_HOUR/INCIDENT/...) với đặc điểm "
+    "giao thông TP.HCM (giờ cao điểm sáng/chiều, khu công nghiệp, cảng, ngày trong tuần). "
+    "Đề cập các tuyến có tương quan cao nếu có.\n"
+    "3. **Xu hướng và tương quan** — mô tả nhóm tuyến đang xấu dần, ổn định, hay cải thiện "
+    "và các cặp tuyến có tương quan cao. Chỉ nêu xu hướng, không lặp lại số liệu thô.\n"
+    "4. **Khuyến nghị** — mỗi khuyến nghị PHẢI nêu tên tuyến cụ thể và dùng đúng khung giờ cảnh báo "
+    "đã có sẵn trong dữ liệu (trường 'khung_giờ_cảnh_báo'). "
+    "Ưu tiên các tuyến nghiêm trọng hoặc được cả hai hệ thống giám sát xác nhận."
 )
 
 _SECTIONS_EN = (
     "Write the report in 4 sections:\n"
-    "1. **Top anomaly patterns** — list top routes by peak_z and both_confirmed. "
-    "State peak_hour_utc7 and severity. Note recurring if flagged_days ≥ 2.\n"
-    "2. **Root causes** — link classification type (PEAK_HOUR/INCIDENT...) to HCMC traffic context "
-    "(morning/evening peak, industrial zones, port logistics, weekday vs weekend). Mention correlated route pairs if r>0.7.\n"
-    "3. **Trends and correlations** — describe trend_groups (worsening/improving/stable) "
-    "and high-correlation route pairs. Do not repeat raw numbers.\n"
-    "4. **Recommendations** — each recommendation MUST specify a route and UTC+7 hour range. "
-    "Prioritise routes with severity=critical or both_confirmed=true."
+    "1. **Top anomaly patterns** — list routes with the highest anomaly scores. "
+    "State the peak hour (UTC+7) and severity level. "
+    "Note if the anomaly recurs across multiple days.\n"
+    "2. **Root causes** — link the classification type (PEAK_HOUR/INCIDENT/...) to HCMC traffic context "
+    "(morning/evening peak, industrial zones, port logistics, weekday vs weekend). "
+    "Mention correlated route pairs if present.\n"
+    "3. **Trends and correlations** — describe which routes are worsening, stable, or improving "
+    "and any high-correlation pairs. Do not repeat raw numbers.\n"
+    "4. **Recommendations** — each recommendation MUST name a specific route and use the alert window "
+    "already provided in the data (field 'alert_window'). Do NOT invent time ranges. "
+    "Prioritise routes that are severe or confirmed by both monitoring systems."
 )
+
+
+_BUCKET_LABEL_VI: dict[str, str] = {
+    "morning_06_09": "sáng_06-09h",
+    "midday_10_13": "trưa_10-13h",
+    "afternoon_14_17": "chiều_14-17h",
+    "evening_18_21": "tối_18-21h",
+    "night_22_05": "đêm_22-05h",
+}
+_BUCKET_LABEL_EN: dict[str, str] = {
+    "morning_06_09": "morning_06-09h",
+    "midday_10_13": "midday_10-13h",
+    "afternoon_14_17": "afternoon_14-17h",
+    "evening_18_21": "evening_18-21h",
+    "night_22_05": "night_22-05h",
+}
+_SEV_VI = {"critical": "nghiêm trọng", "warning": "cảnh báo", "info": "thông tin"}
+_SEV_EN = {"critical": "severe", "warning": "warning", "info": "info"}
+_TREND_VI = {"worsening": "xấu dần", "improving": "cải thiện", "stable": "ổn định"}
+_TREND_EN = {"worsening": "worsening", "improving": "improving", "stable": "stable"}
+
+
+def _humanize_summary(summary: dict[str, Any], lang: str) -> dict[str, Any]:
+    """Rename all technical field names to natural-language equivalents.
+
+    Prevents the LLM from echoing raw key names (peak_z, both_confirmed, etc.)
+    and pre-computes alert windows so the model never has to invent time ranges.
+    """
+    sev_map = _SEV_VI if lang == "vi" else _SEV_EN
+    trend_map = _TREND_VI if lang == "vi" else _TREND_EN
+    bucket_map = _BUCKET_LABEL_VI if lang == "vi" else _BUCKET_LABEL_EN
+
+    top5 = []
+    for s in summary.get("top5_anomalies", []):
+        h = int(s.get("peak_hour_utc7", 0))
+        alert_start = f"{(h - 1) % 24:02d}:00"
+        alert_end = f"{(h + 2) % 24:02d}:00"
+        if lang == "vi":
+            entry: dict[str, Any] = {
+                "tuyến": s.get("route", ""),
+                "giờ_cao_điểm": f"{h:02d}:00 UTC+7",
+                "mức_độ": sev_map.get(s.get("severity", ""), s.get("severity", "")),
+                "số_ngày_xuất_hiện": s.get("flagged_days", 0),
+                "lặp_lại_nhiều_ngày": s.get("recurring", False),
+                "xu_hướng": trend_map.get(s.get("trend", ""), s.get("trend", "")),
+                "cả_hai_hệ_thống_xác_nhận": s.get("both_confirmed", False),
+                "khung_giờ_cảnh_báo": f"{alert_start} – {alert_end} UTC+7",
+            }
+        else:
+            entry = {
+                "route": s.get("route", ""),
+                "peak_hour": f"{h:02d}:00 UTC+7",
+                "severity": sev_map.get(s.get("severity", ""), s.get("severity", "")),
+                "days_flagged": s.get("flagged_days", 0),
+                "recurring": s.get("recurring", False),
+                "trend": trend_map.get(s.get("trend", ""), s.get("trend", "")),
+                "confirmed_by_both_systems": s.get("both_confirmed", False),
+                "alert_window": f"{alert_start} – {alert_end} UTC+7",
+            }
+        top5.append(entry)
+
+    peak_clusters = {bucket_map.get(k, k): v for k, v in summary.get("peak_clusters", {}).items()}
+    trend_groups = {trend_map.get(k, k): v for k, v in summary.get("trend_groups", {}).items()}
+
+    if lang == "vi":
+        return {
+            "tuyến_bất_thường_nổi_bật": top5,
+            "nhóm_giờ_cao_điểm": peak_clusters,
+            "tuyến_tương_quan_cao": summary.get("correlated_routes", []),
+            "nhóm_xu_hướng": trend_groups,
+        }
+    return {
+        "top_anomalous_routes": top5,
+        "peak_hour_clusters": peak_clusters,
+        "highly_correlated_routes": summary.get("correlated_routes", []),
+        "trend_groups": trend_groups,
+    }
 
 
 def _fmt_date_utc7(iso: str | None, lang: str) -> str:
@@ -332,10 +415,7 @@ def _build_narrative_user(
     payload = {
         "window_utc7": f"{date_from} → {date_to}",
         "span_days": span_days,
-        "top5_anomalies": summary.get("top5_anomalies", []),
-        "peak_clusters": summary.get("peak_clusters", {}),
-        "correlated_routes": summary.get("correlated_routes", []),
-        "trend_groups": summary.get("trend_groups", {}),
+        **_humanize_summary(summary, lang),
         "classification": classify_result,
     }
 
