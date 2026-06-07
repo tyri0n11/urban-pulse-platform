@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 _OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 _MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 _NUM_PREDICT = -1
-_TEMP = 0.1
-_REPEAT_PENALTY = 1.15
+_TEMP = 0.4
+_REPEAT_PENALTY = 1.3
 _THINK = False
 async def stream_ollama(
     system: str,
