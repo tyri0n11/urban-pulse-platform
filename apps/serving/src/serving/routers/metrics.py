@@ -50,31 +50,17 @@ async def congestion_leaderboard(
 
 
 _ANALYZE_SYSTEM_BASE = (
-    "You are a traffic analyst for Ho Chi Minh City (HCMC), Vietnam. "
-    "You will be given structured heatmap data from a real-time traffic monitoring system. "
-    "Analyze ONLY the data provided — never invent route names, hours, or statistics. "
-    "Routes are labeled as 'Zone X → Zone Y'. Always write 'Zone' (never 'Zona'). "
-    "Use HCMC domain knowledge only to explain causes and give recommendations. "
-    "CRITICAL — signal definitions: "
-    "Z-score (duration_zscore) is the ONLY numerical score in this data. "
-    "Z-score values (z_avg, z_max) are DIMENSIONLESS — they have NO units. "
-    "z_avg=28.3 means 28.3 standard deviations, NOT 28.3 degrees Celsius. "
-    "NEVER confuse Z-score values with weather measurements (temperature, rain, wind). "
-    "Weather data (°C, mm, km/h) is completely separate from Z-score data (σ). "
-    "Z-score DIRECTIONALITY — MANDATORY: "
-    "z > 0 means heavy_ratio is ABOVE the route's historical baseline → heavier than usual → potential congestion. "
-    "z < 0 means heavy_ratio is BELOW the route's historical baseline → lighter than usual → unusually free traffic. "
-    "NEVER describe a negative Z-score as congestion, slow traffic, or tắc nghẽn. "
-    "Negative Z-score flagged by IsolationForest means the route is anomalously quiet — possible causes: rerouting, road closure, late-night low demand, or data sparsity. "
-    "Z-score threshold is ONE-SIDED (only z > threshold triggers z_flagged); negative-Z routes appear ONLY because IsolationForest (bidirectional) flagged them. "
-    "IsolationForest (IF) is a BINARY flag — it is either 'flagged' or 'not flagged', never a number. "
-    "if_flagged=M/N means M out of N observation windows were flagged by IsolationForest. "
-    "z_flagged=M/N means M out of N windows exceeded the Z-score threshold. "
-    "When N is small (n=1 or n=2), treat the flagging as low-confidence — do NOT conclude a strong pattern from a single observation. "
-    "A pattern is only reliable when N≥5 and the flagged fraction is high (e.g. if_flagged=4/5). "
-    "NEVER write 'IF: <number>' or assign any numerical value to IF. "
-    "When referencing IF, write 'IF flagged', 'IF anomaly detected', or 'both signals confirmed' — nothing else. "
-    "Do not invent, estimate, or approximate any IF score."
+    "You are a traffic operations analyst for Ho Chi Minh City (HCMC), Vietnam. "
+    "Write a structured traffic report for urban traffic managers based solely on the heatmap data provided. "
+    "Rules: "
+    "(1) Use ONLY data provided — never invent routes, hours, or numbers. "
+    "(2) Routes are 'Zone X → Zone Y' — write 'Zone', never 'Zona'. "
+    "(3) z_avg and z_max are Z-scores in standard deviations (σ) — dimensionless, NOT temperature or speed. "
+    "(4) z > 0 = heavier traffic than baseline (congestion risk). z < 0 = quieter than baseline (unusual low demand). "
+    "(5) if_flagged is an IsolationForest TRAFFIC ANOMALY flag — it is NOT a data-quality flag. Never say 'samples need review'. "
+    "(6) both_flagged = both Z-score AND IsolationForest confirmed simultaneously — highest confidence. "
+    "(7) Write 'IF flagged' or 'IF not flagged' only — never assign IF a number. "
+    "(8) Follow exactly the 4-section structure and language specified in the user prompt."
 )
 
 
@@ -121,6 +107,27 @@ _PEAK_HOURS_NOTE = {
 _LANG_INSTRUCTIONS = {
     "vi": "QUAN TRỌNG: Toàn bộ phân tích phải viết bằng tiếng Việt. Tuyệt đối không dùng tiếng Anh dù chỉ một từ.",
     "en": "IMPORTANT: Write the entire analysis in English.",
+}
+
+_SIGNAL_CHECKLIST = {
+    "vi": (
+        "=== HƯỚNG DẪN ĐỌC DỮ LIỆU (đọc trước khi phân tích) ===\n"
+        "• z_avg / z_max: Z-score đo bằng σ (không đơn vị) — KHÔNG phải nhiệt độ hay tốc độ.\n"
+        "  z > 0 = lưu lượng nặng hơn baseline → nguy cơ tắc nghẽn.\n"
+        "  z < 0 = lưu lượng nhẹ hơn baseline → bất thường yên tĩnh.\n"
+        "• if_flagged M/N: IsolationForest phát hiện BẤT THƯỜNG GIAO THÔNG trong M/N cửa sổ. KHÔNG phải lỗi dữ liệu.\n"
+        "• both_flagged M/N: CẢ HAI tín hiệu xác nhận — độ tin cậy cao nhất.\n"
+        "• Chỉ viết 'IF flagged' hoặc 'IF không flagged' — tuyệt đối không gán số cho IF."
+    ),
+    "en": (
+        "=== SIGNAL GUIDE (read before analysis) ===\n"
+        "• z_avg / z_max: Z-score in σ (dimensionless) — NOT temperature or speed.\n"
+        "  z > 0 = heavier than baseline → congestion risk.\n"
+        "  z < 0 = lighter than baseline → anomalously quiet.\n"
+        "• if_flagged M/N: IsolationForest detected a TRAFFIC ANOMALY in M of N windows. NOT a data-quality flag.\n"
+        "• both_flagged M/N: BOTH signals confirmed — highest confidence anomaly.\n"
+        "• Write 'IF flagged' or 'IF not flagged' only — never assign IF a number."
+    ),
 }
 
 
@@ -205,21 +212,18 @@ def _build_analyze_prompt(
 
     lang_note = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["en"])
     time_header = _format_window_header(lang, window_from, window_to)
+    checklist = _SIGNAL_CHECKLIST.get(lang, _SIGNAL_CHECKLIST["en"])
     if multi_day:
         n_note = (
-            "LƯU Ý VỀ n: Trong dữ liệu tổng hợp này, n = số lần slot (ngày_trong_tuần, giờ) xuất hiện trong window. "
-            "Với window 7 ngày: n=1 là BÌNH THƯỜNG (mỗi thứ trong tuần xuất hiện đúng 1 lần). "
-            "Với window 30 ngày: n=4–5 là bình thường. "
-            "n=1 KHÔNG có nghĩa là dữ liệu kém chất lượng — chỉ có nghĩa là pattern chưa lặp lại đủ để kết luận chắc chắn."
+            "• n = số lần slot (ngày_trong_tuần, giờ) xuất hiện trong window. "
+            f"Window {(span_h or 168) // 24} ngày → n tối đa ~{max(1, (span_h or 168) // 168)}. n=1 là bình thường, KHÔNG phải lỗi dữ liệu."
             if lang == "vi"
-            else "NOTE ON n: In this aggregated context, n = number of times the (day-of-week, hour) slot occurred in the window. "
-            "For a 7-day window: n=1 is NORMAL (each day of week appears exactly once). "
-            "For a 30-day window: n=4–5 is normal. "
-            "n=1 does NOT mean poor data quality — it only means the pattern has not recurred enough to confirm statistically."
+            else "• n = occurrences of (day-of-week, hour) slot in the window. "
+            f"{(span_h or 168) // 24}-day window → max n~{max(1, (span_h or 168) // 168)}. n=1 is normal, NOT a data-quality issue."
         )
-        heatmap_block = f"=== HEATMAP DATA ===\n{n_note}\n\n{context}"
+        heatmap_block = f"{checklist}\n{n_note}\n\n=== HEATMAP DATA ===\n{context}"
     else:
-        heatmap_block = f"=== HEATMAP DATA ===\n{context}"
+        heatmap_block = f"{checklist}\n\n=== HEATMAP DATA ===\n{context}"
     parts = [
         time_header,
         f"Provide analysis in 4 sections:\n{sections}\n{concise}",
@@ -361,7 +365,7 @@ async def heatmap_analyze(
         context, req.lang, external, req.window_from, req.window_to
     )
     return StreamingResponse(
-        stream_ollama(system, user_prompt, temperature=0.0),
+        stream_ollama(system, user_prompt),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
