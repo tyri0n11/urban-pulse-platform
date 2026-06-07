@@ -116,28 +116,29 @@ async def ask_llm(
     prompt: str,
     *,
     temperature: float = _TEMP,
+    json_mode: bool = False,
 ) -> str:
     """Non-streaming Ollama call — returns full response text."""
     try:
+        payload: dict[str, object] = {
+            "model": _MODEL,
+            "system": system,
+            "prompt": prompt,
+            "stream": False,
+            "think": _THINK,
+            "options": {"temperature": temperature, "num_predict": _NUM_PREDICT, "repeat_penalty": _REPEAT_PENALTY},
+        }
+        if json_mode:
+            payload["format"] = "json"
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
         ) as client:
-            resp = await client.post(
-                f"{_OLLAMA_URL}/api/generate",
-                json={
-                    "model": _MODEL,
-                    "system": system,
-                    "prompt": prompt,
-                    "stream": False,
-                    "think": _THINK,
-                    "options": {"temperature": temperature, "num_predict": _NUM_PREDICT, "repeat_penalty": _REPEAT_PENALTY},
-                },
-            )
+            resp = await client.post(f"{_OLLAMA_URL}/api/generate", json=payload)
             resp.raise_for_status()
             return resp.json().get("response", "").strip()  # type: ignore[no-any-return]
     except Exception as exc:
         logger.error("llm: ask_llm failed — %s", exc)
-        return "Xin lỗi, tôi không thể kết nối tới LLM lúc này."
+        return "LLM Failed"
 
 
 async def check_ollama_status(model: str | None = None) -> dict[str, object]:
