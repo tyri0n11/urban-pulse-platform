@@ -10,15 +10,23 @@ from serving.services import prediction_service
 from serving.utils.weather import fetch_current_weather
 
 
+_ZONE_LANDMARK: dict[str, str] = {
+    "1": "Chợ Bến Thành (P. Bến Thành, TP.HCM)",
+    "2": "Khu CNC Sài Gòn - SHTP (P. Tăng Nhơn Phú, TP.HCM)",
+    "3": "KCN Mỹ Phước (P. Thới Hòa, TP.HCM)",
+    "4": "Cảng Cát Lái (P. Cát Lái, TP.HCM)",
+    "5": "KCN Lê Minh Xuân (P. Lê Minh Xuân, TP.HCM)",
+    "6": "Cảng Phú Mỹ (P. Phú Mỹ, TP.HCM)",
+}
+
+
 def _short_name(route_id: str) -> str:
-    parts = route_id.split("_to_")
-    if len(parts) != 2:
-        return route_id
-
-    def clean(s: str) -> str:
-        return re.sub(r"^zone\d+_", "", s).replace("_", " ").title()
-
-    return f"{clean(parts[0])} → {clean(parts[1])}"
+    m = re.match(r"^zone(\d+)_.*_to_zone(\d+)", route_id)
+    if m:
+        src = _ZONE_LANDMARK.get(m.group(1), f"Zone {m.group(1)}")
+        dst = _ZONE_LANDMARK.get(m.group(2), f"Zone {m.group(2)}")
+        return f"{src} → {dst}"
+    return route_id.replace("_to_", " → ").replace("_", " ").title()
 
 
 async def fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
@@ -53,15 +61,16 @@ async def fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
             anomalies.append({
                 "route": _short_name(row["route_id"]),
                 "signal": sig,
+                "zscore": float(row.get("duration_zscore") or 0.0),
                 "heavy_pct": round((row["mean_heavy_ratio"] or 0) * 100, 1),
                 "moderate_pct": round((row["mean_moderate_ratio"] or 0) * 100, 1),
                 "severe_seg": int(row["max_severe_segments"] or 0),
             })
 
-    anomalies.sort(key=lambda x: x["heavy_pct"], reverse=True)
+    anomalies.sort(key=lambda x: x["zscore"], reverse=True)
 
     top_congested = sorted(
-        row_list, key=lambda r: r["mean_heavy_ratio"] or 0, reverse=True
+        row_list, key=lambda r: float(r.get("duration_zscore") or 0.0), reverse=True
     )[:5]
 
     avg_lag = int(
@@ -81,6 +90,7 @@ async def fetch_system_snapshot(conn: asyncpg.Connection) -> dict[str, Any]:
         "top_congested": [
             {
                 "route": _short_name(r["route_id"]),
+                "zscore": float(r.get("duration_zscore") or 0.0),
                 "heavy_pct": round((r["mean_heavy_ratio"] or 0) * 100, 1),
                 "moderate_pct": round((r["mean_moderate_ratio"] or 0) * 100, 1),
             }

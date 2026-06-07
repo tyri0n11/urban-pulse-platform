@@ -35,6 +35,44 @@ _SYSTEM = build_system_prompt(
 )
 
 
+def _build_chat_figure(snapshot: dict[str, Any]) -> dict[str, Any] | None:
+    """Build priority bar chart data from live snapshot. Returns None if no anomalies."""
+    anomalies = snapshot.get("anomalies", [])
+    top_congested = snapshot.get("top_congested", [])
+    if not anomalies and not top_congested:
+        return None
+
+    # Merge: anomalies first (both-signal confirmed), then top congested not already listed
+    seen: set[str] = set()
+    bars: list[dict[str, Any]] = []
+    for a in anomalies:
+        seen.add(a["route"])
+        bars.append({
+            "route": a["route"],
+            "peak_z": round(a.get("heavy_pct", 0.0), 1),
+            "signal": a.get("signal", "zscore"),
+            "anomaly": True,
+        })
+    for r in top_congested:
+        if r["route"] not in seen:
+            bars.append({
+                "route": r["route"],
+                "peak_z": round(r.get("heavy_pct", 0.0), 1),
+                "signal": "none",
+                "anomaly": False,
+            })
+
+    bars.sort(key=lambda x: x["peak_z"], reverse=True)
+    return {
+        "type": "priority_bar",
+        "title_vi": "Tình trạng tuyến đường hiện tại",
+        "title_en": "Current Route Status",
+        "snapshot_time": snapshot.get("snapshot_time", ""),
+        "x_unit": "%",
+        "bars": bars[:8],
+    }
+
+
 @router.post("")
 async def chat(
     req: ChatRequest,
@@ -50,8 +88,11 @@ async def chat(
         conn, query_type="chat", query=req.message, lang=req.lang,
     )
     full_text: list[str] = []
+    figure = _build_chat_figure(snapshot)
 
     async def _stream_and_log() -> AsyncGenerator[str, None]:
+        if figure:
+            yield f"data: {json.dumps({'figure': figure})}\n\n"
         async for event in stream_ollama_chat(
             _SYSTEM, history, user_prompt, temperature=0.4
         ):

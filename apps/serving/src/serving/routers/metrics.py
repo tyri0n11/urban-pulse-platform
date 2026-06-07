@@ -1,5 +1,8 @@
 """Router: traffic metrics endpoints."""
 
+import json
+import logging
+import re
 from datetime import datetime
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -13,8 +16,10 @@ from serving.controllers.metrics_controller import get_leaderboard, fetch_heatma
 from serving.dependencies import get_db
 from serving.repo import metrics as metrics_repo
 from serving.services.llm_service import stream_ollama
+from serving.services.multiday_analysis_service import preprocess, fetch_rag_for_multiday, run_multiday_chain
 from serving.utils.weather import fetch_current_weather
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
 
@@ -129,6 +134,65 @@ _SIGNAL_CHECKLIST = {
         "• Write 'IF flagged' or 'IF not flagged' only — never assign IF a number."
     ),
 }
+
+
+_ZONE_LANDMARK: dict[str, str] = {
+    "1": "Chợ Bến Thành (P. Bến Thành, TP.HCM)",
+    "2": "Khu CNC Sài Gòn - SHTP (P. Tăng Nhơn Phú, TP.HCM)",
+    "3": "KCN Mỹ Phước (P. Thới Hòa, TP.HCM)",
+    "4": "Cảng Cát Lái (P. Cát Lái, TP.HCM)",
+    "5": "KCN Lê Minh Xuân (P. Lê Minh Xuân, TP.HCM)",
+    "6": "Cảng Phú Mỹ (P. Phú Mỹ, TP.HCM)",
+}
+
+
+def _zone_route_label(route_id: str) -> str:
+    m = re.match(r"^zone(\d+)_.*_to_zone(\d+)", route_id)
+    if m:
+        src = _ZONE_LANDMARK.get(m.group(1), f"Zone {m.group(1)}")
+        dst = _ZONE_LANDMARK.get(m.group(2), f"Zone {m.group(2)}")
+        return f"{src} → {dst}"
+    return route_id.replace("_to_", " → ").replace("_", " ").title()
+
+
+def _build_heatmap_figure(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Build priority_bar figure from heatmap rows — top anomalous routes by peak z-score."""
+    by_route: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        rid = str(r.get("route_id") or "")
+        z = float(r.get("duration_zscore") or 0.0)
+        is_a = bool(r.get("is_anomaly"))
+        if_a = bool(r.get("iforest_anomaly"))
+        both = bool(r.get("both_anomaly"))
+        if not (is_a or if_a or both):
+            continue
+        cur = by_route.get(rid)
+        if cur is None or z > cur["peak_z"]:
+            by_route[rid] = {
+                "peak_z": z,
+                "signal": "both" if both else "zscore" if is_a else "iforest",
+                "anomaly": both or is_a,
+            }
+
+    if not by_route:
+        return None
+
+    bars = sorted(by_route.items(), key=lambda x: x[1]["peak_z"], reverse=True)[:8]
+    return {
+        "type": "priority_bar",
+        "title_vi": "Tuyến bất thường — Z-score đỉnh",
+        "title_en": "Anomalous Routes — Peak Z-Score",
+        "snapshot_time": "",
+        "bars": [
+            {
+                "route": _zone_route_label(rid),
+                "peak_z": round(info["peak_z"], 2),
+                "signal": info["signal"],
+                "anomaly": info["anomaly"],
+            }
+            for rid, info in bars
+        ],
+    }
 
 
 class HeatmapAnalyzeRequest(BaseModel):
@@ -256,8 +320,8 @@ def _aggregate_multiday_context(
             continue
         if isinstance(ws, str):
             ws = datetime.fromisoformat(ws)
-        ws_local = ws.astimezone(_HCMC_TZ)
-        key = (r["route_id"], ws_local.weekday(), ws_local.hour)
+        # window_start from Postgres is already UTC+7 — use directly
+        key = (r["route_id"], ws.weekday(), ws.hour)
         b = buckets[key]
         b["n"] += 1
         if r.get("duration_zscore") is not None:
@@ -342,30 +406,70 @@ async def heatmap_analyze(
     except Exception:
         pass
 
-    if span_h is not None and span_h > 24:
-        rows: list[dict[str, Any]] = []
+    # Fetch heatmap rows for figure (both single-day and multiday)
+    rows: list[dict[str, Any]] = []
+    if req.window_from and req.window_to:
         try:
-            frm_dt = datetime.fromisoformat(req.window_from)  # type: ignore[arg-type]
-            to_dt = datetime.fromisoformat(req.window_to)  # type: ignore[arg-type]
+            frm_dt = datetime.fromisoformat(req.window_from)
+            to_dt = datetime.fromisoformat(req.window_to)
             rows = await metrics_repo.fetch_heatmap_range(conn, frm_dt, to_dt)
-            context, top_slots = _aggregate_multiday_context(rows)
-        except Exception:
-            top_slots = []
-            pass  # fall back to req.context if fetch fails
+        except Exception as exc:
+            logger.warning("heatmap fetch for figure failed: %s", exc)
 
-        # Weather context is a 7-day rolling window — irrelevant for spans >7d and overwhelms the model
-        external = "" if (not top_slots or span_h > 168) else await fetch_heatmap_external_context(req.route_ids, None)
-    else:
-        weather = await fetch_current_weather()
-        external = await fetch_heatmap_external_context(req.route_ids, weather)
+    figure = _build_heatmap_figure(rows)
+    figure_event = f"data: {json.dumps({'figure': figure})}\n\n" if figure else ""
 
+    if span_h is not None and span_h > 24:
+        # Multiday: Python pre-processor → 2-step LLM chain
+        span_days = span_h // 24
+        summary = preprocess(rows, span_days)
+        rag_context = await fetch_rag_for_multiday(summary.get("top5_anomalies", []))
+
+        async def _multiday_stream() -> Any:
+            async for chunk in run_multiday_chain(summary, rag_context, req.lang, req.window_from, req.window_to):
+                # Intercept done: yield figure first so frontend receives it before closing
+                if figure_event and '"done"' in chunk:
+                    try:
+                        if json.loads(chunk[len("data:"):].strip()).get("done"):
+                            yield figure_event
+                            yield chunk
+                            return
+                    except Exception:
+                        pass
+                yield chunk
+            if figure_event:
+                yield figure_event
+
+        return StreamingResponse(
+            _multiday_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    weather = await fetch_current_weather()
+    external = await fetch_heatmap_external_context(req.route_ids, weather)
     lang_note = _LANG_INSTRUCTIONS.get(req.lang, _LANG_INSTRUCTIONS["en"])
     system = f"{_ANALYZE_SYSTEM_BASE} {lang_note}"
     user_prompt = _build_analyze_prompt(
         context, req.lang, external, req.window_from, req.window_to
     )
+
+    async def _singleday_stream() -> Any:
+        async for chunk in stream_ollama(system, user_prompt):
+            if figure_event and '"done"' in chunk:
+                try:
+                    if json.loads(chunk[len("data:"):].strip()).get("done"):
+                        yield figure_event
+                        yield chunk
+                        return
+                except Exception:
+                    pass
+            yield chunk
+        if figure_event:
+            yield figure_event
+
     return StreamingResponse(
-        stream_ollama(system, user_prompt),
+        _singleday_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

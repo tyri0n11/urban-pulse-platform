@@ -96,6 +96,7 @@ _RECONCILE_SQL = """
 _SNAPSHOT_FOR_CHAT_SQL = """
     SELECT DISTINCT ON (route_id)
         route_id, is_anomaly,
+        duration_zscore,
         mean_heavy_ratio,
         COALESCE(mean_moderate_ratio, 0.0) AS mean_moderate_ratio,
         COALESCE(mean_low_ratio, 0.0)      AS mean_low_ratio,
