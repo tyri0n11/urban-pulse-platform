@@ -660,12 +660,7 @@ services:
       serving:
         condition: service_healthy
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.ui.rule=Host(`tyr1on.io.vn`)"
-      - "traefik.http.routers.ui.entrypoints=websecure"
-      - "traefik.http.routers.ui.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.ui.middlewares=secure-headers@file"
-      - "traefik.http.services.ui.loadbalancer.server.port=3000"
+      - "traefik.enable=false"
     deploy:
       resources:
         limits:

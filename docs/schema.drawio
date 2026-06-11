@@ -1,0 +1,385 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <!-- PostgreSQL background -->
+    <mxCell id="10" value="PostgreSQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;opacity=40;verticalAlign=top;fontSize=15;fontStyle=1;spacingTop=6;" vertex="1" parent="1">
+      <mxGeometry x="10" y="50" width="620" height="1310" as="geometry"/>
+    </mxCell>
+
+    <!-- Iceberg background -->
+    <mxCell id="11" value="Iceberg / Lakehouse" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;opacity=40;verticalAlign=top;fontSize=15;fontStyle=1;spacingTop=6;" vertex="1" parent="1">
+      <mxGeometry x="640" y="50" width="640" height="1060" as="geometry"/>
+    </mxCell>
+
+    <!-- ============================================================ -->
+    <!-- online_route_features  (x=20, y=90, w=300, h=530)           -->
+    <!-- ============================================================ -->
+    <mxCell id="100" value="online_route_features" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+      <mxGeometry x="20" y="90" width="300" height="530" as="geometry"/>
+    </mxCell>
+    <mxCell id="101" value="route_id : TEXT [PK]" style="text;strokeColor=#6c8ebf;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="100">
+      <mxGeometry y="30" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="102" value="window_start : TIMESTAMPTZ [PK]" style="text;strokeColor=#6c8ebf;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="100">
+      <mxGeometry y="55" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="103" value="updated_at : TIMESTAMPTZ" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="80" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="104" value="observation_count : INTEGER" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="105" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="105" value="mean_duration_minutes : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="130" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="106" value="stddev_duration_minutes : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="155" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="107" value="last_duration_minutes : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="180" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="108" value="mean_heavy_ratio : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="205" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="109" value="last_heavy_ratio : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="230" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="110" value="duration_zscore : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="255" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="111" value="is_anomaly : BOOLEAN" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="280" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="112" value="last_ingest_lag_ms : BIGINT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="305" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="113" value="heavy_ratio_deviation : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="330" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="114" value="p95_to_mean_ratio : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="355" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="115" value="max_severe_segments : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="380" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="116" value="mean_moderate_ratio : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="405" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="117" value="mean_low_ratio : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="430" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="118" value="geometry : JSONB" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="455" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="119" value="congestion_segments : JSONB" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="480" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="120" value="zscore_threshold : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="100">
+      <mxGeometry y="505" width="300" height="25" as="geometry"/>
+    </mxCell>
+
+    <!-- ============================================================ -->
+    <!-- route_iforest_scores  (x=20, y=640, w=300, h=255)           -->
+    <!-- ============================================================ -->
+    <mxCell id="130" value="route_iforest_scores" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+      <mxGeometry x="20" y="640" width="300" height="255" as="geometry"/>
+    </mxCell>
+    <mxCell id="131" value="route_id : TEXT [PK]" style="text;strokeColor=#6c8ebf;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="130">
+      <mxGeometry y="30" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="132" value="window_start : TIMESTAMPTZ [PK]" style="text;strokeColor=#6c8ebf;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="130">
+      <mxGeometry y="55" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="133" value="scored_at : TIMESTAMPTZ" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="130">
+      <mxGeometry y="80" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="134" value="iforest_anomaly : BOOLEAN" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="130">
+      <mxGeometry y="105" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="135" value="iforest_score : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="130">
+      <mxGeometry y="130" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="136" value="both_anomaly : BOOLEAN" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="130">
+      <mxGeometry y="155" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="137" value="score_count : INT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="130">
+      <mxGeometry y="180" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="138" value="anomaly_count : INT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="130">
+      <mxGeometry y="205" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="139" value="both_count : INT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="130">
+      <mxGeometry y="230" width="300" height="25" as="geometry"/>
+    </mxCell>
+
+    <!-- ============================================================ -->
+    <!-- prediction_history  (x=20, y=915, w=300, h=405)             -->
+    <!-- ============================================================ -->
+    <mxCell id="150" value="prediction_history" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+      <mxGeometry x="20" y="915" width="300" height="405" as="geometry"/>
+    </mxCell>
+    <mxCell id="151" value="id : BIGSERIAL [PK]" style="text;strokeColor=#6c8ebf;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="150">
+      <mxGeometry y="30" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="152" value="scored_at : TIMESTAMPTZ" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="55" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="153" value="route_id : TEXT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="80" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="154" value="window_start : TIMESTAMPTZ" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="105" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="155" value="iforest_score : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="130" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="156" value="iforest_anomaly : BOOLEAN" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="155" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="157" value="zscore_anomaly : BOOLEAN" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="180" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="158" value="both_anomaly : BOOLEAN" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="205" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="159" value="duration_zscore : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="230" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="160" value="mean_duration_minutes : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="255" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="161" value="mean_heavy_ratio : DOUBLE" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="280" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="162" value="ingest_lag_ms : BIGINT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="305" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="163" value="staleness_ms : BIGINT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="330" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="164" value="scoring_ms : BIGINT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="355" width="300" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="165" value="full_e2e_ms : BIGINT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="150">
+      <mxGeometry y="380" width="300" height="25" as="geometry"/>
+    </mxCell>
+
+    <!-- ============================================================ -->
+    <!-- rag_interaction_log  (x=340, y=90, w=270, h=255)            -->
+    <!-- ============================================================ -->
+    <mxCell id="180" value="rag_interaction_log" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+      <mxGeometry x="340" y="90" width="270" height="255" as="geometry"/>
+    </mxCell>
+    <mxCell id="181" value="id : SERIAL [PK]" style="text;strokeColor=#6c8ebf;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="180">
+      <mxGeometry y="30" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="182" value="ts : TIMESTAMPTZ" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="180">
+      <mxGeometry y="55" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="183" value="query_type : TEXT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="180">
+      <mxGeometry y="80" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="184" value="route_id : TEXT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="180">
+      <mxGeometry y="105" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="185" value="query : TEXT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="180">
+      <mxGeometry y="130" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="186" value="retrieved_chunks : JSONB" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="180">
+      <mxGeometry y="155" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="187" value="response : TEXT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="180">
+      <mxGeometry y="180" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="188" value="feedback : SMALLINT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="180">
+      <mxGeometry y="205" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="189" value="lang : TEXT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="180">
+      <mxGeometry y="230" width="270" height="25" as="geometry"/>
+    </mxCell>
+
+    <!-- ============================================================ -->
+    <!-- anomaly_alert_log  (x=340, y=365, w=270, h=155)             -->
+    <!-- ============================================================ -->
+    <mxCell id="200" value="anomaly_alert_log" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+      <mxGeometry x="340" y="365" width="270" height="155" as="geometry"/>
+    </mxCell>
+    <mxCell id="201" value="id : SERIAL [PK]" style="text;strokeColor=#6c8ebf;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="200">
+      <mxGeometry y="30" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="202" value="alerted_at : TIMESTAMPTZ" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="200">
+      <mxGeometry y="55" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="203" value="route_id : TEXT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="200">
+      <mxGeometry y="80" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="204" value="signal : TEXT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="200">
+      <mxGeometry y="105" width="270" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="205" value="message : TEXT" style="text;strokeColor=#6c8ebf;fillColor=#f8f8ff;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="200">
+      <mxGeometry y="130" width="270" height="25" as="geometry"/>
+    </mxCell>
+
+    <!-- ============================================================ -->
+    <!-- silver.traffic_route  (x=650, y=90, w=290, h=280)           -->
+    <!-- ============================================================ -->
+    <mxCell id="300" value="silver.traffic_route" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+      <mxGeometry x="650" y="90" width="290" height="280" as="geometry"/>
+    </mxCell>
+    <mxCell id="301" value="route_id : STRING [PK]" style="text;strokeColor=#82b366;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="300">
+      <mxGeometry y="30" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="302" value="timestamp_utc : TIMESTAMPTZ [PK]" style="text;strokeColor=#82b366;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="300">
+      <mxGeometry y="55" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="303" value="origin : STRING" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="300">
+      <mxGeometry y="80" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="304" value="destination : STRING" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="300">
+      <mxGeometry y="105" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="305" value="duration_minutes : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="300">
+      <mxGeometry y="130" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="306" value="congestion_heavy_ratio : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="300">
+      <mxGeometry y="155" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="307" value="congestion_moderate_ratio : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="300">
+      <mxGeometry y="180" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="308" value="congestion_low_ratio : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="300">
+      <mxGeometry y="205" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="309" value="congestion_severe_segments : INT" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="300">
+      <mxGeometry y="230" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="310" value="congestion_total_segments : INT" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="300">
+      <mxGeometry y="255" width="290" height="25" as="geometry"/>
+    </mxCell>
+
+    <!-- ============================================================ -->
+    <!-- gold.traffic_hourly  (x=650, y=390, w=290, h=305)           -->
+    <!-- ============================================================ -->
+    <mxCell id="320" value="gold.traffic_hourly" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+      <mxGeometry x="650" y="390" width="290" height="305" as="geometry"/>
+    </mxCell>
+    <mxCell id="321" value="route_id : STRING [PK]" style="text;strokeColor=#82b366;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="320">
+      <mxGeometry y="30" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="322" value="hour_utc : TIMESTAMPTZ [PK]" style="text;strokeColor=#82b366;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="320">
+      <mxGeometry y="55" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="323" value="origin : STRING" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="320">
+      <mxGeometry y="80" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="324" value="destination : STRING" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="320">
+      <mxGeometry y="105" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="325" value="observation_count : INT" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="320">
+      <mxGeometry y="130" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="326" value="avg_duration_minutes : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="320">
+      <mxGeometry y="155" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="327" value="p95_duration_minutes : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="320">
+      <mxGeometry y="180" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="328" value="avg_heavy_ratio : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="320">
+      <mxGeometry y="205" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="329" value="avg_moderate_ratio : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="320">
+      <mxGeometry y="230" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="330" value="max_severe_segments : INT" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="320">
+      <mxGeometry y="255" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="331" value="avg_low_ratio : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="320">
+      <mxGeometry y="280" width="290" height="25" as="geometry"/>
+    </mxCell>
+
+    <!-- ============================================================ -->
+    <!-- gold.traffic_baseline  (x=650, y=715, w=290, h=330)         -->
+    <!-- ============================================================ -->
+    <mxCell id="340" value="gold.traffic_baseline" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+      <mxGeometry x="650" y="715" width="290" height="330" as="geometry"/>
+    </mxCell>
+    <mxCell id="341" value="route_id : STRING [PK]" style="text;strokeColor=#82b366;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="340">
+      <mxGeometry y="30" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="342" value="day_of_week : INT [PK]" style="text;strokeColor=#82b366;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="340">
+      <mxGeometry y="55" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="343" value="hour_of_day : INT [PK]" style="text;strokeColor=#82b366;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="340">
+      <mxGeometry y="80" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="344" value="baseline_duration_mean : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="340">
+      <mxGeometry y="105" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="345" value="baseline_duration_stddev : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="340">
+      <mxGeometry y="130" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="346" value="baseline_heavy_ratio_mean : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="340">
+      <mxGeometry y="155" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="347" value="baseline_heavy_ratio_stddev : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="340">
+      <mxGeometry y="180" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="348" value="baseline_moderate_ratio_mean : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="340">
+      <mxGeometry y="205" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="349" value="baseline_moderate_ratio_stddev : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="340">
+      <mxGeometry y="230" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="350" value="sample_count : INT" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="340">
+      <mxGeometry y="255" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="351" value="zscore_p95 : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="340">
+      <mxGeometry y="280" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="352" value="zscore_p99 : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="340">
+      <mxGeometry y="305" width="290" height="25" as="geometry"/>
+    </mxCell>
+
+    <!-- ============================================================ -->
+    <!-- gold.weather_hourly  (x=960, y=90, w=290, h=255)            -->
+    <!-- (optional — fallback to Open-Meteo API if not present)       -->
+    <!-- ============================================================ -->
+    <mxCell id="360" value="gold.weather_hourly *" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;dashed=1;" vertex="1" parent="1">
+      <mxGeometry x="960" y="90" width="290" height="280" as="geometry"/>
+    </mxCell>
+    <mxCell id="360n" value="* optional: fallback to Open-Meteo API" style="text;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;spacingLeft=4;html=1;fontSize=10;fontStyle=2;" vertex="1" parent="360">
+      <mxGeometry y="30" width="290" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="361" value="hour_utc : TIMESTAMPTZ [PK]" style="text;strokeColor=#82b366;fillColor=#fff2cc;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontStyle=1;" vertex="1" parent="360">
+      <mxGeometry y="50" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="362" value="avg_temperature_c : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="360">
+      <mxGeometry y="75" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="363" value="avg_precipitation_mm : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="360">
+      <mxGeometry y="100" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="364" value="avg_rain_mm : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="360">
+      <mxGeometry y="125" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="365" value="max_wind_speed_kmh : DOUBLE" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="360">
+      <mxGeometry y="150" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="366" value="dominant_weather_code : INT" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="360">
+      <mxGeometry y="175" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="367" value="dominant_weather_desc : STRING" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="360">
+      <mxGeometry y="200" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="368" value="rainy_zones : INT" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="360">
+      <mxGeometry y="225" width="290" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="369" value="zone_count : INT" style="text;strokeColor=#82b366;fillColor=#f0fff0;align=left;verticalAlign=middle;spacingLeft=8;html=1;" vertex="1" parent="360">
+      <mxGeometry y="250" width="290" height="25" as="geometry"/>
+    </mxCell>
+
+  </root>
+</mxGraphModel>
