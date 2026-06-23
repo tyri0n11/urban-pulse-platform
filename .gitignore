@@ -17,3 +17,6 @@ __pycache__/
 infra/traefik/dynamic.yml
 .DS_Store
 infra/traefik/dynamic.yml
+
+# Large thesis demo video — exceeds GitHub 100MB limit, share separately
+thesis-submission/*.mov
